@@ -1,0 +1,23 @@
+{
+  "name": "nextpos",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "dev:api": "turbo dev --filter=@nextpos/api",
+    "dev:pos": "turbo dev --filter=@nextpos/pos",
+    "dev:qrmenu": "turbo dev --filter=@nextpos/qrmenu",
+    "db:migrate": "cd apps/api && npx prisma migrate dev",
+    "db:seed": "cd apps/api && npx prisma db seed",
+    "db:studio": "cd apps/api && npx prisma studio"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "packageManager": "npm@11.5.1",
+  "engines": {
+    "node": ">=20"
+  }
+}

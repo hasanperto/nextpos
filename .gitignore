@@ -1,0 +1,16 @@
+# Eski PHP POS (htdocs kökünde; bu repoya dahil değil)
+pizzapos/
+
+# Ortak
+node_modules/
+.env
+.env.*
+*.log
+.DS_Store
+Thumbs.db
+
+# Hassas / gerekmedikçe repoda tutulmayanlar
+apps/api/backups/
+apps/api/public/uploads/
+apps/api/seed_output.txt
+tmp/

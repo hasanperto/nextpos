@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>NextPOS Login Test</title>
+    <style>
+        body { background: #0a0f1a; color: #fff; font-family: system-ui; padding: 40px; }
+        .box { background: #1a2634; padding: 30px; border-radius: 16px; max-width: 500px; margin: 0 auto; }
+        input, button { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; border: 1px solid #334; background: #0f1923; color: #fff; font-size: 14px; box-sizing: border-box; }
+        button { background: #10B981; border: none; font-weight: bold; cursor: pointer; }
+        button:hover { background: #059669; }
+        #result { margin-top: 20px; padding: 15px; border-radius: 8px; white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 400px; overflow: auto; }
+        .ok { background: #064e3b; } .err { background: #7f1d1d; }
+        h2 { color: #10B981; margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h1>🔑 NextPOS Login Test</h1>
+
+        <h2>1. Admin Login</h2>
+        <input id="tid" value="2ba40fe6-f2dd-42d2-8d65-55e80010374b" placeholder="Tenant ID">
+        <input id="user" value="admin" placeholder="Username">
+        <input id="pass" value="admin123" placeholder="Password" type="password">
+        <button onclick="testLogin()">Test Login (Admin)</button>
+
+        <h2>2. PIN Login</h2>
+        <input id="pin" value="123456" placeholder="6 digit PIN">
+        <button onclick="testPinLogin()">Test PIN Login</button>
+
+        <h2>3. SaaS Admin Login</h2>
+        <button onclick="testSaasLogin()">Test SaaS Login (superadmin)</button>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        const r = document.getElementById('result');
+
+        async function testLogin() {
+            r.className = ''; r.textContent = '⏳ Testing login...';
+            try {
+                const res = await fetch('/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('user').value,
+                        password: document.getElementById('pass').value,
+                        tenantId: document.getElementById('tid').value
+                    })
+                });
+                const data = await res.json();
+                r.className = res.ok ? 'ok' : 'err';
+                r.textContent = `Status: ${res.status}\n\n${JSON.stringify(data, null, 2)}`;
+
+                if (data.accessToken) {
+                    // Test menu fetch
+                    r.textContent += '\n\n⏳ Fetching categories...';
+                    const catRes = await fetch('/api/v1/menu/categories?lang=tr', {
+                        headers: { 'Authorization': 'Bearer ' + data.accessToken }
+                    });
+                    const cats = await catRes.json();
+                    r.textContent += `\nCategories (${catRes.status}): ${JSON.stringify(cats.map(c => c.displayName))}`;
+
+                    const prodRes = await fetch('/api/v1/menu/products?lang=tr', {
+                        headers: { 'Authorization': 'Bearer ' + data.accessToken }
+                    });
+                    const prods = await prodRes.json();
+                    r.textContent += `\nProducts (${prodRes.status}): ${prods.length} items`;
+                }
+            } catch (err) {
+                r.className = 'err';
+                r.textContent = '❌ Error: ' + err.message;
+            }
+        }
+
+        async function testPinLogin() {
+            r.className = ''; r.textContent = '⏳ Testing PIN login...';
+            try {
+                const res = await fetch('/api/v1/auth/login/pin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        pinCode: document.getElementById('pin').value,
+                        tenantId: document.getElementById('tid').value
+                    })
+                });
+                const data = await res.json();
+                r.className = res.ok ? 'ok' : 'err';
+                r.textContent = `Status: ${res.status}\n\n${JSON.stringify(data, null, 2)}`;
+            } catch(err) {
+                r.className = 'err';
+                r.textContent = '❌ Error: ' + err.message;
+            }
+        }
+
+        async function testSaasLogin() {
+            r.className = ''; r.textContent = '⏳ Testing SaaS login...';
+            try {
+                const res = await fetch('/api/v1/auth/login/saas', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: 'superadmin', password: 'superadmin123' })
+                });
+                const data = await res.json();
+                r.className = res.ok ? 'ok' : 'err';
+                r.textContent = `Status: ${res.status}\n\n${JSON.stringify(data, null, 2)}`;
+            } catch(err) {
+                r.className = 'err';
+                r.textContent = '❌ Error: ' + err.message;
+            }
+        }
+    </script>
+</body>
+</html>

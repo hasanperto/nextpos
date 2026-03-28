@@ -1,0 +1,283 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { FiLock, FiUser, FiHash, FiDatabase, FiArrowRight, FiDelete, FiShield } from 'react-icons/fi';
+import { useAuthStore } from '../store/useAuthStore';
+
+const LoginPage: React.FC = () => {
+    const navigate = useNavigate();
+    const { login, loginWithPin, tenantId, setTenantId, isAuthenticated } = useAuthStore();
+    const [mode, setMode] = useState<'credentials' | 'pin'>('credentials');
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [pin, setPin] = useState('');
+    const [localTenantId, setLocalTenantId] = useState(tenantId || '');
+    const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+
+    const getRedirectPath = (role?: string) => {
+        switch (role) {
+            case 'admin': return '/admin';
+            case 'cashier': return '/cashier';
+            case 'waiter': return '/waiter';
+            case 'kitchen': return '/kitchen';
+            case 'courier': return '/courier';
+            default: return '/';
+        }
+    };
+
+    // Zaten giriş yapılmışsa, role göre yönlendir
+    useEffect(() => {
+        if (isAuthenticated) {
+            const currentRole = useAuthStore.getState().user?.role;
+            navigate(getRedirectPath(currentRole), { replace: true });
+        }
+    }, [isAuthenticated, navigate]);
+
+    const handleCredentialLogin = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!localTenantId.trim()) { setError('Tenant ID gerekli'); return; }
+        if (!username.trim()) { setError('Kullanıcı adı gerekli'); return; }
+        if (!password) { setError('Şifre gerekli'); return; }
+
+        setError('');
+        setIsLoading(true);
+        const tid = localTenantId.trim();
+        setTenantId(tid);
+
+        try {
+            const ok = await login(username.trim(), password, tid);
+            if (ok) {
+                const currentUserRole = useAuthStore.getState().user?.role;
+                navigate(getRedirectPath(currentUserRole), { replace: true });
+            } else {
+                setError('Kullanıcı adı veya şifre hatalı');
+            }
+        } catch (err) {
+            setError('Sunucu hatası');
+        }
+        setIsLoading(false);
+    };
+
+    const doPinLogin = useCallback(async (pinCode: string) => {
+        if (pinCode.length !== 6) return;
+        const tid = localTenantId.trim();
+        if (!tid) { setError('Tenant ID gerekli'); return; }
+
+        setError('');
+        setIsLoading(true);
+        setTenantId(tid);
+
+        try {
+            const ok = await loginWithPin(pinCode, tid);
+            if (ok) {
+                const currentUserRole = useAuthStore.getState().user?.role;
+                navigate(getRedirectPath(currentUserRole), { replace: true });
+            } else {
+                setError('Geçersiz PIN kodu');
+                setPin('');
+            }
+        } catch (err) {
+            setError('Sunucu hatası');
+            setPin('');
+        }
+        setIsLoading(false);
+    }, [localTenantId, loginWithPin, navigate, setTenantId]);
+
+    const handlePinPad = (digit: string) => {
+        if (pin.length >= 6) return;
+        const newPin = pin + digit;
+        setPin(newPin);
+        if (newPin.length === 6) {
+            // Pass newPin directly to avoid closure issue
+            setTimeout(() => doPinLogin(newPin), 200);
+        }
+    };
+
+    const handlePinDelete = () => setPin(pin.slice(0, -1));
+
+    return (
+        <div className="min-h-screen bg-[#0a0f1a] flex items-center justify-center p-4 relative overflow-hidden">
+            {/* Animated Background */}
+            <div className="absolute inset-0 overflow-hidden">
+                <div className="absolute top-[-20%] left-[-15%] w-[50vw] h-[50vw] bg-emerald-600/8 rounded-full blur-[150px] animate-pulse" />
+                <div className="absolute bottom-[-20%] right-[-15%] w-[45vw] h-[45vw] bg-teal-500/8 rounded-full blur-[150px]" style={{ animationDelay: '1s', animationDuration: '4s' }} />
+                <div className="absolute top-[30%] right-[10%] w-[30vw] h-[30vw] bg-cyan-500/5 rounded-full blur-[120px]" style={{ animationDelay: '2s', animationDuration: '6s' }} />
+            </div>
+
+            {/* Grid Pattern Overlay */}
+            <div className="absolute inset-0 opacity-[0.03]" style={{
+                backgroundImage: 'linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)',
+                backgroundSize: '60px 60px'
+            }} />
+
+            <div className="w-full max-w-[480px] relative z-10">
+                {/* Logo Header */}
+                <div className="text-center mb-8">
+                    <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-2xl shadow-emerald-500/20 mb-5 relative">
+                        <FiShield size={36} className="text-white" />
+                        <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-400 rounded-full border-2 border-[#0a0f1a] animate-pulse" />
+                    </div>
+                    <h1 className="text-3xl font-black text-white tracking-tight">
+                        Next<span className="text-emerald-400">POS</span>
+                    </h1>
+                    <p className="text-slate-500 mt-1 text-sm font-medium">
+                        Pizza & Kebab Restoran Sistemi
+                    </p>
+                </div>
+
+                {/* Main Card */}
+                <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-3xl overflow-hidden shadow-2xl">
+
+                    {/* Tenant ID Section */}
+                    <div className="px-8 pt-8 pb-4">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[2px] mb-2 block flex items-center gap-1.5">
+                            <FiDatabase size={10} /> Restoran Kimliği (Tenant ID)
+                        </label>
+                        <input
+                            id="tenant-id-input"
+                            type="text"
+                            value={localTenantId}
+                            onChange={(e) => setLocalTenantId(e.target.value)}
+                            placeholder="Tenant UUID yapıştır..."
+                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-white/90 text-xs font-mono outline-none focus:border-emerald-500/40 focus:bg-white/[0.06] transition-all placeholder:text-white/20"
+                        />
+                    </div>
+
+                    {/* Mode Tabs */}
+                    <div className="flex mx-8 mt-2 mb-4 bg-white/[0.04] rounded-xl p-1 border border-white/[0.06]">
+                        <button
+                            onClick={() => { setMode('credentials'); setError(''); }}
+                            className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${mode === 'credentials' ? 'bg-emerald-500/15 text-emerald-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                        >
+                            <FiUser size={13} /> Kullanıcı Adı
+                        </button>
+                        <button
+                            onClick={() => { setMode('pin'); setError(''); }}
+                            className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${mode === 'pin' ? 'bg-emerald-500/15 text-emerald-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                        >
+                            <FiHash size={13} /> PIN Girişi
+                        </button>
+                    </div>
+
+                    {/* Error Display */}
+                    {error && (
+                        <div className="mx-8 mb-4 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-bold text-center">
+                            {error}
+                        </div>
+                    )}
+
+                    {/* Credentials Form */}
+                    {mode === 'credentials' && (
+                        <form onSubmit={handleCredentialLogin} className="px-8 pb-8 space-y-4">
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[2px] mb-2 block">Kullanıcı Adı</label>
+                                <div className="relative">
+                                    <FiUser className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" size={16} />
+                                    <input
+                                        id="username-input"
+                                        type="text"
+                                        value={username}
+                                        onChange={(e) => setUsername(e.target.value)}
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-11 pr-4 py-3.5 text-white outline-none focus:border-emerald-500/40 focus:bg-white/[0.06] transition-all font-medium"
+                                        placeholder="admin"
+                                        autoComplete="username"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[2px] mb-2 block">Şifre</label>
+                                <div className="relative">
+                                    <FiLock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" size={16} />
+                                    <input
+                                        id="password-input"
+                                        type="password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-11 pr-4 py-3.5 text-white outline-none focus:border-emerald-500/40 focus:bg-white/[0.06] transition-all font-medium"
+                                        placeholder="••••••••"
+                                        autoComplete="current-password"
+                                    />
+                                </div>
+                            </div>
+
+                            <button
+                                id="login-button"
+                                type="submit"
+                                disabled={isLoading || !username || !password}
+                                className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-40 disabled:cursor-not-allowed py-4 rounded-xl text-white font-black text-sm shadow-xl shadow-emerald-600/15 active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-2"
+                            >
+                                {isLoading ? (
+                                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                ) : (
+                                    <>GİRİŞ YAP <FiArrowRight /></>
+                                )}
+                            </button>
+                        </form>
+                    )}
+
+                    {/* PIN Form */}
+                    {mode === 'pin' && (
+                        <div className="px-8 pb-8">
+                            {/* PIN Display */}
+                            <div className="flex justify-center gap-3 mb-6">
+                                {[0, 1, 2, 3, 4, 5].map((i) => (
+                                    <div
+                                        key={i}
+                                        className={`w-11 h-14 rounded-xl border-2 flex items-center justify-center text-xl font-black transition-all duration-200 ${
+                                            pin[i]
+                                                ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-400 scale-105'
+                                                : i === pin.length
+                                                    ? 'border-white/20 bg-white/[0.04] animate-pulse'
+                                                    : 'border-white/[0.06] bg-white/[0.02]'
+                                        }`}
+                                    >
+                                        {pin[i] ? '•' : ''}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Number Pad */}
+                            <div className="grid grid-cols-3 gap-2.5 max-w-[280px] mx-auto">
+                                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+                                    <button
+                                        key={n}
+                                        onClick={() => handlePinPad(String(n))}
+                                        className="h-14 rounded-xl bg-white/[0.04] border border-white/[0.06] text-white text-xl font-bold hover:bg-white/[0.08] hover:border-white/[0.12] active:scale-95 active:bg-emerald-500/10 transition-all"
+                                    >
+                                        {n}
+                                    </button>
+                                ))}
+                                <div /> {/* Empty space */}
+                                <button
+                                    onClick={() => handlePinPad('0')}
+                                    className="h-14 rounded-xl bg-white/[0.04] border border-white/[0.06] text-white text-xl font-bold hover:bg-white/[0.08] active:scale-95 transition-all"
+                                >
+                                    0
+                                </button>
+                                <button
+                                    onClick={handlePinDelete}
+                                    className="h-14 rounded-xl bg-white/[0.04] border border-white/[0.06] text-red-400 flex items-center justify-center hover:bg-red-500/10 hover:border-red-500/20 active:scale-95 transition-all"
+                                >
+                                    <FiDelete size={22} />
+                                </button>
+                            </div>
+
+                            {isLoading && (
+                                <div className="flex justify-center mt-4">
+                                    <div className="w-6 h-6 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <p className="text-center text-slate-600 text-[10px] mt-6 font-medium tracking-wider">
+                    NextPOS v2.0 • Multi-Tenant SaaS • XAMPP MySQL
+                </p>
+            </div>
+        </div>
+    );
+};
+
+export default LoginPage;

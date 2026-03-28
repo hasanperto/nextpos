@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@theme {
+  /* ═══ RENKLER ═══ */
+  --color-pos-bg-primary: #0F1923;
+  --color-pos-bg-secondary: #1A2634;
+  --color-pos-bg-tertiary: #243447;
+  --color-pos-bg-elevated: #2A3F55;
+  --color-pos-accent-primary: #10B981;
+  --color-pos-accent-hover: #059669;
+  --color-pos-accent-glow: rgba(16,185,129,0.15);
+  --color-pos-text-primary: #F1F5F9;
+  --color-pos-text-secondary: #94A3B8;
+  --color-pos-text-muted: #64748B;
+  --color-pos-border-default: #1E3A50;
+  --color-pos-border-active: #10B981;
+  --color-pos-danger: #EF4444;
+  --color-pos-warning: #F59E0B;
+  --color-pos-info: #3B82F6;
+  --color-pos-success: #10B981;
+
+  /* ═══ TİPOGRAFİ ═══ */
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* ═══ BOYUTLAR ═══ */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --spacing-touch-min: 44px;
+  --spacing-touch-lg: 56px;
+
+  /* ═══ GÖLGELER ═══ */
+  --shadow-card: 0 2px 8px rgba(0,0,0,0.3);
+  --shadow-elevated: 0 8px 24px rgba(0,0,0,0.4);
+  --shadow-glow: 0 0 20px rgba(16,185,129,0.2);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-pos-bg-primary);
+    color: var(--color-pos-text-primary);
+    font-family: var(--font-sans);
+    /* Seçimi engelle (Touch ekranlar için daha iyi his verir) */
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden; /* Tam ekran uygulama hissi için genel scroll'u kapat */
+  }
+}
+
+/* Custom Utilities for POS */
+@layer utilities {
+  .flex-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .touch-target {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .pos-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .pos-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .pos-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-pos-border-default);
+    border-radius: 4px;
+  }
+  .pos-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-pos-text-muted);
+  }
+}

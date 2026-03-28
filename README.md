@@ -1,34 +1,38 @@
-# NextPOS — Yeni Nesil Restoran POS (Plan)
+# NextPOS
 
-Bu depo, **NextPOS** hibrit (bulut + offline) restoran otomasyonunun tek kaynak proje planını içerir. Eski **PizzaPOS** (PHP/MySQL) referans alınmış; hedef yığın: **React + Vite**, **Node/NestJS**, **PostgreSQL**, **Socket.io**, **IndexedDB** (offline).
+Turborepo monorepo: **API** (`apps/api`, Prisma), **POS arayüzü** (`apps/pos`), **admin** (`apps/admin`). Eski **PizzaPOS** PHP projesi (`pizzapos/`) bu repoya dahil değildir.
 
-## Özet analiz
+## Plan dokümanı
 
-| Alan | Karar |
+Hedef mimari, PostgreSQL şeması, modüller, WebSocket olayları ve faz planı: [`docs/yeni_nesil_pos_proje_plani.md`](docs/yeni_nesil_pos_proje_plani.md).
+
+## Kısa analiz özeti
+
+| Alan | Durum |
 |------|--------|
-| Mimari | VPS üzerinde PostgreSQL + REST API + Socket.io; istemciler React SPA/PWA, QR menü için Next.js |
-| Modüller | Kasiyer, garson (tablet), mutfak KDS, kurye, admin, müşteri QR/kiosk |
-| Gerçek zamanlı | Şube/masa/mutfak/garson odaları; sipariş, mutfak, teslimat ve müşteri olayları |
-| Offline | IndexedDB + Dexie, sync kuyruğu; JWT ile sınırlı süre çevrimdışı çalışma |
-| i18n | DE / TR / EN — ürün çevirileri JSONB, UI çevirileri ve adisyon şablonları |
-| Güvenlik | JWT + refresh, RBAC, HTTPS/WSS |
+| Hedef | Hibrit POS: React/Vite istemciler, Node API, gerçek zamanlı (Socket), çok kiracılı SaaS yapısı |
+| Modüller | Kasiyer, garson, mutfak, kurye, müşteri menüsü, SaaS yönetim (plana uygun ekranlar) |
+| Veri | Prisma + MySQL (mevcut kurulum); plan uzun vadede PostgreSQL önerir |
+| i18n | Plan: DE / TR / EN — ürün çevirileri ve UI |
 
-Ayrıntılı şema, API tasarımı, WebSocket olayları ve geliştirme fazları için: [`docs/yeni_nesil_pos_proje_plani.md`](docs/yeni_nesil_pos_proje_plani.md).
-
-## Yerel kullanım
-
-Plan dosyası Markdown olarak okunur; kod henüz bu depoya taşınmadı (Faz 0 monorepo kurulumu plana göre yapılacak).
-
-## GitHub’a gönderme
+## Geliştirme
 
 ```powershell
 cd d:\xampp\htdocs\NextPOS
-git init
-git add .
-git commit -m "İlk yükleme: NextPOS proje planı"
-git branch -M main
-git remote add origin https://github.com/KULLANICI_ADIN/NextPOS.git
+npm install
+npm run dev
+```
+
+API ve ortam değişkenleri için `apps/api` altındaki `.env` örneğine bakın (dosya repoda yoksa yerelde oluşturun).
+
+## GitHub’a gönderme
+
+Yerelde commit için `git config user.name` / `user.email` ayarlayın (global veya sadece bu repo).
+
+```powershell
+cd d:\xampp\htdocs\NextPOS
+git remote add origin https://github.com/KULLANICI_ADIN/nextpos.git
 git push -u origin main
 ```
 
-`KULLANICI_ADIN` ve depo adını kendi hesabınıza göre değiştirin; GitHub’da boş bir repo oluşturduktan sonra `git push` çalışır.
+Önce GitHub’da boş bir repo oluşturun. `gh` yüklüyse: `gh repo create nextpos --private --source=. --push`

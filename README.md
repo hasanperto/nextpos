@@ -123,6 +123,151 @@ npm run db:migrate
 
 Not: QR Web Menu için aaPanel otomasyonu kullanılacaksa API tarafında `AAPANEL_*` environment değişkenleri gerekir.
 
+## aaPanel ile Kurulum Rehberi (Port / Domain / SSL)
+
+aaPanel tarafında iki ana yaklaşım var. QR Web otomasyonunu (tenant açılınca otomatik subdomain + conf + SSL) kullanmak istiyorsanız özellikle **Yaklaşım A** uygundur.
+
+### Yaklaşım A (Önerilen): aaPanel + Host üzerinde Node (PM2) + Nginx
+
+Bu modelde aaPanel Nginx’i yönetir. API Node (PM2) ile host üzerinde çalışır. Vite uygulamaları build edilip Nginx ile statik servis edilir.
+
+**Önerilen domainler:**
+- `api.example.com` → API (Node)
+- `pos.example.com` → POS (statik)
+- `admin.example.com` → SaaS Admin (statik)
+- `reseller.example.com` → Bayi (statik)
+- `menu.example.com` veya `*.example.com` → QR web menü (opsiyon)
+
+**Önerilen portlar (host üzerinde):**
+- API: `5000` (dışarıdan direkt açmak yerine Nginx reverse proxy ile)
+- PostgreSQL: `5432` (dışarı açmayın)
+- Redis: `6379` (dışarı açmayın)
+
+#### 1) Sunucu hazırlığı
+
+- aaPanel kurulu (Nginx seçili)
+- Node.js >= 20 (aaPanel “App Store → Node.js” veya sistem paketi)
+- PostgreSQL 16 + Redis 7 (aaPanel üzerinden veya Docker)
+- PM2 (global): `npm i -g pm2`
+
+#### 2) API prod ayarı (`apps/api/.env`)
+
+Örnek:
+
+```env
+NODE_ENV=production
+PORT=5000
+DATABASE_URL=postgresql://nextpos:nextpos@127.0.0.1:5432/nextpos
+REDIS_URL=redis://127.0.0.1:6379
+
+CORS_ORIGIN=https://pos.example.com,https://admin.example.com,https://reseller.example.com
+SOCKET_CORS_ORIGIN=https://pos.example.com,https://admin.example.com,https://reseller.example.com
+```
+
+#### 3) Build + migration
+
+```bash
+cd /www/wwwroot/nextpos
+npm ci
+npm run build
+cd apps/api
+npx prisma migrate deploy
+```
+
+#### 4) API’yi PM2 ile ayağa kaldırma
+
+```bash
+cd /www/wwwroot/nextpos/apps/api
+pm2 start dist/index.js --name nextpos-api
+pm2 save
+```
+
+#### 5) aaPanel “Website” ile statik SPA’ları servis etme
+
+Her domain için “Website → Add site”:
+- `pos.example.com` root: `.../apps/pos/dist`
+- `admin.example.com` root: `.../apps/admin/dist`
+- `reseller.example.com` root: `.../apps/reseller/dist`
+
+SPA routing için Nginx rewrite (site conf içine):
+
+```nginx
+location / {
+  try_files $uri $uri/ /index.html;
+}
+```
+
+API proxy (POS/Admin/Reseller domainleri içinde `/api` üzerinden):
+
+```nginx
+location /api/ {
+  proxy_pass http://127.0.0.1:5000;
+  proxy_http_version 1.1;
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Socket.io (WebSocket) için ayrıca:
+
+```nginx
+location /socket.io/ {
+  proxy_pass http://127.0.0.1:5000;
+  proxy_http_version 1.1;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection "Upgrade";
+  proxy_set_header Host $host;
+}
+```
+
+#### 6) SSL
+
+aaPanel → Website → ilgili domain → SSL → Let’s Encrypt ile sertifika alın.
+
+### Yaklaşım B: Docker Compose + aaPanel sadece reverse proxy
+
+Repo içindeki `docker-compose.production.yml` şu portları map ediyor:
+- API: `3001:3001`
+- POS container: `8080:80`
+
+Bu modelde aaPanel Nginx reverse proxy ile:
+- `api.example.com` → `http://127.0.0.1:3001`
+- `pos.example.com` → `http://127.0.0.1:8080`
+
+Bu yaklaşımda **QR Web aaPanel otomasyonu** (Nginx conf yazma + certbot çalıştırma) container içinden host’a erişemeyeceği için pratikte kapatılmalıdır:
+
+```env
+AAPANEL_QR_AUTOMATION_ENABLED=false
+```
+
+### QR Web aaPanel Otomasyonu (isteğe bağlı)
+
+Bu otomasyon, tenant açılınca QR web menü için domain klasörü + Nginx conf + SSL üretir. Çalışması için API prosesinin **host üzerinde** aşağıdaki kaynaklara erişmesi gerekir.
+
+Zorunlu environment değişkenleri:
+
+```env
+AAPANEL_QR_AUTOMATION_ENABLED=true
+AAPANEL_QR_WEB_ROOT=/www/wwwroot
+AAPANEL_QR_TEMPLATE_DIR=/www/wwwroot/qr-web-template
+AAPANEL_NGINX_CONF_DIR=/www/server/panel/vhost/nginx
+AAPANEL_ACME_WEBROOT=/www/wwwroot/.well-known/acme-challenge
+AAPANEL_QR_API_ORIGIN=https://api.example.com
+AAPANEL_CERTBOT_EMAIL=admin@example.com
+```
+
+Opsiyonel:
+- `AAPANEL_CERTBOT_BIN=certbot`
+- `AAPANEL_NGINX_BIN=nginx`
+- `AAPANEL_CERT_PATH_BASE=/etc/letsencrypt/live`
+- `AAPANEL_QR_LOG_FILE=/www/wwwlogs/qr-web-automation.log`
+
+Önemli notlar:
+- `AAPANEL_QR_TEMPLATE_DIR` içindeki template, otomasyon tarafından yeni domain klasörüne kopyalanır.
+- Nginx conf yazacağı için `AAPANEL_NGINX_CONF_DIR` yazılabilir olmalıdır.
+- `certbot` ve `nginx` komutları host’ta çalışır olmalıdır.
+
 ## Komutlar
 
 - `npm run dev`: tüm uygulamalar

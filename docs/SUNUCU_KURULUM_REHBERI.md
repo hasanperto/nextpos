@@ -1,0 +1,228 @@
+# NextPOS Sunucu Kurulum Rehberi (aaPanel + Node.js)
+
+Bu rehber, NextPOS projesini **sıfırdan bir VPS sunucuya** (Ubuntu vb.) aaPanel kullanarak adım adım nasıl kuracağınızı anlatır. Bu yöntem (Yaklaşım A), QR Web Menü otomasyonunun sağlıklı çalışması için en çok önerilen yöntemdir.
+
+---
+
+## Adım 1: Sunucu Ön Hazırlığı ve aaPanel Kurulumu
+
+1. **Temiz bir sunucu alın** (Önerilen: Ubuntu 22.04 LTS veya 24.04 LTS, en az 4GB RAM, 2 vCPU).
+2. Sunucuya SSH ile bağlanın ve aaPanel'i kurun:
+   ```bash
+   URL=https://www.aapanel.com/script/install_6.0_en.sh && echo y | bash $URL aapanel
+   ```
+3. Kurulum bitince ekranda beliren **aaPanel giriş linkini, kullanıcı adını ve şifresini** mutlaka not alın.
+4. aaPanel arayüzüne giriş yapın. İlk girişte size "One-click install" soracaktır. **LNMP** (Linux, Nginx, MySQL, PHP) seçeneğini seçin. (PHP'yi iptal edebilirsiniz, MySQL yerine biz PostgreSQL kuracağız ancak Nginx kesinlikle seçili olmalıdır).
+5. Kurulumların bitmesini bekleyin.
+
+---
+
+## Adım 2: Gerekli Servislerin Kurulumu (aaPanel App Store)
+
+aaPanel sol menüden **App Store**'a gidin ve şunları aratıp kurun:
+
+1. **Node.js version manager** (Kurduktan sonra içine girip Node.js v20.x sürümünü yükleyin ve "Command line version" olarak v20'yi seçin).
+2. **PostgreSQL** (Kurduktan sonra içine girin, servisin çalıştığından emin olun).
+3. **Redis** (Kurduktan sonra servisin çalıştığından emin olun).
+4. *Opsiyonel: PM2 manager (Eğer terminalden PM2 yönetmek zor gelirse görsel arayüz sağlar).*
+
+---
+
+## Adım 3: Domain (DNS) Yönlendirmeleri
+
+Sunucunuzun IP adresini öğrendikten sonra, domain sağlayıcınızın paneline (Cloudflare, GoDaddy, vb.) gidip aşağıdaki **A kayıtlarını** sunucu IP'nize yönlendirin:
+
+- `posapi.example.com` (Backend API için)
+- `nextpos.example.com` (Kasiyer POS için)
+- `posadmin.example.com` (SaaS Admin için)
+- `posreseller.example.com` (Bayi paneli için)
+- `*.posmenu.example.com` (Wildcard kayıt - QR Menü otomasyonu için)
+
+*(Not: `example.com` yerine kendi ana domaininizi yazın).*
+
+---
+
+## Adım 4: Veritabanı (PostgreSQL) Hazırlığı
+
+1. aaPanel'de **Databases -> PgSQL** sekmesine gidin.
+2. **Add Database** butonuna tıklayın.
+3. Database Name: `nextpos`
+4. Username: `nextpos`
+5. Password: `GucluBirSifre123` (Not alın)
+6. "Submit" diyerek veritabanını oluşturun.
+
+---
+
+## Adım 5: Kodların Sunucuya Çekilmesi ve Derlenmesi
+
+Sunucuya SSH ile bağlıyken sırasıyla şu komutları çalıştırın:
+
+```bash
+# 1. Proje klasörüne gidin
+cd /www/wwwroot
+
+# 2. Github'dan projeyi indirin
+git clone https://github.com/hasanperto/nextpos.git
+cd nextpos
+
+# 3. Bağımlılıkları kurun
+npm ci
+
+# 4. Frontend uygulamalarını derleyin (build)
+npm run build
+```
+
+---
+
+## Adım 6: API Çevre Değişkenleri (.env) ve Veritabanı Kurulumu
+
+API klasörüne gidin ve ortam değişkenleri dosyasını oluşturun:
+
+```bash
+cd /www/wwwroot/nextpos/apps/api
+cp .env.example .env
+nano .env
+```
+
+`.env` dosyasının içini ok tuşlarıyla düzenleyin. En önemli ayarlar:
+
+```env
+NODE_ENV=production
+PORT=5000
+
+# Adım 4'te oluşturduğunuz DB bilgileri: postgresql://KULLANICI:SIFRE@127.0.0.1:5432/DB_ADI
+DATABASE_URL="postgresql://nextpos:GucluBirSifre123@127.0.0.1:5432/nextpos"
+
+# Redis varsayılan olarak şifresiz çalışır
+REDIS_URL="redis://127.0.0.1:6379"
+
+# CORS ayarları (Kendi domainlerinizi yazın)
+CORS_ORIGIN="https://nextpos.example.com,https://posadmin.example.com,https://posreseller.example.com"
+SOCKET_CORS_ORIGIN="https://nextpos.example.com,https://posadmin.example.com,https://posreseller.example.com"
+
+# QR Web Otomasyon Ayarları (Adım 3'teki wildcard domaininizi yazın)
+AAPANEL_QR_AUTOMATION_ENABLED=true
+AAPANEL_QR_WEB_ROOT=/www/wwwroot
+AAPANEL_QR_TEMPLATE_DIR=/www/wwwroot/qr-web-template
+AAPANEL_NGINX_CONF_DIR=/www/server/panel/vhost/nginx
+AAPANEL_ACME_WEBROOT=/www/wwwroot/.well-known/acme-challenge
+AAPANEL_QR_API_ORIGIN=https://posapi.example.com
+AAPANEL_CERTBOT_EMAIL=admin@example.com
+QR_WEB_PARENT_DOMAIN=posmenu.example.com
+QR_WEB_SUBDOMAIN_PREFIX=
+```
+
+Dosyayı kaydedip çıkın (`Ctrl+O`, `Enter`, `Ctrl+X`).
+
+Şimdi veritabanı tablolarını oluşturup ilk demo verilerini (SaaS admin hesabı vb.) ekleyelim:
+
+```bash
+npx prisma migrate deploy
+npm run db:seed
+```
+
+---
+
+## Adım 7: API'yi PM2 ile Başlatma
+
+API'nin arka planda sürekli çalışması için PM2 kullanacağız. (Eğer yüklü değilse `npm i -g pm2` ile yükleyin).
+
+API klasöründeyken (`/www/wwwroot/nextpos/apps/api`):
+
+```bash
+# Projeyi build edin
+npm run build
+
+# PM2 ile başlatın
+pm2 start dist/index.js --name nextpos-api
+
+# Sunucu yeniden başlarsa PM2'nin de otomatik başlaması için:
+pm2 startup
+pm2 save
+```
+
+Şu an API sunucunuzun `5000` portunda çalışıyor olmalı.
+
+---
+
+## Adım 8: aaPanel Üzerinden Siteleri (Domainleri) Ekleme ve SSL
+
+aaPanel arayüzüne geri dönün. **Website** sekmesine gidin. Her bir domain için şu işlemi yapacağız:
+
+### 1. POS Frontend (`nextpos.example.com`)
+1. **Add site** butonuna tıklayın.
+2. Domain: `nextpos.example.com`
+3. Document Root: `/www/wwwroot/nextpos/apps/pos/dist` (Seçim ekranından bu klasörü bulun)
+4. Submit deyin.
+5. Site eklendikten sonra listede sitenin adına (veya Conf ayarlarına) tıklayın.
+6. **URL rewrite** sekmesine gelin ve SPA routing için şu kodu yapıştırıp kaydedin:
+   ```nginx
+   location / {
+     try_files $uri $uri/ /index.html;
+   }
+   ```
+7. **SSL** sekmesine gidin, Let's Encrypt seçip sertifika başvurusunda bulunun (Apply). Başarılı olunca "Force HTTPS" açın.
+
+### 2. Admin Frontend (`posadmin.example.com`)
+Aynı işlemleri yapın. Sadece Document Root farklı olacak:
+- Document Root: `/www/wwwroot/nextpos/apps/admin/dist`
+- URL rewrite (SPA) ayarını ve SSL işlemini unutmayın.
+
+### 3. Bayi Frontend (`posreseller.example.com`)
+Aynı işlemleri yapın. Sadece Document Root farklı olacak:
+- Document Root: `/www/wwwroot/nextpos/apps/reseller/dist`
+- URL rewrite (SPA) ayarını ve SSL işlemini unutmayın.
+
+### 4. Backend API Reverse Proxy (`posapi.example.com`)
+Bu adım biraz farklı. Çünkü API statik dosya değil, Node.js uygulamasından geliyor.
+1. **Add site** butonuna tıklayın.
+2. Domain: `posapi.example.com`
+3. Document Root: Önemli değil, `/www/wwwroot/posapi.example.com` olarak kalabilir.
+4. Submit deyin.
+5. Sitenin ayarlarına girip **SSL** sekmesinden sertifikayı alın ve "Force HTTPS" açın.
+6. **Reverse proxy** sekmesine gelin. "Add reverse proxy" deyin:
+   - Target URL: `http://127.0.0.1:5000`
+   - Submit deyin.
+7. Oluşan Proxy kuralının sağındaki "Conf" (veya Config) düzenleme ekranını açın. WebSocket'lerin çalışması için configuration metnini şu şekilde güncelleyin:
+
+   ```nginx
+   location / {
+     proxy_pass http://127.0.0.1:5000;
+     proxy_http_version 1.1;
+     proxy_set_header Upgrade $http_upgrade;
+     proxy_set_header Connection "upgrade";
+     proxy_set_header Host $host;
+     proxy_set_header X-Real-IP $remote_addr;
+   }
+   ```
+8. Kaydedip kapatın.
+
+---
+
+## Adım 9: QR Web Menü Otomasyonu İçin Şablon Hazırlığı
+
+Müşterilere yeni restoran açtığınızda sistem otomatik olarak alt domain (`restoranadi.posmenu.example.com`) ve SSL kuracak. Bunun için bir referans şablon klasörü oluşturmalıyız.
+
+Sunucuda (SSH) şu komutları çalıştırın:
+
+```bash
+# Şablon klasörünü oluştur
+mkdir -p /www/wwwroot/qr-web-template
+
+# QrMenu (Next.js) build dosyalarını şablona kopyala
+# Not: Eğer apps/qrmenu kullanıyorsanız o klasörün build çıktılarını buraya kopyalamalısınız.
+cp -r /www/wwwroot/nextpos/apps/qrmenu/out/* /www/wwwroot/qr-web-template/
+```
+
+*Not: Eğer Next.js uygulamanız SSR çalışacaksa statik HTML yerine onu da bir PM2 servisi olarak ayağa kaldırmanız ve şablon Nginx ayarlarında (otomasyon servisi içinde) proxy yapmanız gerekebilir.*
+
+---
+
+## Adım 10: Test ve Kontrol
+
+1. Tarayıcıdan `https://nextpos.example.com` adresine gidin. POS ekranının gelmesi lazım.
+2. Tarayıcıdan `https://posadmin.example.com` adresine gidin.
+   - Seed ile oluşturulan bilgilerle (Kullanıcı: `superadmin`, Şifre: `superadmin123`) giriş yapın.
+   - Giriş başarılıysa ve hata yoksa, API ve Veritabanı bağlantınız kusursuz çalışıyor demektir!
+
+Tebrikler, NextPOS sistemi sunucunuzda canlıya alındı!

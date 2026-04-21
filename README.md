@@ -109,6 +109,12 @@ Prod stack:
 docker compose -f docker-compose.production.yml up -d --build
 ```
 
+Portları env ile değiştirme (docker compose):
+
+```bash
+API_PORT=5000 POS_PORT=8080 docker compose -f docker-compose.production.yml up -d --build
+```
+
 Migration:
 
 ```bash
@@ -123,23 +129,28 @@ npm run db:migrate
 
 Not: QR Web Menu için aaPanel otomasyonu kullanılacaksa API tarafında `AAPANEL_*` environment değişkenleri gerekir.
 
-## aaPanel ile Kurulum Rehberi (Port / Domain / SSL)
+## Sunucuya Yükleme Rehberi (VPS / aaPanel / Docker)
 
-aaPanel tarafında iki ana yaklaşım var. QR Web otomasyonunu (tenant açılınca otomatik subdomain + conf + SSL) kullanmak istiyorsanız özellikle **Yaklaşım A** uygundur.
+Sunucuya adım adım sıfırdan yükleme yapmak (aaPanel + Node.js yaklaşımı) için detaylı rehbere buradan ulaşabilirsiniz:
+👉 [**Sunucu Kurulum Rehberi (Adım Adım)**](docs/SUNUCU_KURULUM_REHBERI.md)
+
+Aşağıda mimari yaklaşımların kısa özetlerini bulabilirsiniz.
 
 ### Yaklaşım A (Önerilen): aaPanel + Host üzerinde Node (PM2) + Nginx
 
-Bu modelde aaPanel Nginx’i yönetir. API Node (PM2) ile host üzerinde çalışır. Vite uygulamaları build edilip Nginx ile statik servis edilir.
+Bu modelde aaPanel Nginx’i yönetir. API Node (PM2) ile host üzerinde çalışır. Vite uygulamaları build edilip Nginx ile statik servis edilir. QR Web Menü otomasyonu için en uygun yöntemdir.
+
+**Detaylı kurulum adımları için [Sunucu Kurulum Rehberi](docs/SUNUCU_KURULUM_REHBERI.md) dokümanını okuyun.**
 
 **Önerilen domainler:**
 - `posapi.example.com` → API (Node)
-- `pos.example.com` → POS (statik)
+- `nextpos.example.com` → POS (statik)
 - `posadmin.example.com` → SaaS Admin (statik)
 - `posreseller.example.com` → Bayi (statik)
-- `posmenu.example.com` veya `pos*.example.com` → QR web menü (opsiyon)
+- `posmenu.example.com` → QR web menü parent domain (altında her restoran için ayrı subdomain)
 
 **Önerilen portlar (host üzerinde):**
-- API: `5000` (dışarıdan direkt açmak yerine Nginx reverse proxy ile)
+- API: `5000` (tamamı `apps/api/.env` içindeki `PORT` ile değişir; dışarıdan direkt açmak yerine Nginx reverse proxy ile)
 - PostgreSQL: `5432` (dışarı açmayın)
 - Redis: `6379` (dışarı açmayın)
 
@@ -160,8 +171,8 @@ PORT=5000
 DATABASE_URL=postgresql://nextpos:nextpos@127.0.0.1:5432/nextpos
 REDIS_URL=redis://127.0.0.1:6379
 
-CORS_ORIGIN=https://pos.example.com,https://posadmin.example.com,https://posreseller.example.com
-SOCKET_CORS_ORIGIN=https://pos.example.com,https://posadmin.example.com,https://posreseller.example.com
+CORS_ORIGIN=https://nextpos.example.com,https://posadmin.example.com,https://posreseller.example.com
+SOCKET_CORS_ORIGIN=https://nextpos.example.com,https://posadmin.example.com,https://posreseller.example.com
 ```
 
 #### 3) Build + migration
@@ -185,7 +196,7 @@ pm2 save
 #### 5) aaPanel “Website” ile statik SPA’ları servis etme
 
 Her domain için “Website → Add site”:
-- `pos.example.com` root: `.../apps/pos/dist`
+- `nextpos.example.com` root: `.../apps/pos/dist`
 - `posadmin.example.com` root: `.../apps/admin/dist`
 - `posreseller.example.com` root: `.../apps/reseller/dist`
 
@@ -228,12 +239,12 @@ aaPanel → Website → ilgili domain → SSL → Let’s Encrypt ile sertifika 
 ### Yaklaşım B: Docker Compose + aaPanel sadece reverse proxy
 
 Repo içindeki `docker-compose.production.yml` şu portları map ediyor:
-- API: `3001:3001`
-- POS container: `8080:80`
+- API: `${API_PORT:-3001}:3001` (container içi 3001, dış port env ile değişir)
+- POS container: `${POS_PORT:-8080}:80` (dış port env ile değişir)
 
 Bu modelde aaPanel Nginx reverse proxy ile:
-- `posapi.example.com` → `http://127.0.0.1:3001`
-- `pos.example.com` → `http://127.0.0.1:8080`
+- `posapi.example.com` → `http://127.0.0.1:${API_PORT}` (örn. `API_PORT=3001` ise `http://127.0.0.1:3001`)
+- `nextpos.example.com` → `http://127.0.0.1:${POS_PORT}` (örn. `POS_PORT=8080` ise `http://127.0.0.1:8080`)
 
 Bu yaklaşımda **QR Web aaPanel otomasyonu** (Nginx conf yazma + certbot çalıştırma) container içinden host’a erişemeyeceği için pratikte kapatılmalıdır:
 
@@ -241,9 +252,14 @@ Bu yaklaşımda **QR Web aaPanel otomasyonu** (Nginx conf yazma + certbot çalı
 AAPANEL_QR_AUTOMATION_ENABLED=false
 ```
 
-### QR Web aaPanel Otomasyonu (isteğe bağlı)
+### QR Web aaPanel Otomasyonu (her restoran için ayrı QR domain)
 
 Bu otomasyon, tenant açılınca QR web menü için domain klasörü + Nginx conf + SSL üretir. Çalışması için API prosesinin **host üzerinde** aşağıdaki kaynaklara erişmesi gerekir.
+
+Domain mantığı:
+- `QR_WEB_PARENT_DOMAIN=posmenu.example.com` ise her tenant için domain şu şekilde üretilir: `<label>.posmenu.example.com`
+- `<label>` restoran adından türetilir, çakışmada sonuna sayı eklenir
+- DNS tarafında `*.posmenu.example.com` wildcard A kaydı sunucu IP’sine yönlenmelidir
 
 Zorunlu environment değişkenleri:
 
@@ -255,6 +271,8 @@ AAPANEL_NGINX_CONF_DIR=/www/server/panel/vhost/nginx
 AAPANEL_ACME_WEBROOT=/www/wwwroot/.well-known/acme-challenge
 AAPANEL_QR_API_ORIGIN=https://posapi.example.com
 AAPANEL_CERTBOT_EMAIL=admin@example.com
+QR_WEB_PARENT_DOMAIN=posmenu.example.com
+QR_WEB_SUBDOMAIN_PREFIX=
 ```
 
 Opsiyonel:

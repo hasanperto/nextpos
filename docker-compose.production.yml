@@ -19,7 +19,7 @@ services:
       redis:
         condition: service_started
     ports:
-      - "3001:3001"
+      - "${API_PORT:-3001}:3001"
 
   pos:
     build:
@@ -27,7 +27,7 @@ services:
       dockerfile: Dockerfile.pos
     restart: always
     ports:
-      - "8080:80"
+      - "${POS_PORT:-8080}:80"
     depends_on:
       - api
 

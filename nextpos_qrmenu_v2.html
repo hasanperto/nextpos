@@ -1,0 +1,1291 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NextPOS — QR Menü v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: { sans: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'] },
+      colors: {
+        primary: { 50:'#FFF3ED',100:'#FFE4D4',200:'#FFC5A8',300:'#FF9F70',400:'#FF6B35',500:'#F04E1A',600:'#D43A10',700:'#A62C0E',800:'#852613',900:'#6E2213' },
+        teal: { 50:'#EFFCF9',100:'#D0F7EE',200:'#A5EDDD',300:'#6CDEC8',400:'#4ECDC4',500:'#24B4AB',600:'#18918C',700:'#157571',800:'#145D5C',900:'#124D4C' },
+        dark: { 50:'#F4F6F7',100:'#E2E7EA',200:'#C8D2D7',300:'#A1B1BA',400:'#738A96',500:'#576F7B',600:'#495D69',700:'#3E4F58',800:'#35434C',900:'#2C3E50' },
+      }
+    }
+  }
+}
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --primary:#FF6B35;--primary-dark:#F04E1A;--secondary:#4ECDC4;--secondary-dark:#24B4AB;
+  --success:#95E1D3;--danger:#F38181;--warning:#F7DC6F;
+  --dark:#2C3E50;--light:#F8F9FA;--gray:#6B7280;
+}
+html,body{height:100%;overflow:hidden;background:#F8F9FA}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:var(--dark)}
+
+/* Screens */
+.screen{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
+.screen.active{display:flex}
+
+/* Animations */
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeDown{from{opacity:0;transform:translateY(-20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes slideDown{from{transform:translateY(0)}to{transform:translateY(100%)}}
+@keyframes slideRight{from{opacity:0;transform:translateX(-20px)}to{opacity:1;transform:translateX(0)}}
+@keyframes scaleIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes bounce{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes cartPop{0%{transform:scale(1)}40%{transform:scale(1.3)}100%{transform:scale(1)}}
+@keyframes toastIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes checkmark{0%{stroke-dashoffset:50}100%{stroke-dashoffset:0}}
+@keyframes ringScale{0%{transform:scale(.8);opacity:0}50%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+.fade-in{animation:fadeIn .3s ease}
+.fade-up{animation:fadeUp .4s ease}
+.fade-down{animation:fadeDown .3s ease}
+.slide-up{animation:slideUp .35s cubic-bezier(.4,0,.2,1)}
+.scale-in{animation:scaleIn .3s ease}
+
+/* Skeleton */
+.skeleton{background:linear-gradient(90deg,#e5e7eb 25%,#f3f4f6 50%,#e5e7eb 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:8px}
+
+/* Toast */
+#toast-container{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{padding:12px 24px;border-radius:12px;font-size:14px;font-weight:600;color:#fff;pointer-events:auto;animation:toastIn .3s ease;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.15)}
+.toast-success{background:#059669}
+.toast-error{background:#DC2626}
+.toast-info{background:#2563EB}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:2px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* Custom checkbox */
+.filter-chip{transition:all .2s}
+.filter-chip.active{background:var(--primary)!important;color:#fff!important;border-color:var(--primary)!important}
+</style>
+</head>
+<body>
+
+<!-- ══════════ SCREEN 1: SPLASH ══════════ -->
+<div class="screen active" id="s-splash">
+  <div class="flex flex-col items-center justify-center h-full bg-gradient-to-br from-primary-50 via-white to-teal-50 px-6 relative overflow-hidden">
+    <!-- Decorative -->
+    <div class="absolute top-[-60px] right-[-60px] w-48 h-48 bg-primary-100 rounded-full opacity-50"></div>
+    <div class="absolute bottom-[-40px] left-[-40px] w-64 h-64 bg-teal-100 rounded-full opacity-40"></div>
+    <div class="absolute top-1/4 left-10 w-20 h-20 bg-primary-50 rounded-full opacity-60"></div>
+
+    <div class="relative z-10 flex flex-col items-center text-center">
+      <!-- Logo -->
+      <div class="w-28 h-28 rounded-3xl bg-white shadow-xl flex items-center justify-center text-6xl mb-6 fade-up" style="animation-delay:.1s;box-shadow:0 20px 60px rgba(255,107,53,.2)">
+        🍕
+      </div>
+      <h1 class="text-3xl font-extrabold text-dark-900 mb-2 fade-up" style="animation-delay:.2s">Özperto Pizza & Kebap</h1>
+      <p class="text-dark-400 text-sm mb-1 fade-up" style="animation-delay:.3s">📍 Musterstraße 15, 70173 Stuttgart</p>
+      <div class="flex items-center gap-2 mt-2 mb-8 fade-up" style="animation-delay:.35s">
+        <span class="inline-flex items-center gap-1 bg-green-100 text-green-700 text-xs font-semibold px-3 py-1 rounded-full">
+          <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> Açık
+        </span>
+        <span class="text-xs text-dark-400">10:00 – 22:00</span>
+      </div>
+
+      <!-- Language -->
+      <div class="flex gap-3 mb-8 fade-up" style="animation-delay:.4s">
+        <button onclick="setLang('tr')" class="lang-sel-btn px-5 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all" data-lang="tr">🇹🇷 Türkçe</button>
+        <button onclick="setLang('de')" class="lang-sel-btn px-5 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all" data-lang="de">🇩🇪 Deutsch</button>
+        <button onclick="setLang('en')" class="lang-sel-btn px-5 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all" data-lang="en">🇬🇧 English</button>
+      </div>
+
+      <!-- CTA -->
+      <button onclick="navigateTo('s-login')" class="bg-primary-400 hover:bg-primary-500 active:scale-95 text-white font-bold text-lg px-12 py-4 rounded-2xl shadow-lg transition-all fade-up" style="animation-delay:.5s;box-shadow:0 8px 30px rgba(255,107,53,.35)" id="splash-cta">
+        Sipariş Ver 🚀
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ SCREEN 2: LOGIN ══════════ -->
+<div class="screen" id="s-login">
+  <div class="flex flex-col h-full bg-gradient-to-b from-white to-gray-50">
+    <!-- Header -->
+    <div class="flex items-center px-4 py-3 border-b border-gray-100">
+      <button onclick="navigateTo('s-splash')" class="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-dark-400 hover:bg-gray-200 transition">←</button>
+      <h2 class="flex-1 text-center font-bold text-dark-900" id="login-title">Giriş Yap</h2>
+      <div class="w-10"></div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto px-5 py-6">
+      <!-- Phone Login -->
+      <div id="login-phone-section" class="fade-up">
+        <div class="text-center mb-6">
+          <div class="w-16 h-16 bg-primary-50 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-3">📱</div>
+          <h3 class="font-bold text-lg text-dark-900" id="login-phone-title">Telefon ile Giriş</h3>
+          <p class="text-sm text-dark-400 mt-1" id="login-phone-desc">Sipariş takibi ve puanlar için giriş yapın</p>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm mb-4">
+          <label class="text-xs font-semibold text-dark-500 mb-2 block" id="phone-label">Telefon Numarası</label>
+          <div class="flex gap-2">
+            <select id="phone-code" class="bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-sm font-semibold focus:outline-none focus:border-primary-400">
+              <option value="+49">🇩🇪 +49</option>
+              <option value="+90">🇹🇷 +90</option>
+              <option value="+44">🇬🇧 +44</option>
+            </select>
+            <input id="phone-input" type="tel" placeholder="170 123 4567" class="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-400 transition" />
+          </div>
+          <button onclick="sendOTP()" class="w-full mt-4 bg-primary-400 hover:bg-primary-500 text-white font-bold py-3.5 rounded-xl transition-all active:scale-[.98]" id="send-otp-btn">
+            Doğrulama Kodu Gönder
+          </button>
+        </div>
+
+        <!-- OTP Section (hidden initially) -->
+        <div id="otp-section" class="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm mb-4 hidden fade-up">
+          <label class="text-xs font-semibold text-dark-500 mb-2 block" id="otp-label">Doğrulama Kodu</label>
+          <div class="flex gap-2 justify-center mb-4">
+            <input type="text" maxlength="1" class="otp-box w-12 h-14 text-center text-xl font-bold bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-primary-400 focus:outline-none transition" />
+            <input type="text" maxlength="1" class="otp-box w-12 h-14 text-center text-xl font-bold bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-primary-400 focus:outline-none transition" />
+            <input type="text" maxlength="1" class="otp-box w-12 h-14 text-center text-xl font-bold bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-primary-400 focus:outline-none transition" />
+            <input type="text" maxlength="1" class="otp-box w-12 h-14 text-center text-xl font-bold bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-primary-400 focus:outline-none transition" />
+          </div>
+          <button onclick="verifyOTP()" class="w-full bg-primary-400 hover:bg-primary-500 text-white font-bold py-3.5 rounded-xl transition-all active:scale-[.98]" id="verify-btn">Doğrula</button>
+          <p class="text-xs text-center text-dark-400 mt-3" id="resend-text">Kod gelmedi mi? <button onclick="sendOTP()" class="text-primary-400 font-semibold">Tekrar Gönder</button></p>
+        </div>
+
+        <!-- Divider -->
+        <div class="flex items-center gap-3 my-5">
+          <div class="flex-1 h-px bg-gray-200"></div>
+          <span class="text-xs text-dark-400 font-medium" id="or-text">veya</span>
+          <div class="flex-1 h-px bg-gray-200"></div>
+        </div>
+
+        <!-- Guest -->
+        <button onclick="guestContinue()" class="w-full bg-white border-2 border-gray-200 hover:border-primary-300 text-dark-600 font-semibold py-3.5 rounded-xl transition-all active:scale-[.98] flex items-center justify-center gap-2" id="guest-btn">
+          👤 <span id="guest-text">Misafir olarak devam et</span>
+        </button>
+      </div>
+
+      <!-- User Info (for delivery) - shown after login -->
+      <div id="login-info-section" class="hidden fade-up">
+        <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
+          <h3 class="font-bold text-dark-900 mb-4" id="info-title">Teslimat Bilgileri</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="text-xs font-semibold text-dark-500 mb-1 block" id="name-label">Ad Soyad</label>
+              <input id="user-name" type="text" placeholder="Ahmet Yılmaz" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-400 transition" />
+            </div>
+            <div>
+              <label class="text-xs font-semibold text-dark-500 mb-1 block" id="address-label">Adres</label>
+              <textarea id="user-address" rows="2" placeholder="Musterstraße 15, 70173 Stuttgart" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-400 transition resize-none"></textarea>
+            </div>
+          </div>
+          <button onclick="saveInfoAndContinue()" class="w-full mt-4 bg-primary-400 hover:bg-primary-500 text-white font-bold py-3.5 rounded-xl transition-all active:scale-[.98]" id="save-info-btn">Devam Et</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ SCREEN 3: ORDER TYPE ══════════ -->
+<div class="screen" id="s-ordertype">
+  <div class="flex flex-col h-full bg-gradient-to-b from-white to-gray-50">
+    <div class="flex items-center px-4 py-3 border-b border-gray-100">
+      <button onclick="navigateTo('s-login')" class="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-dark-400 hover:bg-gray-200 transition">←</button>
+      <h2 class="flex-1 text-center font-bold text-dark-900" id="ordertype-title">Sipariş Tipi</h2>
+      <div class="w-10"></div>
+    </div>
+
+    <div class="flex-1 flex flex-col items-center justify-center px-6 gap-5">
+      <h3 class="text-xl font-bold text-dark-900 mb-2 fade-up" id="ordertype-question">Nasıl sipariş vermek istersiniz?</h3>
+
+      <!-- Delivery -->
+      <button onclick="selectOrderType('delivery')" class="order-type-card w-full max-w-sm bg-white border-2 border-gray-200 rounded-2xl p-6 text-left hover:border-primary-400 hover:shadow-lg transition-all active:scale-[.98] fade-up" style="animation-delay:.1s">
+        <div class="flex items-start gap-4">
+          <div class="w-14 h-14 bg-primary-50 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0">📦</div>
+          <div>
+            <h4 class="font-bold text-dark-900 text-lg" id="delivery-title">Paket Servisi</h4>
+            <p class="text-sm text-dark-400 mt-1" id="delivery-desc">Adresinize teslim edilir • KDV %19</p>
+            <div class="flex items-center gap-2 mt-2">
+              <span class="text-xs bg-primary-50 text-primary-600 font-semibold px-2 py-0.5 rounded-md" id="delivery-time">🕐 30-45 dk</span>
+              <span class="text-xs bg-gray-100 text-dark-500 font-semibold px-2 py-0.5 rounded-md" id="delivery-fee-badge">Min. €15.00</span>
+            </div>
+          </div>
+        </div>
+      </button>
+
+      <!-- Takeaway -->
+      <button onclick="selectOrderType('takeaway')" class="order-type-card w-full max-w-sm bg-white border-2 border-gray-200 rounded-2xl p-6 text-left hover:border-teal-400 hover:shadow-lg transition-all active:scale-[.98] fade-up" style="animation-delay:.2s">
+        <div class="flex items-start gap-4">
+          <div class="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0">🏃</div>
+          <div>
+            <h4 class="font-bold text-dark-900 text-lg" id="takeaway-title">Gel-Al</h4>
+            <p class="text-sm text-dark-400 mt-1" id="takeaway-desc">Restorantan teslim alın • KDV %7</p>
+            <div class="flex items-center gap-2 mt-2">
+              <span class="text-xs bg-teal-50 text-teal-600 font-semibold px-2 py-0.5 rounded-md" id="takeaway-time">🕐 15-20 dk</span>
+              <span class="text-xs bg-green-50 text-green-600 font-semibold px-2 py-0.5 rounded-md" id="takeaway-discount">Teslimat ücretsiz</span>
+            </div>
+          </div>
+        </div>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ SCREEN 4: MENU ══════════ -->
+<div class="screen" id="s-menu">
+  <div class="flex flex-col h-full bg-gray-50">
+    <!-- Header -->
+    <div class="bg-white border-b border-gray-100 flex-shrink-0 fade-down">
+      <div class="flex items-center px-4 py-2.5 gap-2">
+        <button onclick="navigateTo('s-ordertype')" class="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center text-dark-400 text-sm">←</button>
+        <div class="flex-1 min-w-0">
+          <div class="font-bold text-sm text-dark-900 truncate">Özperto Pizza & Kebap</div>
+          <div class="text-xs text-dark-400" id="menu-order-type-badge">📦 Paket Servisi</div>
+        </div>
+        <!-- Lang switcher -->
+        <div class="flex gap-1">
+          <button onclick="setLang('tr')" class="menu-lang-btn px-2 py-1 rounded-lg text-xs font-semibold transition" data-lang="tr">TR</button>
+          <button onclick="setLang('de')" class="menu-lang-btn px-2 py-1 rounded-lg text-xs font-semibold transition" data-lang="de">DE</button>
+          <button onclick="setLang('en')" class="menu-lang-btn px-2 py-1 rounded-lg text-xs font-semibold transition" data-lang="en">EN</button>
+        </div>
+      </div>
+
+      <!-- Search -->
+      <div class="px-4 pb-2">
+        <div class="relative">
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-dark-300 text-sm">🔍</span>
+          <input id="search-input" type="text" class="w-full bg-gray-100 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:bg-white focus:ring-2 focus:ring-primary-200 transition" />
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="px-4 pb-2 flex gap-2 overflow-x-auto" id="filter-bar" style="scrollbar-width:none">
+        <button onclick="toggleFilter('all')" class="filter-chip active flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-gray-200 bg-gray-100 text-dark-500 transition" data-filter="all" id="filter-all">Tümü</button>
+        <button onclick="toggleFilter('vegetarian')" class="filter-chip flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-gray-200 bg-white text-dark-500 transition" data-filter="vegetarian">🥬 Vejetaryen</button>
+        <button onclick="toggleFilter('vegan')" class="filter-chip flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-gray-200 bg-white text-dark-500 transition" data-filter="vegan">🌱 Vegan</button>
+        <button onclick="toggleFilter('gluten-free')" class="filter-chip flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-gray-200 bg-white text-dark-500 transition" data-filter="gluten-free">🌾 Gluten-Free</button>
+      </div>
+
+      <!-- Categories -->
+      <div class="flex gap-1 px-4 pb-2 overflow-x-auto" id="category-tabs" style="scrollbar-width:none"></div>
+    </div>
+
+    <!-- Products -->
+    <div class="flex-1 overflow-y-auto px-4 pt-3 pb-28" id="product-list"></div>
+
+    <!-- Floating Cart Button -->
+    <div id="floating-cart" class="fixed bottom-5 left-4 right-4 z-50 hidden" onclick="openCart()">
+      <div class="bg-primary-400 hover:bg-primary-500 text-white rounded-2xl px-5 py-4 flex items-center justify-between shadow-xl cursor-pointer transition-all active:scale-[.98]" style="box-shadow:0 8px 30px rgba(255,107,53,.4)">
+        <div class="flex items-center gap-3">
+          <div class="relative">
+            <span class="text-xl">🛒</span>
+            <span id="cart-badge" class="absolute -top-2 -right-2 bg-white text-primary-500 text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">0</span>
+          </div>
+          <span class="font-bold" id="cart-btn-text">Sepeti Gör</span>
+        </div>
+        <span class="font-bold text-lg" id="cart-btn-total">€0.00</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ PRODUCT DETAIL MODAL ══════════ -->
+<div id="product-modal" class="fixed inset-0 z-[60] hidden">
+  <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeProductModal()"></div>
+  <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl max-h-[85vh] overflow-y-auto slide-up" id="product-modal-content">
+    <div class="sticky top-0 bg-white z-10 flex justify-between items-center px-5 pt-4 pb-2">
+      <h3 class="font-bold text-lg text-dark-900" id="pm-title"></h3>
+      <button onclick="closeProductModal()" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-dark-400 hover:bg-gray-200 transition">✕</button>
+    </div>
+    <div class="px-5 pb-6" id="pm-body"></div>
+  </div>
+</div>
+
+<!-- ══════════ CART DRAWER ══════════ -->
+<div id="cart-drawer" class="fixed inset-0 z-[70] hidden">
+  <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeCart()"></div>
+  <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl max-h-[90vh] flex flex-col slide-up">
+    <!-- Header -->
+    <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
+      <h3 class="font-bold text-lg text-dark-900" id="cart-title">🛒 Sepetim</h3>
+      <button onclick="closeCart()" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-dark-400 hover:bg-gray-200 transition">✕</button>
+    </div>
+    <!-- Items -->
+    <div class="flex-1 overflow-y-auto px-5 py-3" id="cart-items"></div>
+    <!-- Totals -->
+    <div class="border-t border-gray-100 px-5 py-4 flex-shrink-0" id="cart-footer">
+      <div id="cart-totals"></div>
+      <div id="cart-min-warning" class="hidden text-xs text-red-500 font-semibold text-center mb-2"></div>
+      <button onclick="goToCheckout()" id="checkout-btn" class="w-full bg-primary-400 hover:bg-primary-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-4 rounded-2xl transition-all active:scale-[.98] flex items-center justify-between px-5" disabled>
+        <span id="checkout-text">Ödemeye Geç</span>
+        <span id="checkout-total" class="font-bold">€0.00</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ SCREEN 5: CHECKOUT ══════════ -->
+<div class="screen" id="s-checkout">
+  <div class="flex flex-col h-full bg-gray-50">
+    <div class="bg-white flex items-center px-4 py-3 border-b border-gray-100 flex-shrink-0">
+      <button onclick="navigateTo('s-menu')" class="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-dark-400 hover:bg-gray-200 transition">←</button>
+      <h2 class="flex-1 text-center font-bold text-dark-900" id="checkout-title">Ödeme</h2>
+      <div class="w-10"></div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-32">
+      <!-- Delivery Info (only for delivery) -->
+      <div id="checkout-delivery-section" class="bg-white rounded-2xl border border-gray-200 p-5 hidden fade-up">
+        <h4 class="font-bold text-dark-900 mb-3 flex items-center gap-2" id="checkout-delivery-title">📍 Teslimat Bilgileri</h4>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-semibold text-dark-500 mb-1 block" id="checkout-name-label">Ad Soyad</label>
+            <input id="checkout-name" type="text" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-400 transition" />
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-dark-500 mb-1 block" id="checkout-address-label">Teslimat Adresi</label>
+            <textarea id="checkout-address" rows="2" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-400 transition resize-none"></textarea>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-dark-500 mb-1 block" id="checkout-time-label">Teslimat Zamanı</label>
+            <select id="checkout-time" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-400 transition">
+              <option value="asap" id="time-asap">En kısa sürede</option>
+              <option value="30">30 dakika</option>
+              <option value="45">45 dakika</option>
+              <option value="60">1 saat</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Order Summary -->
+      <div class="bg-white rounded-2xl border border-gray-200 p-5 fade-up" style="animation-delay:.1s">
+        <h4 class="font-bold text-dark-900 mb-3 flex items-center gap-2" id="checkout-summary-title">📋 Sipariş Özeti</h4>
+        <div id="checkout-items" class="space-y-2"></div>
+        <div class="border-t border-gray-100 mt-3 pt-3 space-y-1" id="checkout-totals"></div>
+      </div>
+
+      <!-- Order Note -->
+      <div class="bg-white rounded-2xl border border-gray-200 p-5 fade-up" style="animation-delay:.15s">
+        <h4 class="font-bold text-dark-900 mb-3 flex items-center gap-2" id="checkout-note-title">📝 Sipariş Notu</h4>
+        <textarea id="order-note" rows="2" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-400 transition resize-none"></textarea>
+      </div>
+
+      <!-- Payment -->
+      <div class="bg-white rounded-2xl border border-gray-200 p-5 fade-up" style="animation-delay:.2s">
+        <h4 class="font-bold text-dark-900 mb-3 flex items-center gap-2" id="checkout-payment-title">💳 Ödeme Bilgileri</h4>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-semibold text-dark-500 mb-1 block" id="card-number-label">Kart Numarası</label>
+            <input id="card-number" type="text" maxlength="19" placeholder="1234 5678 9012 3456" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-400 transition font-mono tracking-wider" />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs font-semibold text-dark-500 mb-1 block" id="card-expiry-label">Son Kullanma</label>
+              <input id="card-expiry" type="text" maxlength="5" placeholder="MM/YY" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-400 transition" />
+            </div>
+            <div>
+              <label class="text-xs font-semibold text-dark-500 mb-1 block">CVV</label>
+              <input id="card-cvv" type="text" maxlength="3" placeholder="123" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-400 transition" />
+            </div>
+          </div>
+        </div>
+        <!-- Security badges -->
+        <div class="flex items-center gap-3 mt-4 pt-3 border-t border-gray-100">
+          <span class="text-xs text-dark-400 flex items-center gap-1">🔒 SSL</span>
+          <span class="text-xs text-dark-400 flex items-center gap-1">🛡️ Stripe</span>
+          <span class="text-xs text-dark-400 flex items-center gap-1">✓ PCI DSS</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Place Order Button -->
+    <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-4 py-4 z-40">
+      <button onclick="placeOrder()" id="place-order-btn" class="w-full bg-primary-400 hover:bg-primary-500 text-white font-bold py-4 rounded-2xl transition-all active:scale-[.98] flex items-center justify-center gap-2" style="box-shadow:0 8px 30px rgba(255,107,53,.3)">
+        <span id="place-order-text">Sipariş Ver</span>
+        <span id="place-order-total" class="font-bold"></span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ SCREEN 6: CONFIRMATION ══════════ -->
+<div class="screen" id="s-confirm">
+  <div class="flex flex-col items-center justify-center h-full bg-gradient-to-b from-green-50 to-white px-6 text-center">
+    <div class="fade-up">
+      <!-- Success Icon -->
+      <div class="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6" style="animation:ringScale .5s ease both">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+          <circle cx="24" cy="24" r="22" stroke="#059669" stroke-width="2.5" fill="none"/>
+          <polyline points="14,24 22,32 34,16" stroke="#059669" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round" style="stroke-dasharray:50;stroke-dashoffset:50;animation:checkmark .5s .3s ease forwards"/>
+        </svg>
+      </div>
+
+      <h2 class="text-2xl font-extrabold text-dark-900 mb-2" id="confirm-title">Sipariş Alındı! 🎉</h2>
+      <p class="text-dark-400 mb-6" id="confirm-desc">Siparişiniz hazırlanmaya başlandı</p>
+
+      <!-- Order Info Card -->
+      <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm text-left mb-6 max-w-sm mx-auto w-full">
+        <div class="flex justify-between items-center mb-3">
+          <span class="text-xs font-semibold text-dark-400" id="confirm-order-label">Sipariş No</span>
+          <span class="font-bold text-primary-400 text-lg" id="confirm-order-no">#NP-2024</span>
+        </div>
+        <div class="space-y-2" id="confirm-details"></div>
+        <div class="border-t border-gray-100 mt-3 pt-3">
+          <div class="flex justify-between items-center">
+            <span class="font-semibold text-dark-500" id="confirm-total-label">Toplam</span>
+            <span class="font-bold text-lg text-primary-400" id="confirm-total">€0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Estimated Time -->
+      <div class="bg-primary-50 rounded-2xl p-4 max-w-sm mx-auto w-full mb-6">
+        <div class="flex items-center justify-center gap-2">
+          <span class="text-2xl" style="animation:float 2s ease-in-out infinite">⏱️</span>
+          <div>
+            <p class="text-xs text-primary-600 font-semibold" id="confirm-est-label">Tahmini Süre</p>
+            <p class="text-lg font-bold text-primary-700" id="confirm-est-time">30-45 dakika</p>
+          </div>
+        </div>
+      </div>
+
+      <button onclick="resetApp()" class="bg-dark-900 hover:bg-dark-800 text-white font-bold px-8 py-3.5 rounded-2xl transition-all active:scale-[.98]" id="new-order-btn">Yeni Sipariş Ver</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ LOADING OVERLAY ══════════ -->
+<div id="loading-overlay" class="fixed inset-0 z-[100] bg-white/80 backdrop-blur-sm flex items-center justify-center hidden">
+  <div class="flex flex-col items-center gap-3">
+    <div class="w-10 h-10 border-3 border-gray-200 border-t-primary-400 rounded-full" style="animation:spin .8s linear infinite;border-width:3px"></div>
+    <p class="text-sm font-semibold text-dark-500" id="loading-text">Yükleniyor...</p>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div id="toast-container"></div>
+
+<!-- ══════════ JAVASCRIPT ══════════ -->
+<script>
+// ─── CONFIG ───
+const API_BASE_URL = 'https://api.nextpos.com/v1';
+const BRANCH_ID = 'branch_001';
+const DELIVERY_FEE = 3.50;
+const MIN_ORDER_DELIVERY = 15.00;
+const MIN_ORDER_TAKEAWAY = 0;
+const TAX_DELIVERY = 0.19;
+const TAX_TAKEAWAY = 0.07;
+
+// ─── STATE ───
+let currentLang = 'tr';
+let currentScreen = 's-splash';
+let orderType = null; // 'delivery' | 'takeaway'
+let currentUser = null;
+let cart = JSON.parse(localStorage.getItem('nxp_cart') || '[]');
+let activeFilter = 'all';
+let activeCategory = null;
+let searchQuery = '';
+
+// ─── I18N ───
+const i18n = {
+  tr: {
+    splashCta: 'Sipariş Ver 🚀', loginTitle: 'Giriş Yap', phoneTitle: 'Telefon ile Giriş',
+    phoneDesc: 'Sipariş takibi ve puanlar için giriş yapın', phoneLabel: 'Telefon Numarası',
+    sendOtp: 'Doğrulama Kodu Gönder', otpLabel: 'Doğrulama Kodu', verify: 'Doğrula',
+    resend: 'Kod gelmedi mi?', resendBtn: 'Tekrar Gönder', or: 'veya',
+    guestBtn: 'Misafir olarak devam et', infoTitle: 'Teslimat Bilgileri',
+    nameLabel: 'Ad Soyad', addressLabel: 'Adres', continue: 'Devam Et',
+    orderTypeTitle: 'Sipariş Tipi', orderTypeQ: 'Nasıl sipariş vermek istersiniz?',
+    deliveryTitle: 'Paket Servisi', deliveryDesc: 'Adresinize teslim edilir • KDV %19',
+    deliveryTime: '🕐 30-45 dk', deliveryMin: 'Min. €15.00',
+    takeawayTitle: 'Gel-Al', takeawayDesc: 'Restorandan teslim alın • KDV %7',
+    takeawayTime: '🕐 15-20 dk', takeawayFree: 'Teslimat ücretsiz',
+    searchPlaceholder: 'Menüde ara...', filterAll: 'Tümü',
+    cartTitle: '🛒 Sepetim', cartEmpty: 'Sepetiniz boş',
+    cartEmptyDesc: 'Lezzetli yemeklerimizi keşfedin!', subtotal: 'Ara Toplam',
+    tax: 'KDV', deliveryFeeLabel: 'Teslimat Ücreti', total: 'Toplam',
+    viewCart: 'Sepeti Gör', checkout: 'Ödemeye Geç', minWarning: 'Minimum sipariş tutarı: €',
+    checkoutTitle: 'Ödeme', deliveryInfo: '📍 Teslimat Bilgileri',
+    checkoutNameLabel: 'Ad Soyad', checkoutAddressLabel: 'Teslimat Adresi',
+    deliveryTimeLabel: 'Teslimat Zamanı', asap: 'En kısa sürede',
+    orderSummary: '📋 Sipariş Özeti', orderNote: '📝 Sipariş Notu',
+    notePlaceholder: 'Özel isteklerinizi yazın...', paymentTitle: '💳 Ödeme Bilgileri',
+    cardNumber: 'Kart Numarası', cardExpiry: 'Son Kullanma',
+    placeOrder: 'Sipariş Ver', confirmTitle: 'Sipariş Alındı! 🎉',
+    confirmDesc: 'Siparişiniz hazırlanmaya başlandı', orderNo: 'Sipariş No',
+    estLabel: 'Tahmini Süre', estTime: '30-45 dakika', estTimeTakeaway: '15-20 dakika',
+    totalLabel: 'Toplam', newOrder: 'Yeni Sipariş Ver', addToCart: 'Sepete Ekle',
+    ingredients: 'Malzemeler', allergens: 'Alerjenler', loading: 'Yükleniyor...',
+    orderBadgeDelivery: '📦 Paket Servisi', orderBadgeTakeaway: '🏃 Gel-Al',
+    otpSent: 'Doğrulama kodu gönderildi!', otpVerified: 'Giriş başarılı!',
+    addedToCart: 'Sepete eklendi!', orderPlaced: 'Sipariş verildi!',
+    errorFields: 'Lütfen tüm alanları doldurun',
+    gluten: 'Gluten', dairy: 'Süt', nuts: 'Kuruyemiş', eggs: 'Yumurta', soy: 'Soya', none: 'Yok',
+    pickupTimeLabel: 'Hazırlık Zamanı'
+  },
+  de: {
+    splashCta: 'Jetzt bestellen 🚀', loginTitle: 'Anmelden', phoneTitle: 'Mit Telefon anmelden',
+    phoneDesc: 'Bestellverfolgung und Treuepunkte', phoneLabel: 'Telefonnummer',
+    sendOtp: 'Verifizierungscode senden', otpLabel: 'Verifizierungscode', verify: 'Verifizieren',
+    resend: 'Kein Code erhalten?', resendBtn: 'Erneut senden', or: 'oder',
+    guestBtn: 'Als Gast fortfahren', infoTitle: 'Lieferinformationen',
+    nameLabel: 'Vollständiger Name', addressLabel: 'Adresse', continue: 'Weiter',
+    orderTypeTitle: 'Bestellart', orderTypeQ: 'Wie möchten Sie bestellen?',
+    deliveryTitle: 'Lieferung', deliveryDesc: 'An Ihre Adresse geliefert • MwSt. 19%',
+    deliveryTime: '🕐 30-45 Min.', deliveryMin: 'Min. €15,00',
+    takeawayTitle: 'Abholung', takeawayDesc: 'Im Restaurant abholen • MwSt. 7%',
+    takeawayTime: '🕐 15-20 Min.', takeawayFree: 'Keine Liefergebühr',
+    searchPlaceholder: 'Menü durchsuchen...', filterAll: 'Alle',
+    cartTitle: '🛒 Warenkorb', cartEmpty: 'Ihr Warenkorb ist leer',
+    cartEmptyDesc: 'Entdecken Sie unsere leckeren Gerichte!', subtotal: 'Zwischensumme',
+    tax: 'MwSt.', deliveryFeeLabel: 'Liefergebühr', total: 'Gesamt',
+    viewCart: 'Warenkorb', checkout: 'Zur Kasse', minWarning: 'Mindestbestellwert: €',
+    checkoutTitle: 'Kasse', deliveryInfo: '📍 Lieferinformationen',
+    checkoutNameLabel: 'Vollständiger Name', checkoutAddressLabel: 'Lieferadresse',
+    deliveryTimeLabel: 'Lieferzeit', asap: 'So schnell wie möglich',
+    orderSummary: '📋 Bestellübersicht', orderNote: '📝 Bestellhinweis',
+    notePlaceholder: 'Besondere Wünsche...', paymentTitle: '💳 Zahlungsinformationen',
+    cardNumber: 'Kartennummer', cardExpiry: 'Gültig bis',
+    placeOrder: 'Jetzt bestellen', confirmTitle: 'Bestellung aufgegeben! 🎉',
+    confirmDesc: 'Ihre Bestellung wird zubereitet', orderNo: 'Bestellnr.',
+    estLabel: 'Geschätzte Zeit', estTime: '30-45 Minuten', estTimeTakeaway: '15-20 Minuten',
+    totalLabel: 'Gesamt', newOrder: 'Neue Bestellung', addToCart: 'In den Warenkorb',
+    ingredients: 'Zutaten', allergens: 'Allergene', loading: 'Laden...',
+    orderBadgeDelivery: '📦 Lieferung', orderBadgeTakeaway: '🏃 Abholung',
+    otpSent: 'Verifizierungscode gesendet!', otpVerified: 'Erfolgreich angemeldet!',
+    addedToCart: 'Zum Warenkorb hinzugefügt!', orderPlaced: 'Bestellung aufgegeben!',
+    errorFields: 'Bitte alle Felder ausfüllen',
+    gluten: 'Gluten', dairy: 'Milch', nuts: 'Nüsse', eggs: 'Eier', soy: 'Soja', none: 'Keine',
+    pickupTimeLabel: 'Abholzeit'
+  },
+  en: {
+    splashCta: 'Order Now 🚀', loginTitle: 'Sign In', phoneTitle: 'Phone Login',
+    phoneDesc: 'Track orders and earn points', phoneLabel: 'Phone Number',
+    sendOtp: 'Send Verification Code', otpLabel: 'Verification Code', verify: 'Verify',
+    resend: "Didn't receive code?", resendBtn: 'Resend', or: 'or',
+    guestBtn: 'Continue as guest', infoTitle: 'Delivery Information',
+    nameLabel: 'Full Name', addressLabel: 'Address', continue: 'Continue',
+    orderTypeTitle: 'Order Type', orderTypeQ: 'How would you like to order?',
+    deliveryTitle: 'Delivery', deliveryDesc: 'Delivered to your address • VAT 19%',
+    deliveryTime: '🕐 30-45 min', deliveryMin: 'Min. €15.00',
+    takeawayTitle: 'Takeaway', takeawayDesc: 'Pick up at restaurant • VAT 7%',
+    takeawayTime: '🕐 15-20 min', takeawayFree: 'No delivery fee',
+    searchPlaceholder: 'Search menu...', filterAll: 'All',
+    cartTitle: '🛒 My Cart', cartEmpty: 'Your cart is empty',
+    cartEmptyDesc: 'Discover our delicious dishes!', subtotal: 'Subtotal',
+    tax: 'VAT', deliveryFeeLabel: 'Delivery Fee', total: 'Total',
+    viewCart: 'View Cart', checkout: 'Checkout', minWarning: 'Minimum order amount: €',
+    checkoutTitle: 'Checkout', deliveryInfo: '📍 Delivery Info',
+    checkoutNameLabel: 'Full Name', checkoutAddressLabel: 'Delivery Address',
+    deliveryTimeLabel: 'Delivery Time', asap: 'As soon as possible',
+    orderSummary: '📋 Order Summary', orderNote: '📝 Order Note',
+    notePlaceholder: 'Special requests...', paymentTitle: '💳 Payment Info',
+    cardNumber: 'Card Number', cardExpiry: 'Expiry',
+    placeOrder: 'Place Order', confirmTitle: 'Order Confirmed! 🎉',
+    confirmDesc: 'Your order is being prepared', orderNo: 'Order No.',
+    estLabel: 'Estimated Time', estTime: '30-45 minutes', estTimeTakeaway: '15-20 minutes',
+    totalLabel: 'Total', newOrder: 'New Order', addToCart: 'Add to Cart',
+    ingredients: 'Ingredients', allergens: 'Allergens', loading: 'Loading...',
+    orderBadgeDelivery: '📦 Delivery', orderBadgeTakeaway: '🏃 Takeaway',
+    otpSent: 'Verification code sent!', otpVerified: 'Login successful!',
+    addedToCart: 'Added to cart!', orderPlaced: 'Order placed!',
+    errorFields: 'Please fill in all fields',
+    gluten: 'Gluten', dairy: 'Dairy', nuts: 'Nuts', eggs: 'Eggs', soy: 'Soy', none: 'None',
+    pickupTimeLabel: 'Pickup Time'
+  }
+};
+
+function t(key) { return i18n[currentLang]?.[key] || i18n.tr[key] || key; }
+
+// ─── DATA ───
+const categories = [
+  { id: 1, name: { tr: 'Başlangıçlar', de: 'Vorspeisen', en: 'Starters' }, icon: '🥗' },
+  { id: 2, name: { tr: 'Kebaplar', de: 'Kebab', en: 'Kebabs' }, icon: '🍖' },
+  { id: 3, name: { tr: 'Pizzalar', de: 'Pizza', en: 'Pizza' }, icon: '🍕' },
+  { id: 4, name: { tr: 'Döner', de: 'Döner', en: 'Döner' }, icon: '🌯' },
+  { id: 5, name: { tr: 'Salatalar', de: 'Salate', en: 'Salads' }, icon: '🥙' },
+  { id: 6, name: { tr: 'İçecekler', de: 'Getränke', en: 'Beverages' }, icon: '🥤' },
+  { id: 7, name: { tr: 'Tatlılar', de: 'Desserts', en: 'Desserts' }, icon: '🍰' }
+];
+
+const products = [
+  { id:1, cat:1, name:{tr:'Mercimek Çorbası',de:'Linsensuppe',en:'Lentil Soup'}, desc:{tr:'Geleneksel Türk mercimek çorbası, limon ve ekmek ile',de:'Traditionelle türkische Linsensuppe mit Zitrone und Brot',en:'Traditional Turkish lentil soup with lemon and bread'}, price:4.50, priceTakeaway:4.00, img:'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=400&h=300&fit=crop', allergens:['gluten'], vegetarian:true, vegan:true, ingredients:{tr:'Kırmızı mercimek, soğan, havuç, patates, domates salçası',de:'Rote Linsen, Zwiebeln, Karotten, Kartoffeln, Tomatenmark',en:'Red lentils, onions, carrots, potatoes, tomato paste'} },
+  { id:2, cat:1, name:{tr:'Humus',de:'Hummus',en:'Hummus'}, desc:{tr:'Nohut ezmesi, tahin, zeytinyağı',de:'Kichererbsenpüree mit Tahini und Olivenöl',en:'Chickpea purée with tahini and olive oil'}, price:5.50, priceTakeaway:5.00, img:'https://www.themediterraneandish.com/wp-content/uploads/2024/05/TMD-Hummus-Leads-02-Horizontal.jpg', allergens:['nuts'], vegetarian:true, vegan:true, ingredients:{tr:'Nohut, tahin, limon suyu, sarımsak, zeytinyağı',de:'Kichererbsen, Tahini, Zitronensaft, Knoblauch, Olivenöl',en:'Chickpeas, tahini, lemon juice, garlic, olive oil'} },
+  { id:3, cat:1, name:{tr:'Sigara Böreği',de:'Sigara Börek',en:'Cheese Rolls'}, desc:{tr:'Çıtır yufka içinde beyaz peynir',de:'Knusprige Yufka-Rollen mit Weißkäse',en:'Crispy filo pastry rolls with white cheese'}, price:5.90, priceTakeaway:5.50, img:'https://i.ytimg.com/vi/wC-xYdsPcSg/sddefault.jpg', allergens:['gluten','dairy'], vegetarian:true, vegan:false, ingredients:{tr:'Yufka, beyaz peynir, maydanoz',de:'Yufka, Weißkäse, Petersilie',en:'Filo pastry, white cheese, parsley'} },
+  { id:4, cat:2, name:{tr:'Adana Kebap',de:'Adana Kebab',en:'Adana Kebab'}, desc:{tr:'Baharatlı kıyma kebap, közlenmiş biber ve domates ile',de:'Würziges Hackfleisch-Kebab mit gegrilltem Paprika',en:'Spicy minced meat kebab with grilled pepper and tomato'}, price:14.90, priceTakeaway:13.90, img:'https://images.unsplash.com/photo-1529042410759-befb1204b468?w=400&h=300&fit=crop', allergens:[], vegetarian:false, vegan:false, ingredients:{tr:'Dana kıyma, kuyruk yağı, pul biber, tuz, bulgur pilavı',de:'Rinderhackfleisch, Schwanzfett, Chiliflocken, Salz, Bulgur',en:'Minced beef, tail fat, chili flakes, salt, bulgur pilaf'} },
+  { id:5, cat:2, name:{tr:'İskender Kebap',de:'İskender Kebab',en:'İskender Kebab'}, desc:{tr:'Döner eti, tereyağlı domates sosu, yoğurt',de:'Döner-Fleisch mit Butter-Tomatensauce und Joghurt',en:'Döner meat with butter tomato sauce and yogurt'}, price:16.90, priceTakeaway:15.90, img:'https://i.ytimg.com/vi/j_P-nM3ZmSc/hq720.jpg?sqp=-oaymwEhCK4FEIIDSFryq4qpAxMIARUAAAAAGAElAADIQj0AgKJD&rs=AOn4CLCA-foKRCeqvyYE7V0FhBe2SXp2DQ', allergens:['dairy','gluten'], vegetarian:false, vegan:false, ingredients:{tr:'Dana döner eti, pide ekmeği, tereyağı, domates sosu, yoğurt',de:'Rindfleisch-Döner, Pide-Brot, Butter, Tomatensauce, Joghurt',en:'Beef döner, pita bread, butter, tomato sauce, yogurt'} },
+  { id:6, cat:2, name:{tr:'Tavuk Şiş',de:'Hähnchen-Spieß',en:'Chicken Skewers'}, desc:{tr:'Marine edilmiş tavuk göğsü, sebze garnitür',de:'Marinierte Hähnchenbrust mit Gemüse',en:'Marinated chicken breast with vegetable garnish'}, price:12.90, priceTakeaway:11.90, img:'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=400&h=300&fit=crop', allergens:[], vegetarian:false, vegan:false, ingredients:{tr:'Tavuk göğsü, biber, soğan, domates, baharatlar',de:'Hähnchenbrust, Paprika, Zwiebeln, Tomaten, Gewürze',en:'Chicken breast, peppers, onions, tomatoes, spices'} },
+  { id:7, cat:3, name:{tr:'Karışık Pizza',de:'Gemischte Pizza',en:'Mixed Pizza'}, desc:{tr:'Sucuk, mantar, biber, mozzarella',de:'Sucuk, Champignons, Paprika, Mozzarella',en:'Sucuk, mushrooms, peppers, mozzarella'}, price:12.90, priceTakeaway:11.90, img:'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=400&h=300&fit=crop', allergens:['gluten','dairy'], vegetarian:false, vegan:false, ingredients:{tr:'Pizza hamuru, domates sosu, mozzarella, sucuk, mantar, biber',de:'Pizzateig, Tomatensauce, Mozzarella, Sucuk, Champignons, Paprika',en:'Pizza dough, tomato sauce, mozzarella, sucuk, mushrooms, peppers'} },
+  { id:8, cat:3, name:{tr:'Margarita Pizza',de:'Margherita Pizza',en:'Margherita Pizza'}, desc:{tr:'Domates sosu, taze mozzarella, fesleğen',de:'Tomatensauce, frischer Mozzarella, Basilikum',en:'Tomato sauce, fresh mozzarella, basil'}, price:10.90, priceTakeaway:9.90, img:'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=400&h=300&fit=crop', allergens:['gluten','dairy'], vegetarian:true, vegan:false, ingredients:{tr:'Pizza hamuru, domates sosu, taze mozzarella, fesleğen',de:'Pizzateig, Tomatensauce, frischer Mozzarella, Basilikum',en:'Pizza dough, tomato sauce, fresh mozzarella, basil'} },
+  { id:9, cat:4, name:{tr:'Döner Dürüm',de:'Döner Dürüm',en:'Döner Wrap'}, desc:{tr:'İnce lavaş içinde döner eti, salata, sos',de:'Döner-Fleisch im dünnen Wrap mit Salat und Sauce',en:'Döner meat in thin wrap with salad and sauce'}, price:8.90, priceTakeaway:8.50, img:'https://images.unsplash.com/photo-1561651823-34feb02250e4?w=400&h=300&fit=crop', allergens:['gluten'], vegetarian:false, vegan:false, ingredients:{tr:'Lavaş, döner eti, salata, domates, soğan, sos',de:'Lavash, Döner-Fleisch, Salat, Tomaten, Zwiebeln, Sauce',en:'Lavash, döner meat, salad, tomatoes, onions, sauce'} },
+  { id:10, cat:4, name:{tr:'Falafel Dürüm',de:'Falafel Dürüm',en:'Falafel Wrap'}, desc:{tr:'Nohut köftesi, humus, salata',de:'Kichererbsen-Bällchen, Hummus, Salat',en:'Chickpea fritters, hummus, salad'}, price:7.90, priceTakeaway:7.50, img:'https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEheLPMSA-yebPEPvqOL7I54H5bHLwMgMWFW1ygw3VULmWr_RFRIdFcu4hzmeisTrGk4N-WadAxSZJ_Y4U8yRYxY6OTQ_YPwjb6mWD3hyLzHXlz26_-rhy3cq0wOd9FqlFMqCfH1GQ/s1600/Falafel+Hummus+Lavash+by+Meeta+K.+Wolff-WM-0073.jpg', allergens:['gluten'], vegetarian:true, vegan:true, ingredients:{tr:'Nohut, maydanoz, soğan, sarımsak, lavaş, humus',de:'Kichererbsen, Petersilie, Zwiebeln, Knoblauch, Lavash, Hummus',en:'Chickpeas, parsley, onions, garlic, lavash, hummus'} },
+  { id:11, cat:5, name:{tr:'Çoban Salata',de:'Hirtensalat',en:'Shepherd Salad'}, desc:{tr:'Domates, salatalık, soğan, biber, zeytinyağı',de:'Tomaten, Gurken, Zwiebeln, Paprika, Olivenöl',en:'Tomatoes, cucumbers, onions, peppers, olive oil'}, price:5.90, priceTakeaway:5.50, img:'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&h=300&fit=crop', allergens:[], vegetarian:true, vegan:true, ingredients:{tr:'Domates, salatalık, soğan, biber, maydanoz, zeytinyağı, limon',de:'Tomaten, Gurken, Zwiebeln, Paprika, Petersilie, Olivenöl, Zitrone',en:'Tomatoes, cucumbers, onions, peppers, parsley, olive oil, lemon'} },
+  { id:12, cat:6, name:{tr:'Ayran',de:'Ayran',en:'Ayran'}, desc:{tr:'Geleneksel yoğurt içeceği',de:'Traditionelles Joghurtgetränk',en:'Traditional yogurt drink'}, price:2.50, priceTakeaway:2.50, img:'https://images.unsplash.com/photo-1571934811356-5cc061b6821f?w=400&h=300&fit=crop', allergens:['dairy'], vegetarian:true, vegan:false, ingredients:{tr:'Yoğurt, su, tuz',de:'Joghurt, Wasser, Salz',en:'Yogurt, water, salt'} },
+  { id:13, cat:6, name:{tr:'Coca-Cola',de:'Coca-Cola',en:'Coca-Cola'}, desc:{tr:'330ml kutu',de:'330ml Dose',en:'330ml can'}, price:2.90, priceTakeaway:2.90, img:'https://images.unsplash.com/photo-1554866585-cd94860890b7?w=400&h=300&fit=crop', allergens:[], vegetarian:true, vegan:true, ingredients:{tr:'Gazlı içecek',de:'Kohlensäurehaltiges Getränk',en:'Carbonated drink'} },
+  { id:14, cat:6, name:{tr:'Türk Çayı',de:'Türkischer Tee',en:'Turkish Tea'}, desc:{tr:'Geleneksel demlik çayı',de:'Traditioneller Samowar-Tee',en:'Traditional brewed tea'}, price:2.00, priceTakeaway:1.80, img:'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=400&h=300&fit=crop', allergens:[], vegetarian:true, vegan:true, ingredients:{tr:'Siyah çay',de:'Schwarztee',en:'Black tea'} },
+  { id:15, cat:7, name:{tr:'Künefe',de:'Künefe',en:'Kunefe'}, desc:{tr:'Peynirli kadayıf tatlısı, antep fıstığı',de:'Käse-Kadayif-Dessert mit Pistazien',en:'Cheese kadayif dessert with pistachios'}, price:8.90, priceTakeaway:8.50, img:'https://images.unsplash.com/photo-1576097449798-7c7f90e1248a?w=400&h=300&fit=crop', allergens:['dairy','gluten','nuts'], vegetarian:true, vegan:false, ingredients:{tr:'Kadayıf, peynir, şerbet, antep fıstığı',de:'Kadayif, Käse, Sirup, Pistazien',en:'Kadayif, cheese, syrup, pistachios'} },
+  { id:16, cat:7, name:{tr:'Baklava',de:'Baklava',en:'Baklava'}, desc:{tr:'İnce yufka, ceviz, antep fıstığı, şerbet',de:'Dünnes Blätterteig, Walnüsse, Pistazien, Sirup',en:'Thin layers of filo, walnuts, pistachios, syrup'}, price:7.50, priceTakeaway:7.00, img:'https://images.unsplash.com/photo-1598110750624-207050c4f28c?w=400&h=300&fit=crop', allergens:['gluten','nuts'], vegetarian:true, vegan:false, ingredients:{tr:'Yufka, ceviz, antep fıstığı, tereyağı, şerbet',de:'Blätterteig, Walnüsse, Pistazien, Butter, Sirup',en:'Filo pastry, walnuts, pistachios, butter, syrup'} },
+];
+
+// ─── NAVIGATION ───
+function navigateTo(screenId) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const target = document.getElementById(screenId);
+  if (target) {
+    target.classList.add('active');
+    currentScreen = screenId;
+    if (screenId === 's-menu') renderMenu();
+    if (screenId === 's-checkout') renderCheckout();
+  }
+}
+
+// ─── LANGUAGE ───
+function setLang(lang) {
+  currentLang = lang;
+  localStorage.setItem('nxp_lang', lang);
+  updateLangButtons();
+  updateAllText();
+  if (currentScreen === 's-menu') renderMenu();
+}
+
+function updateLangButtons() {
+  document.querySelectorAll('.lang-sel-btn').forEach(b => {
+    b.classList.toggle('bg-primary-400', b.dataset.lang === currentLang);
+    b.classList.toggle('text-white', b.dataset.lang === currentLang);
+    b.classList.toggle('border-primary-400', b.dataset.lang === currentLang);
+    b.classList.toggle('bg-white', b.dataset.lang !== currentLang);
+    b.classList.toggle('text-dark-500', b.dataset.lang !== currentLang);
+    b.classList.toggle('border-gray-200', b.dataset.lang !== currentLang);
+  });
+  document.querySelectorAll('.menu-lang-btn').forEach(b => {
+    b.classList.toggle('bg-primary-400', b.dataset.lang === currentLang);
+    b.classList.toggle('text-white', b.dataset.lang === currentLang);
+    b.classList.toggle('bg-gray-100', b.dataset.lang !== currentLang);
+    b.classList.toggle('text-dark-400', b.dataset.lang !== currentLang);
+  });
+}
+
+function updateAllText() {
+  const $ = id => document.getElementById(id);
+  $('splash-cta').textContent = t('splashCta');
+  $('login-title').textContent = t('loginTitle');
+  $('login-phone-title').textContent = t('phoneTitle');
+  $('login-phone-desc').textContent = t('phoneDesc');
+  $('phone-label').textContent = t('phoneLabel');
+  $('send-otp-btn').textContent = t('sendOtp');
+  $('otp-label').textContent = t('otpLabel');
+  $('verify-btn').textContent = t('verify');
+  $('or-text').textContent = t('or');
+  $('guest-text').textContent = t('guestBtn');
+  $('info-title').textContent = t('infoTitle');
+  $('name-label').textContent = t('nameLabel');
+  $('address-label').textContent = t('addressLabel');
+  $('save-info-btn').textContent = t('continue');
+  $('ordertype-title').textContent = t('orderTypeTitle');
+  $('ordertype-question').textContent = t('orderTypeQ');
+  $('delivery-title').textContent = t('deliveryTitle');
+  $('delivery-desc').textContent = t('deliveryDesc');
+  $('delivery-time').textContent = t('deliveryTime');
+  $('delivery-fee-badge').textContent = t('deliveryMin');
+  $('takeaway-title').textContent = t('takeawayTitle');
+  $('takeaway-desc').textContent = t('takeawayDesc');
+  $('takeaway-time').textContent = t('takeawayTime');
+  $('takeaway-discount').textContent = t('takeawayFree');
+  $('search-input').placeholder = t('searchPlaceholder');
+  $('filter-all').textContent = t('filterAll');
+  $('cart-title').textContent = t('cartTitle');
+  $('cart-btn-text').textContent = t('viewCart');
+  $('checkout-title').textContent = t('checkoutTitle');
+  $('checkout-delivery-title').textContent = t('deliveryInfo');
+  $('checkout-name-label').textContent = t('checkoutNameLabel');
+  $('checkout-address-label').textContent = t('checkoutAddressLabel');
+  $('checkout-time-label').textContent = orderType === 'delivery' ? t('deliveryTimeLabel') : t('pickupTimeLabel');
+  $('time-asap').textContent = t('asap');
+  $('checkout-summary-title').textContent = t('orderSummary');
+  $('checkout-note-title').textContent = t('orderNote');
+  $('order-note').placeholder = t('notePlaceholder');
+  $('checkout-payment-title').textContent = t('paymentTitle');
+  $('card-number-label').textContent = t('cardNumber');
+  $('card-expiry-label').textContent = t('cardExpiry');
+  $('place-order-text').textContent = t('placeOrder');
+  $('checkout-text').textContent = t('checkout');
+  $('confirm-title').textContent = t('confirmTitle');
+  $('confirm-desc').textContent = t('confirmDesc');
+  $('confirm-order-label').textContent = t('orderNo');
+  $('confirm-total-label').textContent = t('totalLabel');
+  $('confirm-est-label').textContent = t('estLabel');
+  $('new-order-btn').textContent = t('newOrder');
+  $('loading-text').textContent = t('loading');
+}
+
+// ─── AUTH ───
+function sendOTP() {
+  const phone = document.getElementById('phone-input').value.trim();
+  if (!phone) return;
+  showLoading();
+  // Mock API call
+  setTimeout(() => {
+    hideLoading();
+    document.getElementById('otp-section').classList.remove('hidden');
+    showToast(t('otpSent'), 'success');
+    // Auto-focus first OTP box
+    document.querySelector('.otp-box')?.focus();
+  }, 1000);
+}
+
+// OTP auto-advance
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.otp-box').forEach((box, i, boxes) => {
+    box.addEventListener('input', () => {
+      if (box.value.length === 1 && i < boxes.length - 1) boxes[i+1].focus();
+    });
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' && !box.value && i > 0) boxes[i-1].focus();
+    });
+  });
+});
+
+function verifyOTP() {
+  showLoading();
+  setTimeout(() => {
+    hideLoading();
+    currentUser = { name: 'Ahmet Yılmaz', phone: '+49 170 123 4567' };
+    showToast(t('otpVerified'), 'success');
+    navigateTo('s-ordertype');
+  }, 1200);
+}
+
+function guestContinue() {
+  currentUser = { name: 'Misafir', phone: '' };
+  navigateTo('s-ordertype');
+}
+
+function saveInfoAndContinue() {
+  const name = document.getElementById('user-name').value.trim();
+  if (name) currentUser.name = name;
+  currentUser.address = document.getElementById('user-address').value.trim();
+  navigateTo('s-ordertype');
+}
+
+// ─── ORDER TYPE ───
+function selectOrderType(type) {
+  orderType = type;
+  localStorage.setItem('nxp_orderType', type);
+  document.getElementById('menu-order-type-badge').textContent = type === 'delivery' ? t('orderBadgeDelivery') : t('orderBadgeTakeaway');
+  navigateTo('s-menu');
+}
+
+// ─── MENU RENDERING ───
+function renderMenu() {
+  renderCategories();
+  renderProducts();
+  updateCartUI();
+}
+
+function renderCategories() {
+  const container = document.getElementById('category-tabs');
+  container.innerHTML = '';
+  // All tab
+  const allBtn = document.createElement('button');
+  allBtn.className = `flex-shrink-0 px-4 py-2 rounded-xl text-xs font-semibold transition ${!activeCategory ? 'bg-primary-400 text-white' : 'bg-white text-dark-500 border border-gray-200'}`;
+  allBtn.textContent = t('filterAll');
+  allBtn.onclick = () => { activeCategory = null; renderProducts(); renderCategories(); };
+  container.appendChild(allBtn);
+
+  categories.forEach(cat => {
+    const btn = document.createElement('button');
+    btn.className = `flex-shrink-0 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${activeCategory === cat.id ? 'bg-primary-400 text-white' : 'bg-white text-dark-500 border border-gray-200'}`;
+    btn.innerHTML = `${cat.icon} ${cat.name[currentLang] || cat.name.tr}`;
+    btn.onclick = () => { activeCategory = cat.id; renderProducts(); renderCategories(); };
+    container.appendChild(btn);
+  });
+}
+
+function getFilteredProducts() {
+  return products.filter(p => {
+    if (activeCategory && p.cat !== activeCategory) return false;
+    if (activeFilter === 'vegetarian' && !p.vegetarian) return false;
+    if (activeFilter === 'vegan' && !p.vegan) return false;
+    if (activeFilter === 'gluten-free' && p.allergens.includes('gluten')) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const name = (p.name[currentLang] || p.name.tr).toLowerCase();
+      const desc = (p.desc[currentLang] || p.desc.tr).toLowerCase();
+      if (!name.includes(q) && !desc.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderProducts() {
+  const container = document.getElementById('product-list');
+  const filtered = getFilteredProducts();
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div class="flex flex-col items-center justify-center py-20 text-center"><span class="text-4xl mb-3">🔍</span><p class="text-dark-400 text-sm">Sonuç bulunamadı</p></div>`;
+    return;
+  }
+
+  // Group by category
+  const grouped = {};
+  filtered.forEach(p => {
+    if (!grouped[p.cat]) grouped[p.cat] = [];
+    grouped[p.cat].push(p);
+  });
+
+  let html = '';
+  Object.entries(grouped).forEach(([catId, prods]) => {
+    const cat = categories.find(c => c.id === parseInt(catId));
+    if (!cat) return;
+    html += `<div class="mb-5"><h3 class="text-xs font-bold uppercase tracking-wider text-dark-400 mb-3 flex items-center gap-2">${cat.icon} ${cat.name[currentLang] || cat.name.tr}<span class="flex-1 h-px bg-gray-200"></span></h3>`;
+    html += `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">`;
+    prods.forEach(p => {
+      const price = orderType === 'takeaway' ? p.priceTakeaway : p.price;
+      const cartItem = cart.find(c => c.id === p.id);
+      const badges = [];
+      if (p.vegan) badges.push('<span class="absolute top-2 left-2 bg-green-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md z-10">VEGAN</span>');
+      else if (p.vegetarian) badges.push('<span class="absolute top-2 left-2 bg-teal-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md z-10">VEG</span>');
+
+      html += `
+      <div class="bg-white rounded-2xl border border-gray-100 overflow-hidden hover:shadow-md hover:border-primary-200 transition-all cursor-pointer group" onclick="openProductModal(${p.id})">
+        <div class="relative h-28 bg-gray-100 overflow-hidden">
+          ${badges.join('')}
+          <img src="${p.img}" alt="${p.name[currentLang]||p.name.tr}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" onerror="this.style.display='none';this.parentElement.innerHTML+='<div class=\\'flex items-center justify-center h-full text-3xl\\'>🍽️</div>'" />
+          ${cartItem ? `<span class="absolute top-2 right-2 bg-primary-400 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center z-10">${cartItem.qty}</span>` : ''}
+        </div>
+        <div class="p-3">
+          <h4 class="font-semibold text-sm text-dark-900 leading-tight mb-1 line-clamp-1">${p.name[currentLang] || p.name.tr}</h4>
+          <p class="text-[11px] text-dark-400 line-clamp-2 mb-2 leading-relaxed">${p.desc[currentLang] || p.desc.tr}</p>
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-primary-400">€${price.toFixed(2)}</span>
+            <button onclick="event.stopPropagation();quickAdd(${p.id})" class="w-8 h-8 bg-primary-400 hover:bg-primary-500 text-white rounded-xl flex items-center justify-center text-lg transition-all active:scale-90" aria-label="Add to cart">+</button>
+          </div>
+        </div>
+      </div>`;
+    });
+    html += `</div></div>`;
+  });
+  container.innerHTML = html;
+}
+
+// ─── FILTERS ───
+function toggleFilter(filter) {
+  activeFilter = filter;
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  document.querySelector(`.filter-chip[data-filter="${filter}"]`)?.classList.add('active');
+  renderProducts();
+}
+
+// Search
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('search-input')?.addEventListener('input', (e) => {
+    searchQuery = e.target.value;
+    renderProducts();
+  });
+});
+
+// ─── PRODUCT MODAL ───
+function openProductModal(id) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  const price = orderType === 'takeaway' ? p.priceTakeaway : p.price;
+  const modal = document.getElementById('product-modal');
+  document.getElementById('pm-title').textContent = p.name[currentLang] || p.name.tr;
+
+  const allergenLabels = p.allergens.length > 0
+    ? p.allergens.map(a => `<span class="bg-red-50 text-red-600 text-xs font-semibold px-2 py-1 rounded-lg">${t(a)}</span>`).join('')
+    : `<span class="text-xs text-dark-400">${t('none')}</span>`;
+
+  document.getElementById('pm-body').innerHTML = `
+    <div class="rounded-2xl overflow-hidden h-44 bg-gray-100 mb-4">
+      <img src="${p.img}" alt="" class="w-full h-full object-cover" onerror="this.style.display='none'" />
+    </div>
+    <p class="text-dark-500 text-sm leading-relaxed mb-4">${p.desc[currentLang] || p.desc.tr}</p>
+    ${p.vegetarian ? '<span class="inline-flex items-center gap-1 bg-teal-50 text-teal-600 text-xs font-semibold px-2 py-1 rounded-lg mr-1 mb-3">' + (p.vegan ? '🌱 Vegan' : '🥬 Vegetarian') + '</span>' : ''}
+    <div class="mb-4">
+      <h5 class="text-xs font-bold uppercase tracking-wider text-dark-400 mb-2">${t('ingredients')}</h5>
+      <p class="text-sm text-dark-500">${p.ingredients[currentLang] || p.ingredients.tr}</p>
+    </div>
+    <div class="mb-5">
+      <h5 class="text-xs font-bold uppercase tracking-wider text-dark-400 mb-2">${t('allergens')}</h5>
+      <div class="flex flex-wrap gap-1.5">${allergenLabels}</div>
+    </div>
+    <div class="flex items-center justify-between mb-4 bg-gray-50 rounded-xl p-3">
+      <div class="flex items-center gap-3">
+        <button onclick="adjustModalQty(-1)" class="w-10 h-10 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-lg font-bold text-dark-400 hover:border-primary-400 transition active:scale-90">−</button>
+        <span id="modal-qty" class="text-xl font-bold min-w-[24px] text-center">1</span>
+        <button onclick="adjustModalQty(1)" class="w-10 h-10 bg-white border border-gray-200 rounded-xl flex items-center justify-center text-lg font-bold text-dark-400 hover:border-primary-400 transition active:scale-90">+</button>
+      </div>
+      <span class="text-xl font-bold text-primary-400" id="modal-total">€${price.toFixed(2)}</span>
+    </div>
+    <button onclick="addToCartFromModal(${p.id})" class="w-full bg-primary-400 hover:bg-primary-500 text-white font-bold py-4 rounded-2xl transition-all active:scale-[.98] flex items-center justify-center gap-2">
+      🛒 ${t('addToCart')}
+    </button>
+  `;
+  modal.dataset.productId = id;
+  modal.dataset.qty = 1;
+  modal.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function adjustModalQty(delta) {
+  const modal = document.getElementById('product-modal');
+  let qty = parseInt(modal.dataset.qty) + delta;
+  if (qty < 1) qty = 1;
+  if (qty > 20) qty = 20;
+  modal.dataset.qty = qty;
+  document.getElementById('modal-qty').textContent = qty;
+  const p = products.find(x => x.id === parseInt(modal.dataset.productId));
+  if (p) {
+    const price = orderType === 'takeaway' ? p.priceTakeaway : p.price;
+    document.getElementById('modal-total').textContent = `€${(price * qty).toFixed(2)}`;
+  }
+}
+
+function addToCartFromModal(id) {
+  const modal = document.getElementById('product-modal');
+  const qty = parseInt(modal.dataset.qty);
+  addToCart(id, qty);
+  closeProductModal();
+}
+
+function closeProductModal() {
+  document.getElementById('product-modal').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+// ─── CART ───
+function quickAdd(id) {
+  addToCart(id, 1);
+}
+
+function addToCart(id, qty) {
+  const existing = cart.find(c => c.id === id);
+  if (existing) {
+    existing.qty += qty;
+  } else {
+    cart.push({ id, qty });
+  }
+  saveCart();
+  updateCartUI();
+  renderProducts();
+  showToast(t('addedToCart'), 'success');
+  // Badge bounce
+  const badge = document.getElementById('cart-badge');
+  badge.style.animation = 'none';
+  badge.offsetHeight;
+  badge.style.animation = 'cartPop .3s ease';
+}
+
+function removeFromCart(id) {
+  cart = cart.filter(c => c.id !== id);
+  saveCart();
+  updateCartUI();
+  renderProducts();
+  renderCartItems();
+}
+
+function adjustCartQty(id, delta) {
+  const item = cart.find(c => c.id === id);
+  if (!item) return;
+  item.qty += delta;
+  if (item.qty <= 0) { removeFromCart(id); return; }
+  saveCart();
+  updateCartUI();
+  renderCartItems();
+}
+
+function saveCart() {
+  localStorage.setItem('nxp_cart', JSON.stringify(cart));
+}
+
+function getCartTotals() {
+  let subtotal = 0;
+  cart.forEach(item => {
+    const p = products.find(x => x.id === item.id);
+    if (p) {
+      const price = orderType === 'takeaway' ? p.priceTakeaway : p.price;
+      subtotal += price * item.qty;
+    }
+  });
+  const taxRate = orderType === 'takeaway' ? TAX_TAKEAWAY : TAX_DELIVERY;
+  const tax = subtotal * taxRate;
+  const deliveryFee = orderType === 'delivery' ? DELIVERY_FEE : 0;
+  const total = subtotal + tax + deliveryFee;
+  return { subtotal, tax, taxRate, deliveryFee, total };
+}
+
+function updateCartUI() {
+  const totalItems = cart.reduce((s, c) => s + c.qty, 0);
+  const { total } = getCartTotals();
+  document.getElementById('cart-badge').textContent = totalItems;
+  document.getElementById('cart-btn-total').textContent = `€${total.toFixed(2)}`;
+  const floatingCart = document.getElementById('floating-cart');
+  if (totalItems > 0) {
+    floatingCart.classList.remove('hidden');
+  } else {
+    floatingCart.classList.add('hidden');
+  }
+}
+
+function openCart() {
+  renderCartItems();
+  document.getElementById('cart-drawer').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeCart() {
+  document.getElementById('cart-drawer').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+function renderCartItems() {
+  const container = document.getElementById('cart-items');
+  const totalsEl = document.getElementById('cart-totals');
+  const { subtotal, tax, taxRate, deliveryFee, total } = getCartTotals();
+
+  if (cart.length === 0) {
+    container.innerHTML = `<div class="flex flex-col items-center justify-center py-12 text-center"><span class="text-5xl mb-3" style="animation:float 3s ease-in-out infinite">🛒</span><p class="font-semibold text-dark-400">${t('cartEmpty')}</p><p class="text-xs text-dark-300 mt-1">${t('cartEmptyDesc')}</p></div>`;
+    totalsEl.innerHTML = '';
+    document.getElementById('checkout-btn').disabled = true;
+    document.getElementById('checkout-total').textContent = '€0.00';
+    document.getElementById('cart-min-warning').classList.add('hidden');
+    return;
+  }
+
+  let html = '';
+  cart.forEach(item => {
+    const p = products.find(x => x.id === item.id);
+    if (!p) return;
+    const price = orderType === 'takeaway' ? p.priceTakeaway : p.price;
+    html += `
+    <div class="flex items-center gap-3 py-3 border-b border-gray-50 last:border-0">
+      <div class="w-14 h-14 rounded-xl bg-gray-100 overflow-hidden flex-shrink-0">
+        <img src="${p.img}" alt="" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full text-lg\\'>🍽️</div>'" />
+      </div>
+      <div class="flex-1 min-w-0">
+        <h4 class="font-semibold text-sm text-dark-900 truncate">${p.name[currentLang] || p.name.tr}</h4>
+        <p class="text-xs text-dark-400">€${price.toFixed(2)}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="adjustCartQty(${p.id},-1)" class="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-sm font-bold text-dark-400 hover:bg-gray-200 transition active:scale-90">−</button>
+        <span class="text-sm font-bold min-w-[18px] text-center">${item.qty}</span>
+        <button onclick="adjustCartQty(${p.id},1)" class="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-sm font-bold text-dark-400 hover:bg-gray-200 transition active:scale-90">+</button>
+      </div>
+      <span class="font-bold text-sm text-primary-400 min-w-[50px] text-right">€${(price*item.qty).toFixed(2)}</span>
+      <button onclick="removeFromCart(${p.id})" class="text-dark-300 hover:text-red-500 transition text-sm ml-1" aria-label="Remove">🗑</button>
+    </div>`;
+  });
+  container.innerHTML = html;
+
+  const taxPct = Math.round(taxRate * 100);
+  totalsEl.innerHTML = `
+    <div class="flex justify-between text-sm text-dark-500 mb-1"><span>${t('subtotal')}</span><span>€${subtotal.toFixed(2)}</span></div>
+    <div class="flex justify-between text-sm text-dark-500 mb-1"><span>${t('tax')} ${taxPct}%</span><span>€${tax.toFixed(2)}</span></div>
+    ${orderType === 'delivery' ? `<div class="flex justify-between text-sm text-dark-500 mb-1"><span>${t('deliveryFeeLabel')}</span><span>€${deliveryFee.toFixed(2)}</span></div>` : ''}
+    <div class="flex justify-between font-bold text-dark-900 text-base pt-2 border-t border-gray-100 mt-1"><span>${t('total')}</span><span class="text-primary-400">€${total.toFixed(2)}</span></div>
+  `;
+
+  const minOrder = orderType === 'delivery' ? MIN_ORDER_DELIVERY : MIN_ORDER_TAKEAWAY;
+  const warn = document.getElementById('cart-min-warning');
+  const checkoutBtn = document.getElementById('checkout-btn');
+  if (subtotal < minOrder) {
+    warn.textContent = `${t('minWarning')}${minOrder.toFixed(2)}`;
+    warn.classList.remove('hidden');
+    checkoutBtn.disabled = true;
+  } else {
+    warn.classList.add('hidden');
+    checkoutBtn.disabled = false;
+  }
+  document.getElementById('checkout-total').textContent = `€${total.toFixed(2)}`;
+}
+
+// ─── CHECKOUT ───
+function goToCheckout() {
+  closeCart();
+  navigateTo('s-checkout');
+}
+
+function renderCheckout() {
+  const { subtotal, tax, taxRate, deliveryFee, total } = getCartTotals();
+  const taxPct = Math.round(taxRate * 100);
+
+  // Show/hide delivery section
+  const deliverySec = document.getElementById('checkout-delivery-section');
+  if (orderType === 'delivery') {
+    deliverySec.classList.remove('hidden');
+    if (currentUser?.name) document.getElementById('checkout-name').value = currentUser.name;
+    if (currentUser?.address) document.getElementById('checkout-address').value = currentUser.address;
+  } else {
+    deliverySec.classList.add('hidden');
+  }
+
+  // Items
+  let itemsHtml = '';
+  cart.forEach(item => {
+    const p = products.find(x => x.id === item.id);
+    if (!p) return;
+    const price = orderType === 'takeaway' ? p.priceTakeaway : p.price;
+    itemsHtml += `<div class="flex justify-between items-center text-sm"><span class="text-dark-500">${item.qty}x ${p.name[currentLang]||p.name.tr}</span><span class="font-semibold">€${(price*item.qty).toFixed(2)}</span></div>`;
+  });
+  document.getElementById('checkout-items').innerHTML = itemsHtml;
+
+  // Totals
+  document.getElementById('checkout-totals').innerHTML = `
+    <div class="flex justify-between text-sm text-dark-500"><span>${t('subtotal')}</span><span>€${subtotal.toFixed(2)}</span></div>
+    <div class="flex justify-between text-sm text-dark-500"><span>${t('tax')} ${taxPct}%</span><span>€${tax.toFixed(2)}</span></div>
+    ${orderType === 'delivery' ? `<div class="flex justify-between text-sm text-dark-500"><span>${t('deliveryFeeLabel')}</span><span>€${deliveryFee.toFixed(2)}</span></div>` : ''}
+    <div class="flex justify-between font-bold text-dark-900 text-lg pt-2 border-t border-gray-100 mt-1"><span>${t('total')}</span><span class="text-primary-400">€${total.toFixed(2)}</span></div>
+  `;
+
+  document.getElementById('place-order-total').textContent = `€${total.toFixed(2)}`;
+}
+
+// ─── CARD FORMATTING ───
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('card-number')?.addEventListener('input', function(e) {
+    let v = this.value.replace(/\D/g, '').substring(0, 16);
+    this.value = v.replace(/(.{4})/g, '$1 ').trim();
+  });
+  document.getElementById('card-expiry')?.addEventListener('input', function(e) {
+    let v = this.value.replace(/\D/g, '').substring(0, 4);
+    if (v.length >= 2) v = v.substring(0,2) + '/' + v.substring(2);
+    this.value = v;
+  });
+});
+
+// ─── PLACE ORDER ───
+function placeOrder() {
+  // Validate payment
+  const cardNum = document.getElementById('card-number').value.replace(/\s/g, '');
+  const cardExp = document.getElementById('card-expiry').value;
+  const cardCvv = document.getElementById('card-cvv').value;
+  if (cardNum.length < 16 || !cardExp || cardCvv.length < 3) {
+    showToast(t('errorFields'), 'error');
+    return;
+  }
+  if (orderType === 'delivery') {
+    const name = document.getElementById('checkout-name').value.trim();
+    const address = document.getElementById('checkout-address').value.trim();
+    if (!name || !address) {
+      showToast(t('errorFields'), 'error');
+      return;
+    }
+  }
+
+  showLoading();
+
+  // Mock API
+  setTimeout(() => {
+    hideLoading();
+    const { total } = getCartTotals();
+    const orderNo = 'NP-' + Date.now().toString().slice(-6);
+
+    // Set confirmation screen
+    document.getElementById('confirm-order-no').textContent = `#${orderNo}`;
+    document.getElementById('confirm-total').textContent = `€${total.toFixed(2)}`;
+    document.getElementById('confirm-est-time').textContent = orderType === 'delivery' ? t('estTime') : t('estTimeTakeaway');
+
+    let detailsHtml = '';
+    cart.forEach(item => {
+      const p = products.find(x => x.id === item.id);
+      if (p) {
+        const price = orderType === 'takeaway' ? p.priceTakeaway : p.price;
+        detailsHtml += `<div class="flex justify-between text-sm py-1"><span class="text-dark-500">${item.qty}x ${p.name[currentLang]||p.name.tr}</span><span class="font-semibold">€${(price*item.qty).toFixed(2)}</span></div>`;
+      }
+    });
+    document.getElementById('confirm-details').innerHTML = detailsHtml;
+
+    // Clear cart
+    cart = [];
+    saveCart();
+    updateCartUI();
+
+    showToast(t('orderPlaced'), 'success');
+    navigateTo('s-confirm');
+  }, 2000);
+}
+
+// ─── RESET ───
+function resetApp() {
+  cart = [];
+  saveCart();
+  orderType = null;
+  currentUser = null;
+  activeCategory = null;
+  activeFilter = 'all';
+  searchQuery = '';
+  document.getElementById('phone-input').value = '';
+  document.getElementById('otp-section')?.classList.add('hidden');
+  document.getElementById('card-number').value = '';
+  document.getElementById('card-expiry').value = '';
+  document.getElementById('card-cvv').value = '';
+  document.getElementById('order-note').value = '';
+  navigateTo('s-splash');
+}
+
+// ─── UTILS ───
+function showLoading() { document.getElementById('loading-overlay').classList.remove('hidden'); }
+function hideLoading() { document.getElementById('loading-overlay').classList.add('hidden'); }
+
+function showToast(msg, type = 'info') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity .3s'; }, 2500);
+  setTimeout(() => toast.remove(), 3000);
+}
+
+// ─── MOCK API FUNCTIONS ───
+const API = {
+  async getMenu(branchId) {
+    // GET /menu/:branchId
+    return new Promise(resolve => setTimeout(() => resolve({ categories, products }), 300));
+  },
+  async authPhone(phone) {
+    // POST /auth/phone
+    return new Promise(resolve => setTimeout(() => resolve({ success: true, message: 'OTP sent' }), 500));
+  },
+  async authVerify(phone, code) {
+    // POST /auth/verify
+    return new Promise(resolve => setTimeout(() => resolve({ success: true, token: 'jwt_mock_token', user: { name: 'Ahmet Yılmaz' } }), 500));
+  },
+  async createOrder(orderData) {
+    // POST /orders
+    return new Promise(resolve => setTimeout(() => resolve({ success: true, orderId: 'NP-' + Date.now().toString().slice(-6) }), 800));
+  },
+  async stripePayment(paymentData) {
+    // POST /payments/stripe
+    return new Promise(resolve => setTimeout(() => resolve({ success: true, paymentIntentId: 'pi_mock_' + Date.now() }), 600));
+  },
+  async getOrder(orderId) {
+    // GET /orders/:orderId
+    return new Promise(resolve => setTimeout(() => resolve({ status: 'preparing', estimatedTime: 30 }), 300));
+  }
+};
+
+// ─── INIT ───
+document.addEventListener('DOMContentLoaded', () => {
+  const savedLang = localStorage.getItem('nxp_lang');
+  if (savedLang) currentLang = savedLang;
+  updateLangButtons();
+  updateAllText();
+});
+</script>
+</body>
+</html>

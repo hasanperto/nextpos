@@ -1,0 +1,1214 @@
+[
+  {
+    "id": "TC001",
+    "title": "Log in with username/password and reach the correct role home screen",
+    "description": "Verifies a staff user can authenticate with tenant UUID plus username/password and is routed to their role-appropriate main screen.",
+    "category": "Login (username/password)",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid tenant UUID into the tenant field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the user lands on their role-appropriate main screen"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC002",
+    "title": "Log in with PIN and reach the correct role home screen",
+    "description": "Verifies a staff user can authenticate with tenant UUID plus PIN and is routed to their role-appropriate main screen.",
+    "category": "Login (PIN)",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid tenant UUID into the tenant field"
+      },
+      {
+        "type": "action",
+        "description": "Select the PIN login option"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid PIN into the PIN field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the user lands on their role-appropriate main screen"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC003",
+    "title": "Create a paid cashier order with a valid discount or coupon",
+    "description": "Verifies a cashier can add items, apply a valid discount/coupon, complete payment, and see an order creation confirmation.",
+    "category": "Cashier Order Flow",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid tenant UUID into the tenant field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click to open the cashier screen"
+      },
+      {
+        "type": "action",
+        "description": "Select a product from the menu"
+      },
+      {
+        "type": "action",
+        "description": "Add the selected product to the cart"
+      },
+      {
+        "type": "action",
+        "description": "Apply a valid coupon or discount"
+      },
+      {
+        "type": "action",
+        "description": "Choose a payment method"
+      },
+      {
+        "type": "action",
+        "description": "Complete payment"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an order created confirmation is visible"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC004",
+    "title": "Advance an order through Preparing, Ready, and Completed",
+    "description": "Creates an order in POS and verifies kitchen staff can advance it through all statuses until completion and the final status is visible in the kitchen list.",
+    "category": "Kitchen Progression",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant UUID field with {{TENANT_UUID}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /cashier"
+      },
+      {
+        "type": "action",
+        "description": "Add a product to the order"
+      },
+      {
+        "type": "action",
+        "description": "Select cash as the payment method"
+      },
+      {
+        "type": "action",
+        "description": "Submit the order payment to create the order"
+      },
+      {
+        "type": "action",
+        "description": "Click the logout or lock session control"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant UUID field with {{TENANT_UUID}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation to the kitchen screen"
+      },
+      {
+        "type": "action",
+        "description": "Select a station option to open the kitchen monitor"
+      },
+      {
+        "type": "action",
+        "description": "Open the most recently created order from the order list"
+      },
+      {
+        "type": "action",
+        "description": "Change the order status to Preparing"
+      },
+      {
+        "type": "action",
+        "description": "Change the order status to Ready"
+      },
+      {
+        "type": "action",
+        "description": "Change the order status to Completed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the order is shown as completed in the kitchen order list"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC005",
+    "title": "Courier can mark an assigned delivery as picked up and delivered",
+    "description": "Verifies a courier can open an assigned delivery, mark it picked up, then mark it delivered and see the delivery status update in the UI.",
+    "category": "Courier Delivery",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant ID field with a valid tenant ID"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click to open the courier panel"
+      },
+      {
+        "type": "action",
+        "description": "Locate an assigned delivery in the list and open its details"
+      },
+      {
+        "type": "action",
+        "description": "Mark the order as picked up"
+      },
+      {
+        "type": "action",
+        "description": "Mark the order as delivered"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the delivery shows a delivered status in the courier UI"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC006",
+    "title": "Start a table session, send an order, and resume the session with items preserved",
+    "description": "Logs in as a waiter, starts a table session, adds items, sends them to kitchen, leaves and reopens the session, and verifies previously added items remain visible.",
+    "category": "Waiter Table Session",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant UUID field with {{TENANT_UUID}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation to the waiter panel"
+      },
+      {
+        "type": "action",
+        "description": "Select an available table"
+      },
+      {
+        "type": "action",
+        "description": "Start a session for the selected table"
+      },
+      {
+        "type": "action",
+        "description": "Add a product to the table session"
+      },
+      {
+        "type": "action",
+        "description": "Send the session order to the kitchen"
+      },
+      {
+        "type": "action",
+        "description": "Leave or close the session view to return to the table list"
+      },
+      {
+        "type": "action",
+        "description": "Reopen the same table session"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify previously added items are still displayed in the reopened table session"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC007",
+    "title": "Kitchen order list loads and shows current orders",
+    "description": "Logs in and verifies the kitchen monitor displays a list of current orders for the selected station.",
+    "category": "Kitchen Progression",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant UUID field with {{TENANT_UUID}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation to the kitchen screen"
+      },
+      {
+        "type": "action",
+        "description": "Select a station option to open the kitchen monitor"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a list of orders is displayed in the kitchen monitor"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC008",
+    "title": "Waiter can add items over time before sending to kitchen",
+    "description": "Starts a table session, adds items in separate actions, and verifies the session shows an accumulated item list before sending.",
+    "category": "Waiter Table Session",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant UUID field with {{TENANT_UUID}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation to the waiter panel"
+      },
+      {
+        "type": "action",
+        "description": "Select an available table"
+      },
+      {
+        "type": "action",
+        "description": "Start a session for the selected table"
+      },
+      {
+        "type": "action",
+        "description": "Add a first product to the table session"
+      },
+      {
+        "type": "action",
+        "description": "Add a second product to the table session"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the table session shows multiple items in the current session"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC009",
+    "title": "Place a guest order from the public QR menu",
+    "description": "As a guest, browses the QR menu, adds items to cart, completes checkout with guest details, and sees an order confirmation.",
+    "category": "Public QR Menu Guest Order",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /qr"
+      },
+      {
+        "type": "action",
+        "description": "Select a product from the menu"
+      },
+      {
+        "type": "action",
+        "description": "Add the selected product to the cart"
+      },
+      {
+        "type": "action",
+        "description": "Proceed to checkout"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a guest name into the guest details form"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a guest contact field with a valid value"
+      },
+      {
+        "type": "action",
+        "description": "Submit the public order"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an order confirmation view is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC010",
+    "title": "Courier can view assigned deliveries list",
+    "description": "Verifies the courier panel loads and shows a deliveries list state that can be interacted with (either deliveries displayed or a clear empty state).",
+    "category": "Courier Delivery",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant ID field with a valid tenant ID"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click to open the courier panel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the assigned deliveries list is displayed or an empty state is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC011",
+    "title": "Courier can open a delivery detail from the list",
+    "description": "Verifies a courier can select a delivery from the list and view its detail view with delivery actions available.",
+    "category": "Courier Delivery",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant ID field with a valid tenant ID"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click to open the courier panel"
+      },
+      {
+        "type": "action",
+        "description": "Locate an assigned delivery in the list and open its details"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the delivery details view is displayed with delivery progress actions available"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC012",
+    "title": "Waiter can switch between table list and an active session without losing state",
+    "description": "Creates a table session, adds an item, navigates back to the table list, returns to the same session, and verifies the session state persists.",
+    "category": "Waiter Table Session",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant UUID field with {{TENANT_UUID}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation to the waiter panel"
+      },
+      {
+        "type": "action",
+        "description": "Select an available table"
+      },
+      {
+        "type": "action",
+        "description": "Start a session for the selected table"
+      },
+      {
+        "type": "action",
+        "description": "Add a product to the table session"
+      },
+      {
+        "type": "action",
+        "description": "Leave or close the session view to return to the table list"
+      },
+      {
+        "type": "action",
+        "description": "Reopen the same table session"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the added product is still present in the session after returning"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC013",
+    "title": "Guest can edit cart quantities before checkout",
+    "description": "Adds an item to the cart from the QR menu, changes quantity, and verifies the cart updates before proceeding to checkout.",
+    "category": "Public QR Menu Guest Order",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /qr"
+      },
+      {
+        "type": "action",
+        "description": "Select a product from the menu"
+      },
+      {
+        "type": "action",
+        "description": "Add the selected product to the cart"
+      },
+      {
+        "type": "action",
+        "description": "Open the cart"
+      },
+      {
+        "type": "action",
+        "description": "Increase the quantity of the cart item"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the cart shows the updated quantity for the item"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC014",
+    "title": "Kitchen station selection changes the visible order list",
+    "description": "Verifies switching the station selection updates which orders are shown on the kitchen monitor.",
+    "category": "Kitchen Progression",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant UUID field with {{TENANT_UUID}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation to the kitchen screen"
+      },
+      {
+        "type": "action",
+        "description": "Select a station option to open the kitchen monitor"
+      },
+      {
+        "type": "action",
+        "description": "Note a visible order identifier from the list"
+      },
+      {
+        "type": "action",
+        "description": "Select a different station option"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the kitchen order list updates after changing station selection"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC015",
+    "title": "Recover from invalid coupon/discount and still complete a cashier order",
+    "description": "Verifies a cashier sees a validation error for an invalid coupon/discount, can remove or bypass it, and successfully complete payment with an order created confirmation.",
+    "category": "Cashier Order Flow",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid tenant UUID into the tenant field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click to open the cashier screen"
+      },
+      {
+        "type": "action",
+        "description": "Select a product from the menu"
+      },
+      {
+        "type": "action",
+        "description": "Add the selected product to the cart"
+      },
+      {
+        "type": "action",
+        "description": "Apply an invalid coupon or discount"
+      },
+      {
+        "type": "action",
+        "description": "Verify a coupon or discount validation error is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Remove the applied coupon or discount"
+      },
+      {
+        "type": "action",
+        "description": "Choose a payment method"
+      },
+      {
+        "type": "action",
+        "description": "Complete payment"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an order created confirmation is visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC016",
+    "title": "Prevent cashier checkout when cart is empty",
+    "description": "Verifies the cashier cannot complete payment when no items are in the cart and is shown an appropriate empty-cart blocker state.",
+    "category": "Cashier Order Flow",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid tenant UUID into the tenant field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click to open the cashier screen"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to proceed to payment with an empty cart"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify checkout is blocked due to an empty cart"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC017",
+    "title": "Reject login with wrong password and keep user unauthenticated",
+    "description": "Verifies the login form blocks authentication with an incorrect password and shows a login error without routing to an authenticated screen.",
+    "category": "Login (username/password)",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid tenant UUID into the tenant field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with an invalid password"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a login error is displayed and the user remains on the login screen"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC018",
+    "title": "Courier cannot deliver an order before pickup",
+    "description": "Verifies the UI prevents marking an order as delivered before it has been marked as picked up.",
+    "category": "Courier Delivery",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant ID field with a valid tenant ID"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click to open the courier panel"
+      },
+      {
+        "type": "action",
+        "description": "Locate an assigned delivery in the list and open its details"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to mark the order as delivered without marking it picked up"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a validation or blocking state is shown and the order is not marked as delivered"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC019",
+    "title": "Reject PIN login with invalid PIN",
+    "description": "Verifies the PIN login flow blocks authentication with an invalid PIN and shows an error without routing to an authenticated screen.",
+    "category": "Login (PIN)",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid tenant UUID into the tenant field"
+      },
+      {
+        "type": "action",
+        "description": "Select the PIN login option"
+      },
+      {
+        "type": "action",
+        "description": "Fill an invalid PIN into the PIN field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a login error is displayed and the user remains on the login screen"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC020",
+    "title": "Prevent skipping directly to Completed from a new order",
+    "description": "Creates a new order and verifies the kitchen UI does not allow setting the status to Completed without progressing through intermediate statuses.",
+    "category": "Kitchen Progression",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant UUID field with {{TENANT_UUID}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /cashier"
+      },
+      {
+        "type": "action",
+        "description": "Add a product to the order"
+      },
+      {
+        "type": "action",
+        "description": "Select cash as the payment method"
+      },
+      {
+        "type": "action",
+        "description": "Submit the order payment to create the order"
+      },
+      {
+        "type": "action",
+        "description": "Click the logout or lock session control"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant UUID field with {{TENANT_UUID}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation to the kitchen screen"
+      },
+      {
+        "type": "action",
+        "description": "Select a station option to open the kitchen monitor"
+      },
+      {
+        "type": "action",
+        "description": "Open the most recently created order from the order list"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to change the order status directly to Completed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an order status validation or restriction is visible and the order is not marked completed"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC021",
+    "title": "Reject login when tenant UUID is missing",
+    "description": "Verifies the login form requires a tenant UUID and blocks login when it is not provided.",
+    "category": "Login (username/password)",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the username field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a tenant validation error is displayed and the user remains unauthenticated"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC022",
+    "title": "Guest cannot submit checkout without required guest details",
+    "description": "Proceeds to QR checkout with items and verifies required guest detail fields block order submission when left empty.",
+    "category": "Public QR Menu Guest Order",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /qr"
+      },
+      {
+        "type": "action",
+        "description": "Select a product from the menu"
+      },
+      {
+        "type": "action",
+        "description": "Add the selected product to the cart"
+      },
+      {
+        "type": "action",
+        "description": "Proceed to checkout"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to submit the public order without filling required guest details"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a guest details validation error is visible and the order is not confirmed"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC023",
+    "title": "Courier delivered action locks further progress changes",
+    "description": "Verifies once an order is marked delivered, the UI prevents further delivery progress changes for that order.",
+    "category": "Courier Delivery",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant ID field with a valid tenant ID"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click to open the courier panel"
+      },
+      {
+        "type": "action",
+        "description": "Locate an assigned delivery in the list and open its details"
+      },
+      {
+        "type": "action",
+        "description": "Mark the order as picked up"
+      },
+      {
+        "type": "action",
+        "description": "Mark the order as delivered"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to change delivery status again after delivered"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify delivery progress controls are disabled or no longer available for the delivered order"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC024",
+    "title": "Validate required fields before username/password login submission",
+    "description": "Verifies the login form prevents submission when required tenant/credentials are missing and displays validation feedback.",
+    "category": "Login (username/password)",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify required-field validation errors are displayed"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC025",
+    "title": "Waiter cannot send an empty table session to kitchen",
+    "description": "Starts a table session without adding items and verifies the UI prevents sending an empty order to the kitchen.",
+    "category": "Waiter Table Session",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant UUID field with {{TENANT_UUID}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation to the waiter panel"
+      },
+      {
+        "type": "action",
+        "description": "Select an available table"
+      },
+      {
+        "type": "action",
+        "description": "Start a session for the selected table"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to send the session order to the kitchen"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an empty-order prevention message is visible and no order is submitted"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC026",
+    "title": "Courier pickup action is idempotent in UI (no duplicate state changes)",
+    "description": "Verifies repeatedly triggering the pickup action does not create inconsistent UI state and the order remains in a picked up state.",
+    "category": "Courier Delivery",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the tenant ID field with a valid tenant ID"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the PIN field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click to open the courier panel"
+      },
+      {
+        "type": "action",
+        "description": "Locate an assigned delivery in the list and open its details"
+      },
+      {
+        "type": "action",
+        "description": "Mark the order as picked up"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to mark the order as picked up again"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the order remains in a picked up state and no duplicate delivery progress entries are shown"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC027",
+    "title": "Guest cannot proceed to checkout with an empty cart",
+    "description": "Verifies the QR menu prevents navigating to or submitting checkout when no items have been added to the cart.",
+    "category": "Public QR Menu Guest Order",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /qr"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to proceed to checkout"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an empty-cart prevention message is visible or checkout is blocked"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC028",
+    "title": "Validate PIN format before submission",
+    "description": "Verifies the PIN login flow prevents submission or shows validation feedback when the PIN format is invalid.",
+    "category": "Login (PIN)",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid tenant UUID into the tenant field"
+      },
+      {
+        "type": "action",
+        "description": "Select the PIN login option"
+      },
+      {
+        "type": "action",
+        "description": "Fill a non-numeric value into the PIN field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a PIN validation error is displayed and the user remains unauthenticated"
+      }
+    ],
+    "priority": "Low"
+  }
+]

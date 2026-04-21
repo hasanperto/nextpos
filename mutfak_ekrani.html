@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nova POS — Mutfak Ekranı</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg0:#060a12; --bg1:#0b1120; --bg2:#111827; --bg3:#1a2235;
+  --border:rgba(255,255,255,0.06); --border2:rgba(255,255,255,0.1);
+  --text1:#f1f5f9; --text2:#94a3b8; --text3:#4b5568; --text4:#2d3748;
+  --green:#10b981; --green-l:#34d399; --green-ll:#6ee7b7;
+  --amber:#f59e0b; --amber-l:#fbbf24; --amber-ll:#fde68a;
+  --red:#ef4444; --red-l:#fca5a5;
+  --blue:#3b82f6; --blue-l:#93c5fd;
+  --purple:#7c3aed; --purple-l:#c4b5fd;
+  --pink:#db2777; --pink-l:#f9a8d4;
+  --cyan:#06b6d4; --cyan-l:#67e8f9;
+  --orange:#ea580c; --orange-l:#fb923c;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;background:var(--bg0);}
+body{font-family:'Plus Jakarta Sans',sans-serif;color:var(--text1);}
+
+/* ── TOPBAR ── */
+.topbar{
+  height:58px; background:var(--bg1);
+  border-bottom:1px solid var(--border);
+  display:flex; align-items:center; padding:0 20px; gap:14px; flex-shrink:0;
+}
+.logo{display:flex;align-items:center;gap:10px;}
+.logo-sq{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#db2777);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;color:#fff;}
+.logo-txt{font-size:16px;font-weight:900;color:var(--text1);letter-spacing:-.01em;}
+.logo-sub{font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.06em;text-transform:uppercase;}
+.tsep{width:1px;height:30px;background:var(--border);margin:0 4px;}
+.tstat{display:flex;flex-direction:column;align-items:center;padding:0 14px;}
+.tstat-v{font-size:20px;font-weight:900;line-height:1;}
+.tstat-l{font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.07em;text-transform:uppercase;margin-top:1px;}
+.tv-amber{color:var(--amber-l);}
+.tv-red{color:var(--red-l);}
+.tv-green{color:var(--green-l);}
+.tv-blue{color:var(--blue-l);}
+.tstretch{flex:1;}
+.tclock{font-size:22px;font-weight:900;color:var(--text1);letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+.tclock-sub{font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.06em;text-transform:uppercase;text-align:right;}
+.tbtn{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text2);transition:.15s;letter-spacing:.03em;}
+.tbtn:hover{background:rgba(255,255,255,.08);color:var(--text1);}
+.tbtn svg{width:14px;height:14px;}
+.tbtn.active-tab{background:rgba(109,40,217,.18);border-color:rgba(109,40,217,.4);color:var(--purple-l);}
+.alert-chip{display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:9px;font-size:12px;font-weight:700;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:var(--red-l);animation:pulse-red 2s infinite;}
+@keyframes pulse-red{0%,100%{opacity:1;}50%{opacity:.6;}}
+
+/* ── STATION TABS ── */
+.station-bar{
+  display:flex; align-items:center; gap:0;
+  background:var(--bg1); border-bottom:2px solid var(--border);
+  padding:0 20px; flex-shrink:0; overflow-x:auto;
+}
+.station-bar::-webkit-scrollbar{display:none;}
+.stab{
+  display:flex; align-items:center; gap:8px;
+  padding:0 22px; height:52px; cursor:pointer;
+  font-size:13px; font-weight:700; color:var(--text3);
+  border-bottom:3px solid transparent; margin-bottom:-2px;
+  transition:.15s; white-space:nowrap; position:relative;
+}
+.stab:hover{color:var(--text2);}
+.stab.on{color:var(--text1);border-bottom-color:var(--purple);}
+.stab-icon{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;}
+.stab-count{min-width:20px;height:20px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;padding:0 5px;}
+.sc-all{background:rgba(109,40,217,.15);color:var(--purple-l);}
+.stab.s-pizza .stab-icon{background:rgba(239,68,68,.15);}
+.stab.s-bar .stab-icon{background:rgba(6,182,212,.15);}
+.stab.s-izgara .stab-icon{background:rgba(245,158,11,.15);}
+.stab.s-salata .stab-icon{background:rgba(16,185,129,.12);}
+.stab.s-tatli .stab-icon{background:rgba(236,72,153,.12);}
+.stab.s-all .stab-icon{background:rgba(109,40,217,.15);}
+.stab.on.s-pizza{border-bottom-color:#ef4444;}
+.stab.on.s-bar{border-bottom-color:#06b6d4;}
+.stab.on.s-izgara{border-bottom-color:#f59e0b;}
+.stab.on.s-salata{border-bottom-color:#10b981;}
+.stab.on.s-tatli{border-bottom-color:#db2777;}
+.sc-pizza{background:rgba(239,68,68,.15);color:var(--red-l);}
+.sc-bar{background:rgba(6,182,212,.15);color:var(--cyan-l);}
+.sc-izgara{background:rgba(245,158,11,.15);color:var(--amber-l);}
+.sc-salata{background:rgba(16,185,129,.12);color:var(--green-l);}
+.sc-tatli{background:rgba(236,72,153,.12);color:var(--pink-l);}
+.stab-sep{width:1px;height:28px;background:var(--border);margin:0 4px;}
+
+/* ── FILTER ROW ── */
+.filter-row{
+  display:flex; align-items:center; gap:8px;
+  padding:10px 20px; background:var(--bg0); flex-shrink:0;
+  border-bottom:1px solid var(--border);
+}
+.fchip{padding:5px 13px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text3);transition:.15s;letter-spacing:.04em;}
+.fchip:hover{color:var(--text2);}
+.fchip.on{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.35);color:var(--amber-l);}
+.fchip.on.fc-new{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.3);color:var(--red-l);}
+.fchip.on.fc-ready{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.28);color:var(--green-l);}
+.fchip.on.fc-all{background:rgba(109,40,217,.14);border-color:rgba(109,40,217,.3);color:var(--purple-l);}
+.fsep{width:1px;height:20px;background:var(--border);margin:0 4px;}
+.sort-btn{display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text3);}
+.sort-btn svg{width:12px;height:12px;}
+
+/* ── MAIN GRID ── */
+.main{flex:1;overflow:hidden;display:flex;flex-direction:column;}
+.orders-area{flex:1;overflow-y:auto;padding:16px 20px;}
+.orders-area::-webkit-scrollbar{width:6px;}
+.orders-area::-webkit-scrollbar-track{background:transparent;}
+.orders-area::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:3px;}
+
+.section-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.section-title{font-size:11px;font-weight:800;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;}
+.section-line{flex:1;height:1px;background:var(--border);}
+
+.orders-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+  gap:12px; margin-bottom:20px;
+}
+
+/* ── ORDER CARD ── */
+.ocard{
+  background:var(--bg1); border-radius:16px;
+  border:1px solid var(--border); overflow:hidden;
+  display:flex; flex-direction:column; transition:.2s;
+  position:relative;
+}
+.ocard:hover{border-color:rgba(255,255,255,.1);}
+.ocard.priority{border-color:rgba(239,68,68,.35);}
+.ocard.done{opacity:.55;}
+
+.ocard-top-strip{height:4px;width:100%;flex-shrink:0;}
+.strip-new{background:linear-gradient(90deg,#ef4444,#f97316);}
+.strip-progress{background:linear-gradient(90deg,#f59e0b,#fbbf24);}
+.strip-ready{background:linear-gradient(90deg,#059669,#34d399);}
+.strip-bar{background:linear-gradient(90deg,#06b6d4,#818cf8);}
+.strip-done{background:rgba(255,255,255,.08);}
+
+.ocard-header{
+  padding:12px 14px 10px;
+  display:flex; align-items:flex-start; gap:10px;
+  border-bottom:1px solid rgba(255,255,255,.04);
+}
+.ocard-masa{font-size:18px;font-weight:900;color:var(--text1);line-height:1;}
+.ocard-meta{font-size:11px;font-weight:600;color:var(--text3);margin-top:2px;}
+.ocard-badges{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px;}
+.obadge{font-size:10px;font-weight:800;padding:2px 8px;border-radius:5px;letter-spacing:.04em;}
+.ob-new{background:rgba(239,68,68,.14);color:var(--red-l);border:1px solid rgba(239,68,68,.25);}
+.ob-progress{background:rgba(245,158,11,.13);color:var(--amber-l);border:1px solid rgba(245,158,11,.25);}
+.ob-ready{background:rgba(16,185,129,.12);color:var(--green-l);border:1px solid rgba(16,185,129,.22);}
+.ob-bar{background:rgba(6,182,212,.12);color:var(--cyan-l);border:1px solid rgba(6,182,212,.2);}
+.ob-vip{background:rgba(236,72,153,.12);color:var(--pink-l);border:1px solid rgba(236,72,153,.22);}
+.ob-prio{background:rgba(239,68,68,.18);color:#ff6b6b;border:1px solid rgba(239,68,68,.35);animation:prio-pulse 1.5s infinite;}
+@keyframes prio-pulse{0%,100%{opacity:1;}50%{opacity:.6;}}
+
+.ocard-timer{margin-left:auto;text-align:right;flex-shrink:0;}
+.timer-val{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1;}
+.timer-lbl{font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.05em;}
+.timer-green{color:var(--green-l);}
+.timer-amber{color:var(--amber-l);}
+.timer-red{color:var(--red-l);animation:blink .8s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.4;}}
+
+.ocard-items{padding:8px 14px 6px;flex:1;}
+.oitem{
+  display:flex; align-items:center; gap:10px;
+  padding:7px 0; border-bottom:1px solid rgba(255,255,255,.03);
+}
+.oitem:last-child{border-bottom:none;}
+.oitem-qty{
+  width:28px; height:28px; border-radius:7px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:13px; font-weight:900;
+}
+.qty-new{background:rgba(239,68,68,.18);color:var(--red-l);}
+.qty-prog{background:rgba(245,158,11,.18);color:var(--amber-l);}
+.qty-ready{background:rgba(16,185,129,.15);color:var(--green-l);}
+.qty-bar{background:rgba(6,182,212,.15);color:var(--cyan-l);}
+.oitem-body{flex:1;}
+.oitem-name{font-size:13px;font-weight:700;color:var(--text1);}
+.oitem-var{font-size:10px;font-weight:600;color:var(--text3);margin-top:1px;}
+.oitem-note{font-size:10px;font-weight:700;color:var(--amber-l);margin-top:2px;}
+.oitem-check{
+  width:26px; height:26px; border-radius:7px;
+  border:1.5px solid var(--text4); display:flex; align-items:center; justify-content:center;
+  cursor:pointer; transition:.15s; flex-shrink:0;
+}
+.oitem-check:hover{border-color:var(--text3);}
+.oitem-check.done{background:var(--green);border-color:var(--green);}
+.oitem-check.done svg{color:#fff;}
+.oitem-check svg{width:13px;height:13px;color:transparent;}
+.oitem-progress{display:flex;align-items:center;gap:6px;margin-top:4px;}
+.prog-bar{flex:1;height:3px;background:rgba(255,255,255,.07);border-radius:2px;overflow:hidden;}
+.prog-fill{height:100%;border-radius:2px;transition:width .5s;}
+.prog-green{background:var(--green);}
+.prog-amber{background:var(--amber);}
+
+.ocard-footer{
+  padding:10px 14px 12px;
+  border-top:1px solid rgba(255,255,255,.04);
+  display:flex; gap:7px;
+}
+.cfbtn{
+  flex:1; padding:10px 0; border-radius:10px; text-align:center;
+  font-size:12px; font-weight:800; cursor:pointer; border:1px solid; transition:.15s;
+  letter-spacing:.03em;
+}
+.cfbtn:active{transform:scale(.97);}
+.btn-start{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.28);color:var(--amber-l);}
+.btn-start:hover{background:rgba(245,158,11,.2);}
+.btn-ready{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.28);color:var(--green-l);}
+.btn-ready:hover{background:rgba(16,185,129,.2);}
+.btn-serve{background:rgba(109,40,217,.14);border-color:rgba(109,40,217,.32);color:var(--purple-l);}
+.btn-serve:hover{background:rgba(109,40,217,.22);}
+.btn-bump{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.22);color:var(--red-l);}
+.btn-bump:hover{background:rgba(239,68,68,.18);}
+.btn-done{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.09);color:var(--text3);}
+
+/* ── COMPLETED STRIP ── */
+.done-strip{
+  background:var(--bg1); border-top:1px solid var(--border);
+  padding:10px 20px; display:flex; align-items:center; gap:12px;
+  flex-shrink:0; overflow-x:auto;
+}
+.done-strip::-webkit-scrollbar{display:none;}
+.done-pill{
+  display:flex; align-items:center; gap:7px;
+  background:var(--bg2); border:1px solid var(--border);
+  border-radius:10px; padding:8px 12px; flex-shrink:0;
+  cursor:pointer; transition:.15s;
+}
+.done-pill:hover{border-color:rgba(255,255,255,.12);}
+.dp-masa{font-size:12px;font-weight:800;color:var(--text2);}
+.dp-time{font-size:10px;font-weight:700;color:var(--text3);}
+.dp-check{width:20px;height:20px;border-radius:5px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.25);display:flex;align-items:center;justify-content:center;}
+.dp-check svg{width:11px;height:11px;color:var(--green-l);}
+.done-lbl{font-size:10px;font-weight:800;color:var(--text3);letter-spacing:.07em;text-transform:uppercase;white-space:nowrap;flex-shrink:0;}
+
+/* ── TOAST ── */
+.toast{
+  position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px);
+  background:var(--bg2); border:1px solid rgba(109,40,217,.4);
+  border-radius:14px; padding:14px 20px;
+  font-size:14px; font-weight:700; color:var(--text1);
+  opacity:0; transition:all .3s; z-index:999; pointer-events:none;
+  display:flex; align-items:center; gap:10px; white-space:nowrap;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* ── DETAIL MODAL ── */
+.overlay{
+  position:fixed;inset:0;background:rgba(6,10,18,.85);
+  z-index:90;opacity:0;pointer-events:none;transition:opacity .25s;
+  display:flex;align-items:center;justify-content:center;
+}
+.overlay.show{opacity:1;pointer-events:all;}
+.modal{
+  background:var(--bg1);border:1px solid var(--border2);
+  border-radius:20px;width:480px;max-height:80vh;
+  overflow-y:auto;transform:scale(.95);transition:transform .25s;
+}
+.overlay.show .modal{transform:scale(1);}
+.modal-head{padding:20px 22px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;}
+.modal-title{font-size:20px;font-weight:900;color:var(--text1);}
+.modal-close{margin-left:auto;width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.modal-close svg{width:14px;height:14px;color:var(--text2);}
+.modal-body{padding:18px 22px;}
+.modal-section{margin-bottom:16px;}
+.modal-sec-lbl{font-size:10px;font-weight:800;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;}
+.modal-item{display:flex;align-items:center;gap:10px;padding:10px;background:var(--bg2);border-radius:10px;margin-bottom:6px;}
+.modal-item-emoji{font-size:22px;width:40px;height:40px;background:var(--bg3);border-radius:8px;display:flex;align-items:center;justify-content:center;}
+.modal-item-name{font-size:14px;font-weight:700;color:var(--text1);}
+.modal-item-var{font-size:11px;font-weight:600;color:var(--text3);margin-top:2px;}
+.modal-item-note{font-size:11px;font-weight:700;color:var(--amber-l);margin-top:2px;}
+.modal-qty{margin-left:auto;width:32px;height:32px;border-radius:8px;background:rgba(109,40,217,.18);border:1px solid rgba(109,40,217,.3);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:var(--purple-l);}
+.modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:16px;}
+.mbtn{padding:13px 0;border-radius:11px;text-align:center;font-size:13px;font-weight:800;cursor:pointer;border:1px solid;transition:.15s;letter-spacing:.03em;}
+
+/* ── FULL SCREEN BTN ── */
+.fullscreen-btn{display:flex;align-items:center;gap:5px;padding:7px 12px;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text3);}
+.fullscreen-btn:hover{color:var(--text2);}
+.fullscreen-btn svg{width:13px;height:13px;}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-sq">N</div>
+    <div>
+      <div class="logo-txt">Nova POS</div>
+      <div class="logo-sub">Mutfak Ekranı</div>
+    </div>
+  </div>
+  <div class="tsep"></div>
+  <div class="tstat"><div class="tstat-v tv-red" id="stat-new">5</div><div class="tstat-l">Yeni</div></div>
+  <div class="tstat"><div class="tstat-v tv-amber" id="stat-prog">3</div><div class="tstat-l">Hazırlanıyor</div></div>
+  <div class="tstat"><div class="tstat-v tv-green" id="stat-ready">2</div><div class="tstat-l">Hazır</div></div>
+  <div class="tstat"><div class="tstat-v tv-blue" id="stat-done">8</div><div class="tstat-l">Tamamlandı</div></div>
+  <div class="tsep"></div>
+  <div class="alert-chip" id="alert-chip">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="6"/><path d="M8 5v4M8 11v.5"/></svg>
+    Masa 3 – 28 dk bekliyor!
+  </div>
+  <div class="tstretch"></div>
+  <div class="fullscreen-btn" onclick="toggleFS()">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>
+    Tam Ekran
+  </div>
+  <div class="tbtn">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
+    <div>
+      <div class="tclock" id="clock">--:--</div>
+      <div class="tclock-sub" id="date-lbl">...</div>
+    </div>
+  </div>
+</div>
+
+<!-- STATION TABS -->
+<div class="station-bar">
+  <div class="stab s-all on" onclick="switchStation(this,'all')">
+    <div class="stab-icon">🍽️</div>
+    Tüm İstasyonlar
+    <div class="stab-count sc-all" id="sc-all">10</div>
+  </div>
+  <div class="stab-sep"></div>
+  <div class="stab s-pizza" onclick="switchStation(this,'pizza')">
+    <div class="stab-icon">🍕</div>
+    Pizza & Fırın
+    <div class="stab-count sc-pizza" id="sc-pizza">4</div>
+  </div>
+  <div class="stab s-izgara" onclick="switchStation(this,'izgara')">
+    <div class="stab-icon">🥩</div>
+    Izgara & Et
+    <div class="stab-count sc-izgara" id="sc-izgara">3</div>
+  </div>
+  <div class="stab s-salata" onclick="switchStation(this,'salata')">
+    <div class="stab-icon">🥗</div>
+    Salata & Soğuk
+    <div class="stab-count sc-salata" id="sc-salata">2</div>
+  </div>
+  <div class="stab s-bar" onclick="switchStation(this,'bar')">
+    <div class="stab-icon">🍹</div>
+    Bar & İçecek
+    <div class="stab-count sc-bar" id="sc-bar">5</div>
+  </div>
+  <div class="stab s-tatli" onclick="switchStation(this,'tatli')">
+    <div class="stab-icon">🍰</div>
+    Tatlı & Pasta
+    <div class="stab-count sc-tatli" id="sc-tatli">2</div>
+  </div>
+</div>
+
+<!-- FILTER ROW -->
+<div class="filter-row">
+  <div class="fchip on fc-all" onclick="switchFilter(this,'all')">Tümü</div>
+  <div class="fchip fc-new" onclick="switchFilter(this,'new')">🔴 Yeni Gelen</div>
+  <div class="fchip" onclick="switchFilter(this,'progress')" style="--on-bg:rgba(245,158,11,.14);--on-border:rgba(245,158,11,.35);--on-color:var(--amber-l)">🟡 Hazırlanıyor</div>
+  <div class="fchip fc-ready" onclick="switchFilter(this,'ready')">🟢 Hazır</div>
+  <div class="fsep"></div>
+  <div class="sort-btn">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 4h10M5 8h6M7 12h2"/></svg>
+    Süreye Göre Sırala
+  </div>
+  <div style="margin-left:auto;display:flex;gap:6px;">
+    <div class="sort-btn" onclick="addTestOrder()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v10M3 8h10"/></svg>
+      Test Sipariş Ekle
+    </div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="orders-area" id="orders-area">
+    <!-- rendered by JS -->
+  </div>
+
+  <!-- COMPLETED STRIP -->
+  <div class="done-strip" id="done-strip">
+    <div class="done-lbl">Tamamlananlar:</div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast">
+  <span id="toast-icon">✓</span>
+  <span id="toast-msg">İşlem başarılı</span>
+</div>
+
+<!-- DETAIL MODAL -->
+<div class="overlay" id="overlay" onclick="closeModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title" id="modal-title">Sipariş Detayı</div>
+        <div style="font-size:12px;color:var(--text3);font-weight:600;margin-top:2px;" id="modal-sub"></div>
+      </div>
+      <div class="modal-close" onclick="closeModal()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l10 10M13 3L3 13"/></svg>
+      </div>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// ── DATA ──
+let orders = [
+  {id:1,masa:'Masa 1',zone:'İç Mekan',station:'pizza',status:'new',priority:false,time:4,waiter:'Ali K.',
+   items:[{emoji:'🍕',name:'Margherita',var:'32cm Gross',note:'',qty:1},{emoji:'🍕',name:'Quattro Formaggi',var:'32cm Gross',note:'',qty:1}]},
+
+  {id:2,masa:'Masa 3',zone:'İç Mekan',station:'izgara',status:'progress',priority:true,time:28,waiter:'Ayşe D.',
+   items:[{emoji:'🥩',name:'Antrikot 300g',var:'Az Pişmiş',note:'Sos ayrı gelsin',qty:1},{emoji:'🥗',name:'Çoban Salatası',var:'Ekstra zeytinyağı',note:'',qty:2}]},
+
+  {id:3,masa:'VIP 1',zone:'VIP Salon',station:'bar',status:'new',priority:false,time:2,waiter:'Mehmet Y.',
+   items:[{emoji:'🍹',name:'Mojito',var:'Klasik',note:'',qty:2},{emoji:'🥂',name:'Prosecco',var:'Bardak',note:'',qty:4},{emoji:'🧃',name:'Taze Sıkma Portakal',var:'Büyük',note:'',qty:1}]},
+
+  {id:4,masa:'Teras 2',zone:'Teras',station:'salata',status:'ready',priority:false,time:9,waiter:'Ali K.',
+   items:[{emoji:'🥗',name:'Sezar Salata',var:'Tavuklu',note:'',qty:2},{emoji:'🥗',name:'Akdeniz Salatası',var:'',note:'Soğansız',qty:1}]},
+
+  {id:5,masa:'Masa 6',zone:'İç Mekan',station:'pizza',status:'new',priority:false,time:1,waiter:'Fatma S.',
+   items:[{emoji:'🍕',name:'Pepperoni',var:'32cm Gross',note:'',qty:1},{emoji:'🍕',name:'BBQ Chicken',var:'32cm Gross',note:'',qty:2}]},
+
+  {id:6,masa:'Masa 2',zone:'İç Mekan',station:'tatli',status:'progress',priority:false,time:7,waiter:'Ayşe D.',
+   items:[{emoji:'🍰',name:'Tiramisu',var:'',note:'',qty:2},{emoji:'🍮',name:'Panna Cotta',var:'Çilek soslu',note:'',qty:1}]},
+
+  {id:7,masa:'Teras 1',zone:'Teras',station:'bar',status:'new',priority:false,time:3,waiter:'Mehmet Y.',
+   items:[{emoji:'☕',name:'Türk Kahvesi',var:'Orta',note:'',qty:2},{emoji:'🍵',name:'Çay',var:'Demlik',note:'',qty:3},{emoji:'🥤',name:'Limonata',var:'Acı Biberli',note:'',qty:2}]},
+
+  {id:8,masa:'Masa 5',zone:'İç Mekan',station:'izgara',status:'new',priority:false,time:5,waiter:'Fatma S.',
+   items:[{emoji:'🍗',name:'Tavuk Şiş',var:'Pilavlı',note:'',qty:2},{emoji:'🥙',name:'Adana Kebap',var:'Lavaş',note:'Acısız',qty:1}]},
+
+  {id:9,masa:'VIP 2',zone:'VIP Salon',station:'bar',status:'ready',priority:false,time:12,waiter:'Ali K.',
+   items:[{emoji:'🍾',name:'Dom Perignon',var:'Soğuk',note:'',qty:1},{emoji:'🫐',name:'Meyve Tabağı',var:'Büyük',note:'Tropikal',qty:1}]},
+
+  {id:10,masa:'Masa 4',zone:'İç Mekan',station:'salata',status:'progress',priority:false,time:6,waiter:'Ayşe D.',
+   items:[{emoji:'🥗',name:'Ton Balıklı Salata',var:'Ekstra kapari',note:'',qty:1}]},
+];
+
+let doneOrders = [
+  {masa:'Masa 7',time:'4 dk'},{masa:'Teras 3',time:'7 dk'},{masa:'Masa 8',time:'12 dk'},
+  {masa:'VIP 3',time:'18 dk'},{masa:'Masa 9',time:'22 dk'},{masa:'Teras 4',time:'31 dk'},
+  {masa:'Masa 10',time:'38 dk'},{masa:'Masa 11',time:'45 dk'},
+];
+
+let currentStation = 'all';
+let currentFilter = 'all';
+let timers = {};
+
+// ── CLOCK ──
+function updateClock(){
+  const n=new Date();
+  document.getElementById('clock').textContent = n.getHours().toString().padStart(2,'0')+':'+n.getMinutes().toString().padStart(2,'0');
+  const days=['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
+  const months=['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+  document.getElementById('date-lbl').textContent = days[n.getDay()]+', '+n.getDate()+' '+months[n.getMonth()];
+}
+setInterval(updateClock,1000); updateClock();
+
+// ── TIMER ──
+function startTimers(){
+  clearInterval(window._timerInterval);
+  window._timerInterval = setInterval(()=>{
+    orders.forEach(o=>{
+      if(o.status!=='ready'&&o.status!=='done') o.time++;
+    });
+    document.querySelectorAll('[data-timer]').forEach(el=>{
+      const id=parseInt(el.dataset.timer);
+      const o=orders.find(x=>x.id===id);
+      if(!o)return;
+      el.textContent=o.time<60?o.time+' dk':Math.floor(o.time/60)+'s '+(o.time%60)+'dk';
+      el.className='timer-val '+(o.time<10?'timer-green':o.time<20?'timer-amber':'timer-red');
+      if(o.time>25&&!o.priority){ o.priority=true; reRender(); }
+    });
+    updateAlertChip();
+  },60000);
+}
+
+function updateAlertChip(){
+  const late=orders.filter(o=>o.time>20&&o.status!=='ready');
+  const chip=document.getElementById('alert-chip');
+  if(late.length){
+    chip.style.display='flex';
+    chip.innerHTML=`<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="6"/><path d="M8 5v4M8 11v.5"/></svg>${late[0].masa} – ${late[0].time} dk bekliyor!`;
+  } else chip.style.display='none';
+}
+
+// ── STATS ──
+function updateStats(){
+  document.getElementById('stat-new').textContent=orders.filter(o=>o.status==='new').length;
+  document.getElementById('stat-prog').textContent=orders.filter(o=>o.status==='progress').length;
+  document.getElementById('stat-ready').textContent=orders.filter(o=>o.status==='ready').length;
+  document.getElementById('stat-done').textContent=doneOrders.length;
+
+  const stations=['pizza','izgara','salata','bar','tatli','all'];
+  stations.forEach(s=>{
+    const el=document.getElementById('sc-'+s);
+    if(!el)return;
+    const cnt=s==='all'?orders.filter(o=>o.status!=='done').length:orders.filter(o=>o.station===s&&o.status!=='done').length;
+    el.textContent=cnt;
+  });
+}
+
+// ── RENDER ──
+function getFiltered(){
+  let list=orders.filter(o=>o.status!=='done');
+  if(currentStation!=='all') list=list.filter(o=>o.station===currentStation);
+  if(currentFilter==='new') list=list.filter(o=>o.status==='new');
+  else if(currentFilter==='progress') list=list.filter(o=>o.status==='progress');
+  else if(currentFilter==='ready') list=list.filter(o=>o.status==='ready');
+  list.sort((a,b)=>{
+    if(a.priority&&!b.priority)return -1;
+    if(!a.priority&&b.priority)return 1;
+    return b.time-a.time;
+  });
+  return list;
+}
+
+function stripClass(status){ return {new:'strip-new',progress:'strip-progress',ready:'strip-ready',bar:'strip-bar'}[status]||'strip-new'; }
+function qtyClass(station){ return {bar:'qty-bar',salata:'qty-ready'}[station]||({new:'qty-new',progress:'qty-prog',ready:'qty-ready'}); }
+
+function statusLabel(s){ return {new:'🔴 YENİ',progress:'🟡 HAZIRLANIYOR',ready:'🟢 HAZIR'}[s]||s; }
+function statusBadgeClass(s){ return {new:'ob-new',progress:'ob-progress',ready:'ob-ready'}[s]||'ob-new'; }
+
+function stationLabel(s){ return {pizza:'Pizza & Fırın',izgara:'Izgara & Et',salata:'Salata',bar:'Bar',tatli:'Tatlı'}[s]||s; }
+
+function cardHTML(o){
+  const qc=o.station==='bar'?'qty-bar':(o.status==='new'?'qty-new':o.status==='progress'?'qty-prog':'qty-ready');
+  const tc=o.time<10?'timer-green':o.time<20?'timer-amber':'timer-red';
+  const itemsHTML=o.items.map(i=>`
+    <div class="oitem">
+      <div class="oitem-qty ${qc}">${i.qty}</div>
+      <div class="oitem-body">
+        <div class="oitem-name">${i.emoji} ${i.name}</div>
+        <div class="oitem-var">${i.var}</div>
+        ${i.note?`<div class="oitem-note">⚠ ${i.note}</div>`:''}
+      </div>
+      <div class="oitem-check ${o.status==='ready'?'done':''}" onclick="toggleCheck(event,${o.id},this)">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 8l4 4 6-6"/></svg>
+      </div>
+    </div>
+  `).join('');
+
+  let footerHTML='';
+  if(o.status==='new') footerHTML=`<div class="cfbtn btn-start" onclick="changeStatus(${o.id},'progress')">▶ Hazırlamaya Başla</div><div class="cfbtn btn-bump" onclick="showDetail(${o.id})">Detay</div>`;
+  else if(o.status==='progress') footerHTML=`<div class="cfbtn btn-ready" onclick="changeStatus(${o.id},'ready')">✓ Hazır İşaretle</div><div class="cfbtn btn-bump" onclick="showDetail(${o.id})">Detay</div>`;
+  else if(o.status==='ready') footerHTML=`<div class="cfbtn btn-serve" onclick="serveOrder(${o.id})">Servise Gönder</div><div class="cfbtn btn-done" onclick="changeStatus(${o.id},'done')">Tamamla</div>`;
+
+  return `
+    <div class="ocard ${o.priority&&o.status!=='ready'?'priority':''}" id="card-${o.id}" onclick="">
+      <div class="ocard-top-strip ${stripClass(o.status)}"></div>
+      <div class="ocard-header">
+        <div>
+          <div class="ocard-masa">${o.masa}</div>
+          <div class="ocard-meta">${o.zone} · Garson: ${o.waiter}</div>
+          <div class="ocard-badges">
+            <span class="obadge ${statusBadgeClass(o.status)}">${statusLabel(o.status)}</span>
+            <span class="obadge" style="background:rgba(255,255,255,.05);color:var(--text3);border:1px solid var(--border);">${stationLabel(o.station)}</span>
+            ${o.zone==='VIP Salon'?'<span class="obadge ob-vip">VIP</span>':''}
+            ${o.priority&&o.status!=='ready'?'<span class="obadge ob-prio">⚡ ACİL</span>':''}
+          </div>
+        </div>
+        <div class="ocard-timer">
+          <div class="timer-val ${tc}" data-timer="${o.id}">${o.time} dk</div>
+          <div class="timer-lbl">Bekleme</div>
+        </div>
+      </div>
+      <div class="ocard-items">${itemsHTML}</div>
+      <div class="ocard-footer">${footerHTML}</div>
+    </div>
+  `;
+}
+
+function reRender(){
+  const area=document.getElementById('orders-area');
+  const list=getFiltered();
+  if(!list.length){
+    area.innerHTML='<div style="text-align:center;padding:60px 20px;color:var(--text3);font-size:15px;font-weight:700;">Bu istasyonda bekleyen sipariş yok ✓</div>';
+    return;
+  }
+  const newOrd=list.filter(o=>o.status==='new');
+  const progOrd=list.filter(o=>o.status==='progress');
+  const readyOrd=list.filter(o=>o.status==='ready');
+
+  let html='';
+  if(newOrd.length&&currentFilter!=='progress'&&currentFilter!=='ready'){
+    html+=`<div class="section-header"><div class="section-title" style="color:var(--red-l);">🔴 Yeni Siparişler (${newOrd.length})</div><div class="section-line"></div></div><div class="orders-grid">${newOrd.map(cardHTML).join('')}</div>`;
+  }
+  if(progOrd.length&&currentFilter!=='new'&&currentFilter!=='ready'){
+    html+=`<div class="section-header"><div class="section-title" style="color:var(--amber-l);">🟡 Hazırlanıyor (${progOrd.length})</div><div class="section-line"></div></div><div class="orders-grid">${progOrd.map(cardHTML).join('')}</div>`;
+  }
+  if(readyOrd.length&&currentFilter!=='new'&&currentFilter!=='progress'){
+    html+=`<div class="section-header"><div class="section-title" style="color:var(--green-l);">🟢 Hazır – Servis Bekliyor (${readyOrd.length})</div><div class="section-line"></div></div><div class="orders-grid">${readyOrd.map(cardHTML).join('')}</div>`;
+  }
+  area.innerHTML=html;
+  updateStats();
+  renderDoneStrip();
+}
+
+function renderDoneStrip(){
+  const strip=document.getElementById('done-strip');
+  const pills=doneOrders.map(d=>`
+    <div class="done-pill">
+      <div class="dp-check"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 8l4 4 6-6"/></svg></div>
+      <div><div class="dp-masa">${d.masa}</div><div class="dp-time">${d.time}</div></div>
+    </div>
+  `).join('');
+  strip.innerHTML=`<div class="done-lbl">✓ Tamamlananlar (${doneOrders.length}):</div>${pills}`;
+}
+
+function changeStatus(id,newStatus){
+  const o=orders.find(x=>x.id===id);
+  if(!o)return;
+  o.status=newStatus;
+  if(newStatus==='done'){
+    doneOrders.unshift({masa:o.masa,time:o.time+' dk'});
+    orders=orders.filter(x=>x.id!==id);
+    showToast('✓',o.masa+' tamamlandı!');
+  } else if(newStatus==='ready'){
+    showToast('🍳',o.masa+' hazır! Servis bekliyor.');
+  } else if(newStatus==='progress'){
+    showToast('⏳',o.masa+' hazırlanmaya başlandı.');
+  }
+  reRender();
+}
+
+function serveOrder(id){
+  const o=orders.find(x=>x.id===id);
+  if(!o)return;
+  showToast('🛎️',o.masa+' servise gönderildi!');
+  changeStatus(id,'done');
+}
+
+function toggleCheck(e,id,el){
+  e.stopPropagation();
+  el.classList.toggle('done');
+}
+
+function switchStation(el,station){
+  document.querySelectorAll('.stab').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');
+  currentStation=station;
+  reRender();
+}
+
+function switchFilter(el,filter){
+  document.querySelectorAll('.fchip').forEach(c=>c.classList.remove('on'));
+  el.classList.add('on');
+  currentFilter=filter;
+  reRender();
+}
+
+function showDetail(id){
+  const o=orders.find(x=>x.id===id);
+  if(!o)return;
+  document.getElementById('modal-title').textContent=o.masa+' – Sipariş Detayı';
+  document.getElementById('modal-sub').textContent=o.zone+' · '+o.time+' dk bekleme · Garson: '+o.waiter;
+  const itemsHTML=o.items.map(i=>`
+    <div class="modal-item">
+      <div class="modal-item-emoji">${i.emoji}</div>
+      <div style="flex:1"><div class="modal-item-name">${i.name}</div><div class="modal-item-var">${i.var}</div>${i.note?`<div class="modal-item-note">⚠ ${i.note}</div>`:''}</div>
+      <div class="modal-qty">${i.qty}</div>
+    </div>
+  `).join('');
+  const actHTML=o.status==='new'
+    ?`<div class="mbtn btn-start" onclick="changeStatus(${o.id},'progress');closeModal()">▶ Hazırlamaya Başla</div><div class="mbtn btn-bump" onclick="closeModal()">Kapat</div>`
+    :o.status==='progress'
+    ?`<div class="mbtn btn-ready" onclick="changeStatus(${o.id},'ready');closeModal()">✓ Hazır İşaretle</div><div class="mbtn btn-bump" onclick="closeModal()">Kapat</div>`
+    :`<div class="mbtn btn-serve" onclick="serveOrder(${o.id});closeModal()">Servise Gönder</div><div class="mbtn btn-done" onclick="changeStatus(${o.id},'done');closeModal()">Tamamla</div>`;
+  document.getElementById('modal-body').innerHTML=`
+    <div class="modal-section"><div class="modal-sec-lbl">Ürünler</div>${itemsHTML}</div>
+    <div class="modal-actions">${actHTML}</div>
+  `;
+  document.getElementById('overlay').classList.add('show');
+}
+
+function closeModal(){ document.getElementById('overlay').classList.remove('show'); }
+
+let testId=100;
+const testItems=[
+  {s:'pizza',items:[{emoji:'🍕',name:'Diavola',var:'32cm',note:'',qty:1},{emoji:'🍕',name:'Margherita',var:'32cm',note:'Ekstra peynir',qty:2}]},
+  {s:'bar',items:[{emoji:'🍺',name:'Bira Büyük',var:'Efes',note:'',qty:3},{emoji:'🥃',name:'Viski',var:'Buzlu',note:'',qty:1}]},
+  {s:'izgara',items:[{emoji:'🥩',name:'Bonfile 250g',var:'Orta Pişmiş',note:'Mantar soslu',qty:1}]},
+  {s:'salata',items:[{emoji:'🥗',name:'Niçoise Salata',var:'',note:'',qty:2}]},
+  {s:'tatli',items:[{emoji:'🍫',name:'Çikolatalı Sufle',var:'Sıcak',note:'Dondurma ile',qty:1}]},
+];
+const masaList=['Masa 2','Masa 7','Masa 8','Teras 3','Teras 4','VIP 3'];
+function addTestOrder(){
+  const t=testItems[Math.floor(Math.random()*testItems.length)];
+  const masa=masaList[Math.floor(Math.random()*masaList.length)];
+  orders.unshift({
+    id:++testId, masa, zone:'İç Mekan', station:t.s,
+    status:'new', priority:false, time:0, waiter:'Test G.',
+    items:t.items
+  });
+  reRender();
+  showToast('🆕','Yeni sipariş: '+masa);
+}
+
+let toastTimer;
+function showToast(icon,msg){
+  clearTimeout(toastTimer);
+  document.getElementById('toast-icon').textContent=icon;
+  document.getElementById('toast-msg').textContent=msg;
+  const t=document.getElementById('toast');
+  t.classList.add('show');
+  toastTimer=setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+function toggleFS(){
+  if(!document.fullscreenElement) document.documentElement.requestFullscreen();
+  else document.exitFullscreen();
+}
+
+// init
+reRender();
+startTimers();
+</script>
+</body>
+</html>

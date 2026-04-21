@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<!--
+  NextPOS — statik QR/kiosk prototip (offline demo).
+  Üretim: React kiosk menü kullanın →  /kiosk/{masaKodu}?tenant=KIRACI_ID
+  Örnek: http://localhost:5173/kiosk/T5?tenant=demo
+  Tam özellikli sürüm: apps/pos/src/pages/KioskCustomerMenu.tsx + i18n/kioskMenuMessages.ts
+-->
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>NextPOS — QR Menü</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0A1628;--bg2:#112035;--bg3:#1A2F45;--bg4:#223650;--bg5:#2A3F5C;
+  --acc:#10B981;--acc2:#059669;--acc3:#047857;--acca:rgba(16,185,129,.15);--accb:rgba(16,185,129,.08);
+  --t1:#F0F6FF;--t2:#8BA3C0;--t3:#4E6A88;
+  --bdr:#1E3A55;--bdr2:#2A4A6A;
+  --warn:#F59E0B;--info:#3B82F6;--danger:#EF4444;--purple:#8B5CF6;
+  --r8:8px;--r12:12px;--r16:16px;--r20:20px;--r24:24px;
+  --font:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono',monospace;
+}
+
+html,body{height:100%;overflow:hidden;background:var(--bg)}
+body{font-family:var(--font);color:var(--t1)}
+
+/* ═══════════════ ANIMATIONS ═══════════════ */
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeDown{from{opacity:0;transform:translateY(-20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes scaleIn{from{opacity:0;transform:scale(.88)}to{opacity:1;transform:scale(1)}}
+@keyframes scaleUp{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:scale(1)}}
+@keyframes slideRight{from{opacity:0;transform:translateX(-30px)}to{opacity:1;transform:translateX(0)}}
+@keyframes slideLeft{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:translateX(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes ripple{0%{transform:scale(0);opacity:.6}100%{transform:scale(3);opacity:0}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+@keyframes checkDraw{from{stroke-dashoffset:60}to{stroke-dashoffset:0}}
+@keyframes ringPulse{0%{transform:scale(1);opacity:.6}100%{transform:scale(2.2);opacity:0}}
+@keyframes starBurst{0%{transform:scale(0) rotate(-30deg);opacity:0}60%{transform:scale(1.2) rotate(5deg);opacity:1}100%{transform:scale(1) rotate(0);opacity:1}}
+@keyframes cartBounce{0%,100%{transform:scale(1)}40%{transform:scale(1.35)}70%{transform:scale(.9)}}
+@keyframes toastSlide{from{opacity:0;transform:translateX(-50%) translateY(20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes scanLine{0%{top:0}100%{top:calc(100% - 2px)}}
+@keyframes orbitRing{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes dotPop{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
+@keyframes badgePop{0%{transform:scale(0) rotate(-10deg)}70%{transform:scale(1.15) rotate(3deg)}100%{transform:scale(1) rotate(0)}}
+@keyframes glowPulse{0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.4)}50%{box-shadow:0 0 0 8px rgba(16,185,129,0)}}
+
+/* ═══════════════ SCREENS ═══════════════ */
+.screen{position:absolute;inset:0;display:none;flex-direction:column}
+.screen.active{display:flex;animation:fadeIn .35s ease}
+
+/* ═══════════════ SCREEN 1: IDLE ═══════════════ */
+#s-idle{background:var(--bg);align-items:center;justify-content:center;overflow:hidden}
+.idle-bg{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.idle-ring{position:absolute;border-radius:50%;border:1px solid rgba(16,185,129,.08);left:50%;top:50%;transform:translate(-50%,-50%)}
+.idle-ring:nth-child(1){width:300px;height:300px;animation:ringPulse 3s ease-out infinite}
+.idle-ring:nth-child(2){width:500px;height:500px;animation:ringPulse 3s ease-out .8s infinite}
+.idle-ring:nth-child(3){width:700px;height:700px;animation:ringPulse 3s ease-out 1.6s infinite}
+.idle-particle{position:absolute;border-radius:50%;background:var(--acc);opacity:.15}
+.idle-content{z-index:1;display:flex;flex-direction:column;align-items:center;gap:0}
+.idle-logo-wrap{animation:float 4s ease-in-out infinite;margin-bottom:24px}
+.idle-logo{width:110px;height:110px;border-radius:50%;background:var(--bg2);border:2.5px solid var(--acc);display:flex;align-items:center;justify-content:center;font-size:48px;position:relative;animation:glowPulse 2.5s ease-in-out infinite}
+.idle-logo-ring{position:absolute;inset:-10px;border-radius:50%;border:1px solid rgba(16,185,129,.25);animation:orbitRing 6s linear infinite}
+.idle-name{font-size:32px;font-weight:800;color:var(--t1);letter-spacing:-.8px;margin-bottom:6px;animation:fadeUp .6s .1s both}
+.idle-tagline{font-size:14px;color:var(--t2);margin-bottom:4px;animation:fadeUp .6s .2s both}
+.idle-addr{font-size:13px;color:var(--t3);display:flex;align-items:center;gap:5px;margin-bottom:32px;animation:fadeUp .6s .3s both}
+.idle-lang-hint{font-size:13px;color:var(--t3);margin-bottom:14px;animation:fadeUp .6s .35s both}
+.idle-langs{display:flex;gap:12px;margin-bottom:32px;animation:fadeUp .6s .4s both}
+.idle-lang-btn{display:flex;flex-direction:column;align-items:center;gap:7px;background:var(--bg2);border:1.5px solid var(--bdr);border-radius:var(--r16);padding:16px 26px;cursor:pointer;transition:all .3s;min-width:100px;position:relative;overflow:hidden}
+.idle-lang-btn::before{content:'';position:absolute;inset:0;background:var(--acca);opacity:0;transition:opacity .3s}
+.idle-lang-btn:hover::before,.idle-lang-btn.sel::before{opacity:1}
+.idle-lang-btn.sel{border-color:var(--acc);transform:translateY(-3px)}
+.ilb-flag{font-size:30px;position:relative;z-index:1}
+.ilb-name{font-size:13px;font-weight:500;color:var(--t2);position:relative;z-index:1;transition:color .3s}
+.idle-lang-btn.sel .ilb-name{color:var(--acc)}
+.idle-open-btn{background:var(--acc);color:#fff;border:none;border-radius:var(--r16);padding:18px 52px;font-size:16px;font-weight:700;cursor:pointer;transition:all .25s;letter-spacing:.4px;position:relative;overflow:hidden;animation:fadeUp .6s .5s both}
+.idle-open-btn::after{content:'';position:absolute;inset:0;background:rgba(255,255,255,.15);transform:translateX(-100%);transition:transform .4s}
+.idle-open-btn:hover::after{transform:translateX(100%)}
+.idle-open-btn:hover{background:var(--acc2);transform:translateY(-2px)}
+.idle-open-btn:active{transform:scale(.96)}
+.idle-qr{display:flex;flex-direction:column;align-items:center;gap:8px;margin-top:28px;opacity:.5;animation:fadeUp .6s .6s both}
+.idle-qr-box{width:80px;height:80px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r8);padding:6px;display:grid;grid-template-columns:repeat(8,1fr);gap:1px}
+.qc{background:var(--t2);border-radius:1px}
+.qc.e{background:transparent}
+.idle-qr-hint{font-size:11px;color:var(--t3)}
+
+/* ═══════════════ SCREEN 2: LOGIN ═══════════════ */
+#s-login{background:var(--bg);align-items:center;justify-content:center;padding:24px}
+#s-login.active{animation:scaleIn .35s ease}
+.login-wrap{width:100%;max-width:460px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.lw-top{display:flex;align-items:center;gap:12px;width:100%;animation:fadeDown .4s both}
+.lw-logo{width:42px;height:42px;border-radius:50%;background:var(--bg2);border:1.5px solid var(--acc);display:flex;align-items:center;justify-content:center;font-size:18px}
+.lw-info{flex:1}
+.lw-title{font-size:17px;font-weight:700}
+.lw-sub{font-size:13px;color:var(--t2)}
+.lw-table{background:var(--acca);border:1px solid var(--acc);border-radius:20px;padding:4px 14px;font-size:12px;color:var(--acc);font-weight:600;white-space:nowrap}
+.login-card{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r20);width:100%;overflow:hidden;animation:fadeUp .4s .1s both}
+.lc-tabs{display:flex;background:var(--bg3);border-bottom:1px solid var(--bdr)}
+.lc-tab{flex:1;padding:13px 8px;text-align:center;font-size:13px;font-weight:500;color:var(--t3);cursor:pointer;border-bottom:2.5px solid transparent;transition:all .25s;position:relative}
+.lc-tab.active{color:var(--acc);border-bottom-color:var(--acc)}
+.lc-tab::after{content:'';position:absolute;bottom:-1px;left:50%;width:0;height:2.5px;background:var(--acc);transform:translateX(-50%);transition:width .3s}
+.lc-tab.active::after{width:100%}
+.lc-tab:hover{color:var(--t1)}
+.lc-body{padding:22px 24px}
+.lc-sec{display:none}
+.lc-sec.active{display:block;animation:fadeUp .3s both}
+.qr-area{background:var(--bg3);border:1.5px dashed var(--bdr2);border-radius:var(--r16);padding:30px 20px;text-align:center;cursor:pointer;transition:all .3s;margin-bottom:14px;position:relative;overflow:hidden}
+.qr-area:hover{border-color:var(--acc);background:var(--accb);transform:scale(1.01)}
+.qr-area.scanning{border-color:var(--acc);background:var(--accb)}
+.scan-line{position:absolute;left:20%;right:20%;height:2px;background:var(--acc);top:20%;display:none;border-radius:1px}
+.qr-area.scanning .scan-line{display:block;animation:scanLine 1.5s linear infinite}
+.qa-icon{width:60px;height:60px;margin:0 auto 10px;position:relative}
+.qa-icon svg{width:60px;height:60px}
+.qa-txt{font-size:14px;font-weight:600;color:var(--t1);margin-bottom:4px}
+.qa-sub{font-size:12px;color:var(--t3)}
+.loading-dots{display:flex;gap:5px;justify-content:center;margin-top:8px}
+.ld{width:7px;height:7px;border-radius:50%;background:var(--acc)}
+.ld:nth-child(1){animation:dotPop 1.2s ease-in-out infinite}
+.ld:nth-child(2){animation:dotPop 1.2s ease-in-out .2s infinite}
+.ld:nth-child(3){animation:dotPop 1.2s ease-in-out .4s infinite}
+.or-row{display:flex;align-items:center;gap:10px;margin:12px 0;color:var(--t3);font-size:13px}
+.or-row::before,.or-row::after{content:'';flex:1;height:1px;background:var(--bdr)}
+.field-wrap{position:relative;margin-bottom:12px}
+.field-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:16px}
+.txt-input{width:100%;background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--r8);padding:12px 12px 12px 42px;font-size:15px;color:var(--t1);outline:none;transition:all .25s;font-family:var(--font)}
+.txt-input:focus{border-color:var(--acc);background:var(--bg4)}
+.txt-input::placeholder{color:var(--t3)}
+.guest-cnt-row{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.gc-lbl{font-size:13px;color:var(--t2);flex:1}
+.gc-ctrl{display:flex;align-items:center;gap:10px}
+.gc-btn{width:32px;height:32px;border-radius:var(--r8);border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.gc-btn:hover{border-color:var(--acc);background:var(--bg4);transform:scale(1.1)}
+.gc-n{font-size:16px;font-weight:700;min-width:24px;text-align:center}
+.btn-primary{width:100%;background:var(--acc);color:#fff;border:none;border-radius:var(--r8);padding:13px;font-size:14px;font-weight:600;cursor:pointer;transition:all .25s;position:relative;overflow:hidden}
+.btn-primary::after{content:'';position:absolute;width:100%;height:100%;top:0;left:0;background:rgba(255,255,255,.15);transform:translateX(-100%);transition:transform .35s}
+.btn-primary:hover::after{transform:translateX(100%)}
+.btn-primary:hover{background:var(--acc2);transform:translateY(-1px)}
+.btn-primary:active{transform:scale(.97)}
+.btn-ghost{width:100%;background:transparent;color:var(--t2);border:1px solid var(--bdr);border-radius:var(--r8);padding:13px;font-size:13px;cursor:pointer;transition:all .2s;margin-top:8px}
+.btn-ghost:hover{color:var(--t1);border-color:var(--bdr2);background:var(--bg3)}
+.lang-mini{display:flex;gap:6px;animation:fadeUp .4s .2s both}
+.lm-btn{background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--r8);padding:5px 14px;font-size:12px;color:var(--t3);cursor:pointer;transition:all .2s}
+.lm-btn.active{border-color:var(--acc);color:var(--acc);background:var(--accb)}
+.back-txt{font-size:12px;color:var(--t3);cursor:pointer;background:none;border:none;transition:color .2s;animation:fadeUp .4s .3s both}
+.back-txt:hover{color:var(--t2)}
+
+/* ═══════════════ SCREEN 3: MENU ═══════════════ */
+#s-menu{background:var(--bg)}
+.menu-hdr{background:var(--bg2);border-bottom:1px solid var(--bdr);padding:10px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0;animation:fadeDown .4s both}
+.mh-logo{width:34px;height:34px;border-radius:50%;background:var(--bg3);border:1.5px solid var(--acc);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.mh-brand{font-size:14px;font-weight:700;color:var(--t1)}
+.mh-table-badge{background:var(--acca);border:1px solid var(--acc);border-radius:20px;padding:3px 12px;font-size:11px;color:var(--acc);font-weight:600;flex-shrink:0}
+.mh-spacer{flex:1}
+.mh-user{display:flex;align-items:center;gap:8px;animation:slideLeft .4s .1s both}
+.mh-av{width:30px;height:30px;border-radius:50%;background:var(--bg3);border:1.5px solid var(--bdr);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--acc)}
+.mh-uinfo{line-height:1.2}
+.mh-uname{font-size:12px;font-weight:600}
+.mh-pts{font-size:10px;color:var(--warn)}
+.mh-langs{display:flex;gap:3px}
+.mhl-btn{background:var(--bg3);border:1px solid var(--bdr);border-radius:6px;padding:3px 8px;font-size:11px;color:var(--t3);cursor:pointer;transition:all .15s}
+.mhl-btn.active{border-color:var(--acc);color:var(--acc);background:var(--accb)}
+.exit-btn{background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--r8);padding:5px 12px;font-size:11px;color:var(--t3);cursor:pointer;transition:all .2s;white-space:nowrap}
+.exit-btn:hover{color:var(--t1);border-color:var(--bdr2)}
+
+.menu-body{display:flex;flex:1;min-height:0}
+
+/* SOL KATEGORİ */
+.cat-col{width:108px;background:var(--bg2);border-right:1px solid var(--bdr);overflow-y:auto;padding:8px 6px;scrollbar-width:none;flex-shrink:0;animation:slideRight .4s .1s both}
+.cat-col::-webkit-scrollbar{display:none}
+.cat-item{display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 5px;border-radius:var(--r8);cursor:pointer;transition:all .25s;margin-bottom:3px;border:1.5px solid transparent;position:relative;overflow:hidden}
+.cat-item::before{content:'';position:absolute;inset:0;background:var(--acca);opacity:0;transition:opacity .3s}
+.cat-item:hover::before,.cat-item.active::before{opacity:1}
+.cat-item.active{border-color:var(--acc);transform:none}
+.cat-item:hover{border-color:var(--bdr2)}
+.cat-ico{font-size:22px;position:relative;z-index:1;transition:transform .25s}
+.cat-item.active .cat-ico,.cat-item:hover .cat-ico{transform:scale(1.15)}
+.cat-lbl{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);text-align:center;line-height:1.2;position:relative;z-index:1;transition:color .25s}
+.cat-item.active .cat-lbl{color:var(--acc)}
+.cat-cnt{background:var(--bg4);border-radius:10px;padding:1px 5px;font-size:9px;color:var(--t3);position:relative;z-index:1;transition:all .25s}
+.cat-item.active .cat-cnt{background:var(--acc);color:#fff}
+.cat-dot{position:absolute;right:6px;top:6px;width:5px;height:5px;border-radius:50%;background:var(--acc);opacity:0;transition:opacity .25s;z-index:1}
+.cat-item.active .cat-dot{opacity:1;animation:pulse 1.5s ease-in-out infinite}
+
+/* ÜRÜN ALANI */
+.prod-col{flex:1;overflow-y:auto;padding:14px 12px;scrollbar-width:thin;scrollbar-color:var(--bdr) transparent;animation:fadeIn .4s .15s both}
+.prod-col::-webkit-scrollbar{width:4px}
+.prod-col::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:2px}
+
+/* Öneri şeridi */
+.suggest-wrap{margin-bottom:18px;animation:fadeUp .4s .2s both}
+.strip-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:var(--t3);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.strip-hdr::after{content:'';flex:1;height:1px;background:var(--bdr)}
+.sug-row{display:flex;gap:9px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}
+.sug-row::-webkit-scrollbar{display:none}
+.sug-card{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r12);min-width:126px;cursor:pointer;overflow:hidden;position:relative;flex-shrink:0;transition:all .25s}
+.sug-card:hover{border-color:var(--acc);transform:translateY(-3px)}
+.sug-card.repeat{border-color:rgba(59,130,246,.5)}
+.sug-card.repeat:hover{border-color:var(--info)}
+.sug-badge{position:absolute;top:6px;left:6px;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;z-index:1;animation:badgePop .4s ease both}
+.sb-repeat{background:var(--info);color:#E6F1FB}
+.sb-pop{background:var(--warn);color:#412402}
+.sug-img{height:68px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:26px;transition:transform .3s}
+.sug-card:hover .sug-img{transform:scale(1.08)}
+.sug-info{padding:7px 9px}
+.sug-name{font-size:11px;font-weight:600;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sug-price{font-size:12px;font-weight:700;color:var(--acc);font-family:var(--mono)}
+
+/* Ürün grid */
+.pcat-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:var(--t3);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.pcat-hdr::after{content:'';flex:1;height:1px;background:var(--bdr)}
+.prod-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(146px,1fr));gap:10px;margin-bottom:22px}
+.prod-card{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r12);cursor:pointer;transition:all .25s;overflow:hidden;position:relative}
+.prod-card:hover{border-color:var(--acc);transform:translateY(-3px)}
+.prod-card.unavail{opacity:.35;pointer-events:none}
+.pc-badge{position:absolute;top:7px;left:7px;font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;z-index:1;animation:badgePop .4s ease both}
+.pcb-pop{background:var(--warn);color:#412402}
+.pcb-new{background:var(--purple);color:#EDE9FE}
+.pc-img{height:94px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:32px;transition:transform .3s;position:relative;overflow:hidden}
+.prod-card:hover .pc-img{transform:scale(1.06)}
+.pc-info{padding:9px 10px}
+.pc-name{font-size:12px;font-weight:600;margin-bottom:3px;line-height:1.3}
+.pc-desc{font-size:10px;color:var(--t3);margin-bottom:7px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pc-foot{display:flex;align-items:center;justify-content:space-between}
+.pc-price{font-size:13px;font-weight:700;color:var(--acc);font-family:var(--mono)}
+.pc-add{width:26px;height:26px;border-radius:7px;background:var(--acc);border:none;color:#fff;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .25s;position:relative;overflow:hidden}
+.pc-add:hover{background:var(--acc2);transform:scale(1.15)}
+.pc-add:active{transform:scale(.88)}
+.pc-add .ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,.4);width:20px;height:20px;margin-top:-10px;margin-left:-10px;animation:ripple .5s ease-out forwards}
+.allergens{display:flex;gap:3px;flex-wrap:wrap;margin-top:4px}
+.alg{font-size:9px;padding:1px 4px;border-radius:3px;background:var(--bg4);color:var(--t3);border:1px solid var(--bdr)}
+
+/* SEPET */
+.cart-col{width:268px;background:var(--bg2);border-left:1px solid var(--bdr);display:flex;flex-direction:column;flex-shrink:0;animation:slideLeft .4s .2s both}
+.cc-hdr{padding:12px 14px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:8px;flex-shrink:0}
+.cc-title{font-size:14px;font-weight:700;flex:1}
+.cc-cnt{background:var(--acc);color:#fff;min-width:20px;height:20px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;padding:0 5px;transition:transform .2s}
+.cc-cnt.bounce{animation:cartBounce .35s ease}
+.cc-pts{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:3px 10px;font-size:11px;color:var(--warn);margin-left:auto}
+.cc-items{flex:1;overflow-y:auto;padding:10px 12px;scrollbar-width:thin;scrollbar-color:var(--bdr) transparent}
+.cc-items::-webkit-scrollbar{width:3px}
+.cc-items::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:1px}
+.cc-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px}
+.cc-empty-ico{font-size:36px;opacity:.18;animation:float 3s ease-in-out infinite}
+.cc-empty-txt{font-size:12px;color:var(--t3)}
+.cart-item{display:flex;gap:8px;padding:9px 0;border-bottom:1px solid var(--bdr);animation:slideRight .25s ease both}
+.ci-emo{font-size:18px;margin-top:2px;flex-shrink:0}
+.ci-det{flex:1;min-width:0}
+.ci-name{font-size:12px;font-weight:600;line-height:1.3;margin-bottom:2px}
+.ci-var{font-size:10px;color:var(--t3);margin-bottom:4px}
+.ci-ctrl{display:flex;align-items:center;gap:5px}
+.ci-m{width:20px;height:20px;border-radius:5px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+.ci-m:hover{border-color:var(--acc);background:var(--bg4);transform:scale(1.1)}
+.ci-q{font-size:12px;font-weight:700;min-width:16px;text-align:center}
+.ci-price{font-size:12px;font-weight:700;color:var(--acc);font-family:var(--mono);margin-left:auto}
+.ci-del{width:18px;height:18px;border:none;background:none;color:var(--t3);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;border-radius:4px;transition:all .2s;flex-shrink:0}
+.ci-del:hover{color:var(--danger);background:rgba(239,68,68,.12)}
+
+.cc-foot{padding:12px 14px;border-top:1px solid var(--bdr);flex-shrink:0}
+.cc-totals{margin-bottom:10px}
+.cc-trow{display:flex;justify-content:space-between;font-size:12px;color:var(--t2);padding:2px 0;transition:all .2s}
+.cc-trow.main{font-size:14px;font-weight:700;color:var(--t1);border-top:1px solid var(--bdr);padding-top:7px;margin-top:4px}
+.cc-trow.main .tv{color:var(--acc);font-family:var(--mono)}
+.order-btn{width:100%;background:var(--acc);color:#fff;border:none;border-radius:var(--r8);padding:11px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:all .25s;position:relative;overflow:hidden;letter-spacing:.3px}
+.order-btn::after{content:'';position:absolute;inset:0;background:rgba(255,255,255,.12);transform:translateX(-100%);transition:transform .35s}
+.order-btn:hover::after{transform:translateX(100%)}
+.order-btn:hover{background:var(--acc2)}
+.order-btn:disabled{opacity:.35;pointer-events:none}
+.ob-p{font-family:var(--mono);font-size:13px}
+.srv-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:8px}
+.srv-btn{background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--r8);padding:7px 4px;font-size:10px;color:var(--t2);cursor:pointer;transition:all .2s;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px}
+.srv-btn:hover{border-color:var(--acc);color:var(--t1);background:var(--bg4);transform:scale(1.03)}
+.srv-btn:active{transform:scale(.95)}
+.srv-ico{font-size:14px}
+
+/* ═══ MODALS ═══ */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:100;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal-overlay.open .modal-box{animation:scaleIn .3s ease}
+.modal-overlay.open .modal-box.conf-box{animation:scaleUp .3s ease}
+.modal-box{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r20);width:100%;max-width:390px;max-height:90vh;overflow-y:auto}
+.modal-box::-webkit-scrollbar{display:none}
+.mb-hdr{padding:16px 20px 12px;border-bottom:1px solid var(--bdr);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--bg2);z-index:1}
+.mb-ttl{font-size:16px;font-weight:700}
+.mb-cls{width:28px;height:28px;background:var(--bg3);border:1px solid var(--bdr);border-radius:7px;color:var(--t2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;transition:all .2s}
+.mb-cls:hover{color:var(--t1);background:var(--bg4);transform:rotate(90deg)}
+.mb-body{padding:18px 20px}
+.mb-img{height:150px;background:var(--bg3);border-radius:var(--r12);display:flex;align-items:center;justify-content:center;font-size:56px;margin-bottom:14px;transition:transform .3s;animation:scaleIn .4s both}
+.mb-img:hover{transform:scale(1.04)}
+.mb-desc{font-size:13px;color:var(--t2);line-height:1.65;margin-bottom:16px}
+.mb-sec{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:var(--t3);margin-bottom:8px}
+.sz-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:16px}
+.sz{border:1.5px solid var(--bdr);border-radius:var(--r8);padding:8px 4px;text-align:center;cursor:pointer;transition:all .25s;background:var(--bg3);position:relative;overflow:hidden}
+.sz::before{content:'';position:absolute;inset:0;background:var(--acca);opacity:0;transition:opacity .25s}
+.sz.sel::before{opacity:1}
+.sz.sel{border-color:var(--acc)}
+.sz.sel{transform:scale(1.04)}
+.sz-n{font-size:10px;color:var(--t2);position:relative;z-index:1;transition:color .25s}
+.sz.sel .sz-n{color:var(--acc)}
+.sz-p{font-size:12px;font-weight:700;color:var(--t1);font-family:var(--mono);position:relative;z-index:1}
+.sz.sel .sz-p{color:var(--acc)}
+.mods-row{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:16px}
+.mod{border:1.5px solid var(--bdr);border-radius:20px;padding:5px 12px;font-size:11px;cursor:pointer;background:var(--bg3);color:var(--t2);transition:all .25s}
+.mod.sel{border-color:var(--acc);background:var(--accb);color:var(--acc);transform:scale(1.05)}
+.mod:hover{border-color:var(--bdr2);color:var(--t1)}
+.qty-ctrl{display:flex;align-items:center;gap:16px;margin-bottom:16px}
+.q-btn{width:36px;height:36px;border-radius:var(--r8);border:1.5px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .25s}
+.q-btn:hover{border-color:var(--acc);background:var(--bg4);transform:scale(1.1)}
+.q-btn:active{transform:scale(.9)}
+.q-n{font-size:22px;font-weight:800;min-width:28px;text-align:center}
+.add-cart-btn{width:100%;background:var(--acc);color:#fff;border:none;border-radius:var(--r8);padding:14px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:all .25s;overflow:hidden;position:relative}
+.add-cart-btn::after{content:'';position:absolute;inset:0;background:rgba(255,255,255,.15);transform:translateX(-100%);transition:transform .35s}
+.add-cart-btn:hover::after{transform:translateX(100%)}
+.add-cart-btn:hover{background:var(--acc2);transform:translateY(-1px)}
+.add-cart-btn:active{transform:scale(.97)}
+.acb-p{font-family:var(--mono);font-size:14px}
+
+/* Confirm Modal */
+.conf-box{max-width:350px;padding:28px 24px;text-align:center}
+.conf-ico{font-size:48px;margin-bottom:14px;animation:float 2s ease-in-out infinite}
+.conf-ttl{font-size:18px;font-weight:800;margin-bottom:6px}
+.conf-sub{font-size:13px;color:var(--t2);margin-bottom:18px;line-height:1.5}
+.conf-list{background:var(--bg3);border-radius:var(--r8);padding:12px 14px;text-align:left;margin-bottom:18px}
+.cl-item{display:flex;justify-content:space-between;font-size:12px;color:var(--t2);padding:3px 0;animation:slideRight .2s ease both}
+.cl-item span:last-child{color:var(--t1);font-family:var(--mono)}
+.cl-tot{display:flex;justify-content:space-between;font-size:15px;font-weight:700;border-top:1px solid var(--bdr);padding-top:8px;margin-top:5px}
+.cl-tot span:last-child{color:var(--acc);font-family:var(--mono)}
+.conf-btns{display:flex;gap:9px}
+.btn-cancel{flex:1;background:var(--bg3);color:var(--t2);border:1px solid var(--bdr);border-radius:var(--r8);padding:12px;font-size:13px;cursor:pointer;transition:all .2s}
+.btn-cancel:hover{color:var(--t1);border-color:var(--bdr2)}
+.btn-ok{flex:2;background:var(--acc);color:#fff;border:none;border-radius:var(--r8);padding:12px;font-size:13px;font-weight:700;cursor:pointer;transition:all .25s;position:relative;overflow:hidden}
+.btn-ok::after{content:'';position:absolute;inset:0;background:rgba(255,255,255,.15);transform:translateX(-100%);transition:transform .35s}
+.btn-ok:hover::after{transform:translateX(100%)}
+.btn-ok:hover{background:var(--acc2)}
+
+/* Success Modal */
+.succ-box{max-width:300px;padding:36px 26px;text-align:center;border-color:var(--acc)}
+.succ-ring{width:80px;height:80px;border-radius:50%;background:var(--acca);border:2px solid var(--acc);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;animation:starBurst .5s ease both}
+.succ-ring svg{width:36px;height:36px;stroke:var(--acc);stroke-width:2.5;fill:none}
+.succ-ring svg polyline{stroke-dasharray:60;stroke-dashoffset:60;animation:checkDraw .5s .3s ease forwards}
+.succ-ttl{font-size:20px;font-weight:800;color:var(--acc);margin-bottom:8px;animation:fadeUp .4s .4s both}
+.succ-sub{font-size:13px;color:var(--t2);line-height:1.6;animation:fadeUp .4s .5s both}
+.succ-stars{display:flex;justify-content:center;gap:5px;margin-top:14px;animation:fadeUp .4s .6s both}
+.succ-star{font-size:20px;animation:float 2s ease-in-out infinite}
+.succ-star:nth-child(2){animation-delay:.2s}
+.succ-star:nth-child(3){animation-delay:.4s}
+
+/* TOAST */
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--acc);color:var(--t1);padding:10px 22px;border-radius:20px;font-size:13px;font-weight:600;z-index:300;opacity:0;pointer-events:none;white-space:nowrap;transition:opacity .25s}
+.toast.on{opacity:1;animation:toastSlide .3s ease}
+</style>
+</head>
+<body>
+
+<!-- ══════════ SCREEN 1: IDLE ══════════ -->
+<div class="screen active" id="s-idle">
+  <div class="idle-bg">
+    <div class="idle-ring"></div>
+    <div class="idle-ring"></div>
+    <div class="idle-ring"></div>
+  </div>
+  <div class="idle-content">
+    <div class="idle-logo-wrap">
+      <div class="idle-logo">
+        🍕
+        <div class="idle-logo-ring"></div>
+      </div>
+    </div>
+    <div class="idle-name" id="idle-name">Özperto Pizza & Kebap</div>
+    <div class="idle-tagline" id="idle-tag">Herzlich willkommen · Hoş geldiniz · Welcome</div>
+    <div class="idle-addr">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 1C5.24 1 3 3.24 3 6c0 3.75 5 9 5 9s5-5.25 5-9c0-2.76-2.24-5-5-5zm0 6.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" fill="#4E6A88"/></svg>
+      <span style="color:var(--t3);font-size:13px">Musterstraße 15, 70173 Stuttgart</span>
+    </div>
+    <div class="idle-lang-hint" id="idle-lhint">Bitte Sprache wählen · Dil seçin · Choose language</div>
+    <div class="idle-langs">
+      <div class="idle-lang-btn sel" onclick="idleLang('de',this)"><span class="ilb-flag">🇩🇪</span><span class="ilb-name">Deutsch</span></div>
+      <div class="idle-lang-btn" onclick="idleLang('tr',this)"><span class="ilb-flag">🇹🇷</span><span class="ilb-name">Türkçe</span></div>
+      <div class="idle-lang-btn" onclick="idleLang('en',this)"><span class="ilb-flag">🇬🇧</span><span class="ilb-name">English</span></div>
+    </div>
+    <button class="idle-open-btn" id="idle-open" onclick="goLogin()">Menü öffnen →</button>
+    <div class="idle-qr">
+      <div class="idle-qr-box" id="qr-grid"></div>
+      <span class="idle-qr-hint" id="qr-hint">QR scannen für direkten Zugang</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ SCREEN 2: LOGIN ══════════ -->
+<div class="screen" id="s-login">
+  <div class="login-wrap">
+    <div class="lw-top">
+      <div class="lw-logo">🍕</div>
+      <div class="lw-info">
+        <div class="lw-title" id="lw-ttl">Anmelden oder fortfahren</div>
+        <div class="lw-sub">Özperto Pizza &amp; Kebap</div>
+      </div>
+      <div class="lw-table" id="lw-table">Tisch 5</div>
+    </div>
+    <div class="login-card">
+      <div class="lc-tabs">
+        <div class="lc-tab active" id="tab-qr" onclick="switchTab('qr')"><span id="t-qr">QR-Code</span></div>
+        <div class="lc-tab" id="tab-phone" onclick="switchTab('phone')"><span id="t-ph">Nummer</span></div>
+        <div class="lc-tab" id="tab-guest" onclick="switchTab('guest')"><span id="t-gs">Gast</span></div>
+      </div>
+      <div class="lc-body">
+        <!-- QR -->
+        <div class="lc-sec active" id="sec-qr">
+          <div class="qr-area" id="qr-area" onclick="startScan()">
+            <div class="scan-line" id="scan-line"></div>
+            <div class="qa-icon">
+              <svg viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="5" y="5" width="18" height="18" rx="2" stroke="#10B981" stroke-width="2"/>
+                <rect x="8" y="8" width="12" height="12" fill="#10B981" opacity=".35"/>
+                <rect x="37" y="5" width="18" height="18" rx="2" stroke="#10B981" stroke-width="2"/>
+                <rect x="40" y="8" width="12" height="12" fill="#10B981" opacity=".35"/>
+                <rect x="5" y="37" width="18" height="18" rx="2" stroke="#10B981" stroke-width="2"/>
+                <rect x="8" y="40" width="12" height="12" fill="#10B981" opacity=".35"/>
+                <rect x="37" y="37" width="7" height="7" fill="#10B981"/>
+                <rect x="47" y="37" width="7" height="7" fill="#10B981"/>
+                <rect x="37" y="47" width="7" height="7" fill="#10B981"/>
+                <rect x="47" y="47" width="7" height="7" fill="#10B981"/>
+              </svg>
+            </div>
+            <div class="qa-txt" id="qa-txt">Persönlichen QR-Code scannen</div>
+            <div class="qa-sub" id="qa-sub">Kamera öffnet sich automatisch</div>
+            <div class="loading-dots" id="scan-dots" style="display:none">
+              <div class="ld"></div><div class="ld"></div><div class="ld"></div>
+            </div>
+          </div>
+          <div class="or-row" id="or1">oder</div>
+          <button class="btn-ghost" onclick="demoQr()" id="demo-qr">Demo: QR erkannt → Ahmet Y.</button>
+        </div>
+        <!-- PHONE -->
+        <div class="lc-sec" id="sec-phone">
+          <div style="font-size:13px;color:var(--t2);margin-bottom:10px" id="ph-lbl">Handynummer eingeben</div>
+          <div class="field-wrap">
+            <span class="field-icon">🇩🇪</span>
+            <input class="txt-input" id="ph-inp" type="tel" placeholder="+49 170 000 0000" />
+          </div>
+          <button class="btn-primary" onclick="doPhone()" id="ph-btn">Weiter</button>
+          <div class="or-row" id="or2">oder</div>
+          <button class="btn-ghost" onclick="demoPhone()" id="demo-ph">Demo: +49 170 123 4567 → Ayşe K.</button>
+        </div>
+        <!-- GUEST -->
+        <div class="lc-sec" id="sec-guest">
+          <div style="font-size:13px;color:var(--t2);margin-bottom:10px" id="gs-lbl">Vorname (optional)</div>
+          <div class="field-wrap">
+            <span class="field-icon">👤</span>
+            <input class="txt-input" id="gs-name" placeholder="z. B. Thomas" />
+          </div>
+          <div class="guest-cnt-row">
+            <span class="gc-lbl" id="gc-lbl">Personen</span>
+            <div class="gc-ctrl">
+              <button class="gc-btn" onclick="adjGuest(-1)">−</button>
+              <span class="gc-n" id="gc-n">2</span>
+              <button class="gc-btn" onclick="adjGuest(1)">+</button>
+            </div>
+          </div>
+          <button class="btn-primary" onclick="doGuest()" id="gs-btn">Als Gast fortfahren</button>
+        </div>
+      </div>
+    </div>
+    <div class="lang-mini">
+      <button class="lm-btn active" id="lm-de" onclick="setLang('de')">🇩🇪 DE</button>
+      <button class="lm-btn" id="lm-tr" onclick="setLang('tr')">🇹🇷 TR</button>
+      <button class="lm-btn" id="lm-en" onclick="setLang('en')">🇬🇧 EN</button>
+    </div>
+    <button class="back-txt" onclick="goIdle()" id="bk-btn">← Zurück</button>
+  </div>
+</div>
+
+<!-- ══════════ SCREEN 3: MENU ══════════ -->
+<div class="screen" id="s-menu">
+  <div class="menu-hdr">
+    <div class="mh-logo">🍕</div>
+    <div>
+      <div class="mh-brand">Özperto Pizza</div>
+    </div>
+    <div class="mh-table-badge" id="mh-tbl">Tisch 5</div>
+    <div class="mh-spacer"></div>
+    <div class="mh-user" id="mh-usr" style="display:none">
+      <div class="mh-av" id="mh-av">G</div>
+      <div class="mh-uinfo">
+        <div class="mh-uname" id="mh-un"></div>
+        <div class="mh-pts" id="mh-pts"></div>
+      </div>
+    </div>
+    <div class="mh-langs">
+      <button class="mhl-btn active" id="ml-de" onclick="setLang('de')">DE</button>
+      <button class="mhl-btn" id="ml-tr" onclick="setLang('tr')">TR</button>
+      <button class="mhl-btn" id="ml-en" onclick="setLang('en')">EN</button>
+    </div>
+    <button class="exit-btn" id="exit-btn" onclick="goIdle()">Beenden</button>
+  </div>
+  <div class="menu-body">
+    <div class="cat-col" id="cat-col"></div>
+    <div class="prod-col" id="prod-col"></div>
+    <div class="cart-col">
+      <div class="cc-hdr">
+        <span class="cc-title" id="cc-ttl">Warenkorb</span>
+        <span class="cc-cnt" id="cc-cnt">0</span>
+        <span class="cc-pts" id="cc-pts" style="display:none">★ 125</span>
+      </div>
+      <div class="cc-items" id="cc-items">
+        <div class="cc-empty">
+          <div class="cc-empty-ico">🛒</div>
+          <span class="cc-empty-txt" id="cc-empty">Warenkorb ist leer</span>
+        </div>
+      </div>
+      <div class="cc-foot">
+        <div class="cc-totals" id="cc-tots" style="display:none">
+          <div class="cc-trow"><span id="cc-sub-l">Zwischensumme</span><span class="tv" id="cc-sub-v">€0.00</span></div>
+          <div class="cc-trow"><span id="cc-tax-l">MwSt. 19%</span><span class="tv" id="cc-tax-v">€0.00</span></div>
+          <div class="cc-trow main"><span id="cc-tot-l">Gesamt</span><span class="tv" id="cc-tot-v">€0.00</span></div>
+        </div>
+        <button class="order-btn" id="ord-btn" disabled onclick="openConf()">
+          <span id="ord-txt">Bestellen</span>
+          <span class="ob-p" id="ord-p">€0.00</span>
+        </button>
+        <div class="srv-grid">
+          <button class="srv-btn" onclick="srv('w')"><span class="srv-ico">🔔</span><span id="s-w">Kellner</span></button>
+          <button class="srv-btn" onclick="srv('b')"><span class="srv-ico">💳</span><span id="s-b">Rechnung</span></button>
+          <button class="srv-btn" onclick="srv('wa')"><span class="srv-ico">💧</span><span id="s-wa">Wasser</span></button>
+          <button class="srv-btn" onclick="srv('c')"><span class="srv-ico">🗑</span><span id="s-c">Abräumen</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PRODUCT MODAL ══ -->
+<div class="modal-overlay" id="prod-modal">
+  <div class="modal-box">
+    <div class="mb-hdr">
+      <span class="mb-ttl" id="mb-ttl"></span>
+      <button class="mb-cls" onclick="closeProdModal()">✕</button>
+    </div>
+    <div class="mb-body" id="mb-body"></div>
+  </div>
+</div>
+
+<!-- ══ CONFIRM MODAL ══ -->
+<div class="modal-overlay" id="conf-modal">
+  <div class="modal-box conf-box">
+    <div class="conf-ico">📋</div>
+    <div class="conf-ttl" id="cf-ttl">Bestellung bestätigen?</div>
+    <div class="conf-sub" id="cf-sub">Wird an den Kellner gesendet.</div>
+    <div class="conf-list" id="cf-list"></div>
+    <div class="conf-btns">
+      <button class="btn-cancel" onclick="closeConf()" id="cf-cancel">Abbrechen</button>
+      <button class="btn-ok" onclick="placeOrder()" id="cf-ok">Bestätigen</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SUCCESS MODAL ══ -->
+<div class="modal-overlay" id="succ-modal">
+  <div class="modal-box conf-box succ-box">
+    <div class="succ-ring">
+      <svg viewBox="0 0 36 36"><polyline points="6,18 14,26 30,10"/></svg>
+    </div>
+    <div class="succ-ttl" id="sc-ttl">Bestellung aufgegeben!</div>
+    <div class="succ-sub" id="sc-sub">Deine Bestellung wurde weitergeleitet.</div>
+    <div class="succ-stars">
+      <span class="succ-star">⭐</span><span class="succ-star">⭐</span><span class="succ-star">⭐</span>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TX={
+  de:{
+    idleOpen:'Menü öffnen →',qrHint:'QR scannen für direkten Zugang',
+    lwTtl:'Anmelden oder fortfahren',tbl:'Tisch',
+    tabQr:'QR-Code',tabPh:'Nummer',tabGs:'Gast',
+    qaTxt:'Persönlichen QR-Code scannen',qaSub:'Kamera öffnet sich automatisch',
+    demoQr:'Demo: QR erkannt → Ahmet Y.',demoPh:'Demo: +49 170 123 4567 → Ayşe K.',
+    phLbl:'Handynummer eingeben',phBtn:'Weiter',
+    gsLbl:'Vorname (optional)',gcLbl:'Personen',gsBtn:'Als Gast fortfahren',
+    bkBtn:'← Zurück',exitBtn:'Beenden',
+    or:'oder',
+    ccTtl:'Warenkorb',ccEmpty:'Warenkorb ist leer',
+    subL:'Zwischensumme',taxL:'MwSt. 19%',totL:'Gesamt',
+    ordTxt:'Bestellen',
+    sW:'Kellner',sB:'Rechnung',sWa:'Wasser',sC:'Abräumen',
+    cfTtl:'Bestellung bestätigen?',cfSub:'Wird an den Kellner gesendet.',
+    cfCancel:'Abbrechen',cfOk:'Bestätigen',
+    scTtl:'Bestellung aufgegeben!',scSub:'Deine Bestellung wurde weitergeleitet. Bitte kurz warten.',
+    sz:['Klein','Normal','Groß','Familie'],
+    extras:'Extras',qty:'Menge',addCart:'In den Warenkorb',
+    tAdded:'Hinzugefügt',tW:'Kellner wird gerufen...',tB:'Rechnung kommt...',tWa:'Wasser kommt...',tC:'Wird abgeräumt...',
+    pts:'Punkte',sugLast:'Zuletzt bestellt',sugRec:'Empfohlen',repeat:'Wiederholen',
+    catNames:['Favoriten','Pizzen','Döner & Kebap','Getränke','Desserts'],
+    alg:{gluten:'Gluten',lactose:'Laktose',nuts:'Nüsse',spicy:'Scharf'},
+    scanRunning:'Scannen läuft...',
+  },
+  tr:{
+    idleOpen:'Menüyü aç →',qrHint:'Doğrudan erişim için QR tara',
+    lwTtl:'Giriş yap veya devam et',tbl:'Masa',
+    tabQr:'QR Kod',tabPh:'Numara',tabGs:'Misafir',
+    qaTxt:'Kişisel QR kodunu tara',qaSub:'Kamera otomatik açılır',
+    demoQr:'Demo: QR tanındı → Ahmet Y.',demoPh:'Demo: +49 170 123 4567 → Ayşe K.',
+    phLbl:'Telefon numarasını gir',phBtn:'Devam',
+    gsLbl:'İsim gir (isteğe bağlı)',gcLbl:'Kişi sayısı',gsBtn:'Misafir olarak devam et',
+    bkBtn:'← Geri',exitBtn:'Çıkış',
+    or:'veya',
+    ccTtl:'Sepet',ccEmpty:'Sepet boş',
+    subL:'Ara Toplam',taxL:'KDV %19',totL:'Toplam',
+    ordTxt:'Sipariş Ver',
+    sW:'Garson',sB:'Hesap',sWa:'Su',sC:'Temizlik',
+    cfTtl:'Siparişi onayla?',cfSub:'Siparişiniz garsona gönderilecek.',
+    cfCancel:'İptal',cfOk:'Onayla',
+    scTtl:'Sipariş verildi!',scSub:'Siparişiniz garsona iletildi. Lütfen bekleyiniz.',
+    sz:['Küçük','Normal','Büyük','Aile'],
+    extras:'Ekstralar',qty:'Adet',addCart:'Sepete Ekle',
+    tAdded:'Eklendi',tW:'Garson çağrılıyor...',tB:'Hesap hazırlanıyor...',tWa:'Su getiriliyor...',tC:'Masa temizleniyor...',
+    pts:'Puan',sugLast:'Son siparişlerim',sugRec:'Öneriler',repeat:'Tekrar',
+    catNames:['Favoriler','Pizzalar','Döner & Kebap','İçecekler','Tatlılar'],
+    alg:{gluten:'Gluten',lactose:'Laktoz',nuts:'Fındık',spicy:'Acılı'},
+    scanRunning:'Taranıyor...',
+  },
+  en:{
+    idleOpen:'Open menu →',qrHint:'Scan QR for direct access',
+    lwTtl:'Sign in or continue',tbl:'Table',
+    tabQr:'QR Code',tabPh:'Number',tabGs:'Guest',
+    qaTxt:'Scan your personal QR code',qaSub:'Camera opens automatically',
+    demoQr:'Demo: QR found → Ahmet Y.',demoPh:'Demo: +49 170 123 4567 → Ayşe K.',
+    phLbl:'Enter phone number',phBtn:'Continue',
+    gsLbl:'Enter your name (optional)',gcLbl:'Guests',gsBtn:'Continue as guest',
+    bkBtn:'← Back',exitBtn:'Exit',
+    or:'or',
+    ccTtl:'Cart',ccEmpty:'Cart is empty',
+    subL:'Subtotal',taxL:'VAT 19%',totL:'Total',
+    ordTxt:'Place Order',
+    sW:'Waiter',sB:'Bill',sWa:'Water',sC:'Clear',
+    cfTtl:'Confirm order?',cfSub:'Your order will be sent to the waiter.',
+    cfCancel:'Cancel',cfOk:'Confirm',
+    scTtl:'Order placed!',scSub:'Your order has been forwarded. Please wait a moment.',
+    sz:['Small','Regular','Large','Family'],
+    extras:'Extras',qty:'Quantity',addCart:'Add to Cart',
+    tAdded:'Added',tW:'Calling waiter...',tB:'Preparing bill...',tWa:'Bringing water...',tC:'Clearing table...',
+    pts:'Points',sugLast:'My last orders',sugRec:'Recommended',repeat:'Repeat',
+    catNames:['Favorites','Pizzas','Döner & Kebab','Drinks','Desserts'],
+    alg:{gluten:'Gluten',lactose:'Lactose',nuts:'Nuts',spicy:'Spicy'},
+    scanRunning:'Scanning...',
+  }
+};
+
+const CATS=[
+  {k:'fav',ico:'⭐',ids:[1,2,3]},
+  {k:'piz',ico:'🍕',ids:[1,4,5,6]},
+  {k:'don',ico:'🥙',ids:[2,7,8]},
+  {k:'drk',ico:'🥤',ids:[3,9,10,11]},
+  {k:'des',ico:'🍮',ids:[12,13]},
+];
+const PD={
+  1:{e:'🍕',n:{de:'Margherita',tr:'Margherita',en:'Margherita'},d:{de:'Tomatensauce, Mozzarella, Basilikum',tr:'Domates sosu, Mozzarella, Fesleğen',en:'Tomato sauce, Mozzarella, Basil'},p:[9,12,16,22],al:['gluten','lactose'],b:'pop'},
+  2:{e:'🥙',n:{de:'Döner Teller',tr:'Döner Tabak',en:'Döner Plate'},d:{de:'Döner mit Reis, Salat und Soße',tr:'Pilav, salata ve sos ile döner',en:'Döner with rice, salad and sauce'},p:[14],al:['gluten']},
+  3:{e:'🥤',n:{de:'Cola 0,4l',tr:'Kola 0,4l',en:'Cola 0.4l'},d:{de:'Coca-Cola, eiskalt',tr:'Coca-Cola, soğuk',en:'Coca-Cola, ice cold'},p:[3],al:[]},
+  4:{e:'🍕',n:{de:'Pepperoni',tr:'Pepperoni',en:'Pepperoni'},d:{de:'Tomatensauce, Mozzarella, Salami',tr:'Domates sosu, Mozzarella, Salam',en:'Tomato sauce, Mozzarella, Salami'},p:[10,14,18,24],al:['gluten','lactose']},
+  5:{e:'🍕',n:{de:'Karışık',tr:'Karışık',en:'Mixed'},d:{de:'Gemüse, Oliven, Paprika',tr:'Sebzeli, Zeytin, Biber',en:'Veggies, olives, peppers'},p:[10,13,17,23],al:['gluten','lactose'],b:'new'},
+  6:{e:'🍕',n:{de:'BBQ Chicken',tr:'BBQ Tavuk',en:'BBQ Chicken'},d:{de:'BBQ-Soße, Hähnchen, Zwiebeln',tr:'BBQ sos, Tavuk, Soğan',en:'BBQ sauce, chicken, onions'},p:[11,15,20,26],al:['gluten','lactose']},
+  7:{e:'🌯',n:{de:'Döner Wrap',tr:'Döner Dürüm',en:'Döner Wrap'},d:{de:'In Fladenbrot mit Salat',tr:'Lavaşta salata ile',en:'In flatbread with salad'},p:[8],al:['gluten']},
+  8:{e:'🍢',n:{de:'Adana Kebap',tr:'Adana Kebap',en:'Adana Kebab'},d:{de:'Scharf, mit Bulgur',tr:'Acılı, bulgur ile',en:'Spicy, with bulgur'},p:[16],al:['gluten','spicy'],b:'new'},
+  9:{e:'🧃',n:{de:'Ayran',tr:'Ayran',en:'Ayran'},d:{de:'Türkisches Joghurtgetränk',tr:'Türk yoğurt içeceği',en:'Turkish yogurt drink'},p:[2.5],al:['lactose']},
+  10:{e:'🍊',n:{de:'Orangensaft',tr:'Portakal Suyu',en:'Orange Juice'},d:{de:'Frisch gepresst 0,3l',tr:'Taze sıkılmış 0,3l',en:'Fresh squeezed 0.3l'},p:[4.5],al:[]},
+  11:{e:'💧',n:{de:'Wasser 0,5l',tr:'Su 0,5l',en:'Water 0.5l'},d:{de:'Stilles Wasser',tr:'Kaynak suyu',en:'Still water'},p:[2],al:[]},
+  12:{e:'🍮',n:{de:'Baklava',tr:'Baklava',en:'Baklava'},d:{de:'Hausgemacht, Pistazien',tr:'Ev yapımı, fıstıklı',en:'Homemade, pistachios'},p:[5.5],al:['gluten','nuts'],b:'pop'},
+  13:{e:'🍦',n:{de:'Dondurma',tr:'Dondurma',en:'Ice Cream'},d:{de:'2 Kugeln nach Wahl',tr:'2 top seçim',en:'2 scoops choice'},p:[4],al:['lactose']},
+};
+const MODS=[
+  {id:1,n:{de:'Extra Käse',tr:'Ekstra Peynir',en:'Extra Cheese'},p:.5},
+  {id:2,n:{de:'Scharf',tr:'Acılı',en:'Spicy'},p:0},
+  {id:3,n:{de:'Ohne Zwiebeln',tr:'Soğansız',en:'No Onions'},p:0},
+  {id:4,n:{de:'Extra Soße',tr:'Ekstra Sos',en:'Extra Sauce'},p:.3},
+];
+const LAST=[1,3], REC=[12,5];
+
+let lang='de',activeCat='fav',cart=[],gCnt=2;
+let curId=null,curSz=0,curMods=[],curQty=1;
+let uMode='guest',uName='';
+
+const t=()=>TX[lang];
+const $=id=>document.getElementById(id);
+const set=(id,v)=>{const e=$(id);if(e)e.textContent=v};
+const setH=(id,v)=>{const e=$(id);if(e)e.innerHTML=v};
+
+function idleLang(l,el){
+  lang=l;
+  document.querySelectorAll('.idle-lang-btn').forEach(b=>b.classList.remove('sel'));
+  el.classList.add('sel');
+  applyTx();
+}
+function setLang(l){
+  lang=l;
+  ['de','tr','en'].forEach(x=>{
+    const a=$('lm-'+x), b=$('ml-'+x);
+    if(a)a.classList.toggle('active',x===l);
+    if(b)b.classList.toggle('active',x===l);
+  });
+  applyTx();
+  if($('s-menu').classList.contains('active')){renderCats();renderProds();renderCart();}
+}
+function applyTx(){
+  const tx=t();
+  set('idle-open',tx.idleOpen); set('qr-hint',tx.qrHint);
+  set('lw-ttl',tx.lwTtl); set('lw-table',tx.tbl+' 5');
+  set('t-qr',tx.tabQr); set('t-ph',tx.tabPh); set('t-gs',tx.tabGs);
+  set('qa-txt',tx.qaTxt); set('qa-sub',tx.qaSub);
+  set('demo-qr',tx.demoQr); set('demo-ph',tx.demoPh);
+  set('ph-lbl',tx.phLbl); set('ph-btn',tx.phBtn);
+  set('gs-lbl',tx.gsLbl); set('gc-lbl',tx.gcLbl); set('gs-btn',tx.gsBtn);
+  set('bk-btn',tx.bkBtn); set('exit-btn',tx.exitBtn);
+  set('or1',tx.or); set('or2',tx.or);
+  set('cc-ttl',tx.ccTtl); set('cc-empty',tx.ccEmpty);
+  set('cc-sub-l',tx.subL); set('cc-tax-l',tx.taxL); set('cc-tot-l',tx.totL);
+  set('ord-txt',tx.ordTxt);
+  set('s-w',tx.sW); set('s-b',tx.sB); set('s-wa',tx.sWa); set('s-c',tx.sC);
+  set('cf-ttl',tx.cfTtl); set('cf-sub',tx.cfSub);
+  set('cf-cancel',tx.cfCancel); set('cf-ok',tx.cfOk);
+  set('sc-ttl',tx.scTtl); set('sc-sub',tx.scSub);
+  set('mh-tbl',tx.tbl+' 5');
+}
+
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  $(id).classList.add('active');
+}
+function goLogin(){showScreen('s-login')}
+function goIdle(){
+  cart=[];uMode='guest';uName='';
+  showScreen('s-idle');
+  renderCart();
+}
+
+function switchTab(tab){
+  ['qr','phone','guest'].forEach(k=>{
+    $('tab-'+k).classList.toggle('active',k===tab);
+    $('sec-'+k).classList.toggle('active',k===tab);
+  });
+}
+
+function startScan(){
+  const area=$('qr-area');
+  if(area.classList.contains('scanning'))return;
+  area.classList.add('scanning');
+  $('scan-dots').style.display='flex';
+  set('qa-txt',t().scanRunning);
+  set('qa-sub','');
+  setTimeout(()=>{
+    area.classList.remove('scanning');
+    $('scan-dots').style.display='none';
+    set('qa-txt',t().qaTxt); set('qa-sub',t().qaSub);
+    toast('QR scan: '+t().demoQr.split('→')[1].trim());
+  },2000);
+}
+function demoQr(){uMode='member';uName='Ahmet Y.';enterMenu()}
+function doPhone(){
+  const v=$('ph-inp').value.trim();
+  if(!v){toast(t().phLbl);return}
+  uMode='phone';uName=v;enterMenu();
+}
+function demoPhone(){uMode='member';uName='Ayşe K.';enterMenu()}
+function doGuest(){
+  uMode='guest';uName=$('gs-name').value.trim()||'';
+  enterMenu();
+}
+function adjGuest(d){gCnt=Math.max(1,Math.min(12,gCnt+d));set('gc-n',gCnt)}
+
+function enterMenu(){
+  const tx=t();
+  if(uName){
+    $('mh-usr').style.display='flex';
+    const init=uName.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+    set('mh-av',init||'G');
+    set('mh-un','Hi, '+uName.split(' ')[0]);
+    set('mh-pts',uMode==='member'?'★ 125 '+tx.pts:'');
+    if(uMode==='member') $('cc-pts').style.display='block';
+  } else {
+    $('mh-usr').style.display='none';
+  }
+  renderCats(); renderProds(); renderCart();
+  showScreen('s-menu');
+}
+
+function renderCats(){
+  const tx=t();
+  $('cat-col').innerHTML=CATS.map((c,i)=>`
+    <div class="cat-item${activeCat===c.k?' active':''}" onclick="setCat('${c.k}')">
+      <div class="cat-dot"></div>
+      <span class="cat-ico">${c.ico}</span>
+      <span class="cat-lbl">${tx.catNames[i]}</span>
+      <span class="cat-cnt">${c.ids.length}</span>
+    </div>`).join('');
+}
+function setCat(k){activeCat=k;renderCats();renderProds()}
+
+function renderProds(){
+  const tx=t();
+  let html='';
+  if(uMode==='member' && activeCat==='fav'){
+    html+=`<div class="suggest-wrap">
+      <div class="strip-hdr">${tx.sugLast}</div>
+      <div class="sug-row">${LAST.map(id=>{const p=PD[id];return`
+        <div class="sug-card repeat" onclick="openProd(${id})">
+          <div class="sug-badge sb-repeat">${tx.repeat}</div>
+          <div class="sug-img">${p.e}</div>
+          <div class="sug-info"><div class="sug-name">${p.n[lang]}</div>
+          <div class="sug-price">€${p.p[0].toFixed(2)}</div></div>
+        </div>`}).join('')}
+      </div>
+    </div>
+    <div class="suggest-wrap">
+      <div class="strip-hdr">${tx.sugRec}</div>
+      <div class="sug-row">${REC.map(id=>{const p=PD[id];return`
+        <div class="sug-card" onclick="openProd(${id})">
+          <div class="sug-badge sb-pop">★ Top</div>
+          <div class="sug-img">${p.e}</div>
+          <div class="sug-info"><div class="sug-name">${p.n[lang]}</div>
+          <div class="sug-price">€${p.p[0].toFixed(2)}</div></div>
+        </div>`}).join('')}
+      </div>
+    </div>`;
+  }
+  const ci=CATS.findIndex(c=>c.k===activeCat);
+  const ids=CATS[ci].ids;
+  html+=`<div class="pcat-hdr">${tx.catNames[ci]}</div>
+  <div class="prod-grid">${ids.map(id=>{
+    const p=PD[id];
+    const prStr=p.p.length>1?`ab €${p.p[0].toFixed(2)}`:`€${p.p[0].toFixed(2)}`;
+    const alStr=p.al.map(a=>`<span class="alg">${tx.alg[a]||a}</span>`).join('');
+    return`<div class="prod-card" onclick="openProd(${id})">
+      ${p.b==='pop'?`<div class="pc-badge pcb-pop">★ Top</div>`:''}
+      ${p.b==='new'?`<div class="pc-badge pcb-new">Neu</div>`:''}
+      <div class="pc-img">${p.e}</div>
+      <div class="pc-info">
+        <div class="pc-name">${p.n[lang]}</div>
+        <div class="pc-desc">${p.d[lang]}</div>
+        <div class="pc-foot">
+          <span class="pc-price">${prStr}</span>
+          <button class="pc-add" onclick="event.stopPropagation();quickAdd(${id},this)">+</button>
+        </div>
+        <div class="allergens">${alStr}</div>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+  $('prod-col').innerHTML=html;
+  $('prod-col').style.animation='none';
+  $('prod-col').offsetHeight;
+  $('prod-col').style.animation='fadeIn .3s ease both';
+}
+
+function quickAdd(id,btn){
+  const p=PD[id];
+  const rip=document.createElement('span');
+  rip.className='ripple';
+  btn.appendChild(rip);
+  setTimeout(()=>rip.remove(),500);
+  addToCart(id,0,[],1,p.p[0],null);
+  toast(t().tAdded+' · '+p.n[lang]);
+}
+
+function openProd(id){
+  const p=PD[id];curId=id;curSz=0;curMods=[];curQty=1;
+  const tx=t();
+  set('mb-ttl',p.n[lang]);
+  const multi=p.p.length>1;
+  const szHtml=multi?`<div class="mb-sec">${tx.sz[0]}</div>
+    <div class="sz-grid">${tx.sz.slice(0,p.p.length).map((s,i)=>`
+      <div class="sz${i===0?' sel':''}" onclick="selSz(${i},this)">
+        <div class="sz-n">${s}</div>
+        <div class="sz-p">€${p.p[i].toFixed(2)}</div>
+      </div>`).join('')}</div>`:
+    `<div style="font-size:22px;font-weight:800;color:var(--acc);font-family:var(--mono);margin-bottom:14px">€${p.p[0].toFixed(2)}</div>`;
+  $('mb-body').innerHTML=`
+    <div class="mb-img">${p.e}</div>
+    <div class="mb-desc">${p.d[lang]}</div>
+    ${szHtml}
+    <div class="mb-sec">${tx.extras}</div>
+    <div class="mods-row">${MODS.map(m=>`<div class="mod" onclick="togMod(${m.id},this)">${m.n[lang]}${m.p>0?' +€'+m.p.toFixed(2):''}</div>`).join('')}</div>
+    <div class="mb-sec">${tx.qty}</div>
+    <div class="qty-ctrl">
+      <button class="q-btn" onclick="chQty(-1)">−</button>
+      <span class="q-n" id="m-qty">1</span>
+      <button class="q-btn" onclick="chQty(1)">+</button>
+    </div>
+    <button class="add-cart-btn" onclick="addFromModal()">
+      <span>${tx.addCart}</span>
+      <span class="acb-p" id="m-p">€${p.p[0].toFixed(2)}</span>
+    </button>`;
+  $('prod-modal').classList.add('open');
+}
+function selSz(i,el){curSz=i;document.querySelectorAll('.sz').forEach(e=>e.classList.remove('sel'));el.classList.add('sel');updMP()}
+function togMod(id,el){const x=curMods.indexOf(id);x>=0?curMods.splice(x,1):curMods.push(id);el.classList.toggle('sel',curMods.includes(id));updMP()}
+function chQty(d){curQty=Math.max(1,Math.min(10,curQty+d));set('m-qty',curQty);updMP()}
+function updMP(){
+  const p=PD[curId];let pr=p.p[curSz]||p.p[0];
+  curMods.forEach(id=>{const m=MODS.find(x=>x.id===id);if(m)pr+=m.p});
+  pr*=curQty;
+  const e=$('m-p');if(e)e.textContent='€'+pr.toFixed(2);
+}
+function addFromModal(){
+  const p=PD[curId];const tx=t();
+  const sz=p.p.length>1?tx.sz[curSz]:null;
+  let pr=p.p[curSz]||p.p[0];
+  curMods.forEach(id=>{const m=MODS.find(x=>x.id===id);if(m)pr+=m.p});
+  const mArr=curMods.map(id=>{const m=MODS.find(x=>x.id===id);return m?m.n[lang]:''});
+  addToCart(curId,curSz,curMods,curQty,pr,sz,mArr);
+  closeProdModal();toast(t().tAdded);
+}
+function closeProdModal(){$('prod-modal').classList.remove('open')}
+
+function addToCart(id,sz,mods,qty,unitP,szName,modArr){
+  cart.push({uid:Date.now(),id,name:PD[id].n[lang],e:PD[id].e,sz:szName,mods:modArr||[],unitP,qty});
+  animCartCount();
+  renderCart();
+}
+function animCartCount(){
+  const el=$('cc-cnt');el.classList.remove('bounce');
+  el.offsetHeight;el.classList.add('bounce');
+  setTimeout(()=>el.classList.remove('bounce'),400);
+}
+
+function renderCart(){
+  const tx=t();
+  const cnt=cart.reduce((s,i)=>s+i.qty,0);
+  const tot=cart.reduce((s,i)=>s+i.unitP*i.qty,0);
+  $('cc-cnt').textContent=cnt;
+  const el=$('cc-items');
+  if(!cart.length){
+    el.innerHTML=`<div class="cc-empty"><div class="cc-empty-ico">🛒</div><span class="cc-empty-txt">${tx.ccEmpty}</span></div>`;
+    $('cc-tots').style.display='none';
+    $('ord-btn').disabled=true; $('ord-p').textContent='€0.00'; return;
+  }
+  el.innerHTML=cart.map((item,i)=>`
+    <div class="cart-item" style="animation-delay:${i*.04}s">
+      <span class="ci-emo">${item.e}</span>
+      <div class="ci-det">
+        <div class="ci-name">${item.name}</div>
+        <div class="ci-var">${[item.sz,...(item.mods||[])].filter(Boolean).join(' · ')}</div>
+        <div class="ci-ctrl">
+          <button class="ci-m" onclick="chCI(${item.uid},-1)">−</button>
+          <span class="ci-q">${item.qty}</span>
+          <button class="ci-m" onclick="chCI(${item.uid},1)">+</button>
+          <span class="ci-price">€${(item.unitP*item.qty).toFixed(2)}</span>
+          <button class="ci-del" onclick="delCI(${item.uid})">✕</button>
+        </div>
+      </div>
+    </div>`).join('');
+  const net=tot/1.19,vat=tot-net;
+  $('cc-tots').style.display='block';
+  $('cc-sub-v').textContent='€'+net.toFixed(2);
+  $('cc-tax-v').textContent='€'+vat.toFixed(2);
+  $('cc-tot-v').textContent='€'+tot.toFixed(2);
+  $('ord-btn').disabled=false; $('ord-p').textContent='€'+tot.toFixed(2);
+}
+function chCI(uid,d){
+  const i=cart.find(x=>x.uid===uid);if(!i)return;
+  i.qty=Math.max(0,i.qty+d);
+  if(!i.qty)cart=cart.filter(x=>x.uid!==uid);
+  renderCart();
+}
+function delCI(uid){cart=cart.filter(x=>x.uid!==uid);renderCart()}
+
+function openConf(){
+  const tx=t();
+  const tot=cart.reduce((s,i)=>s+i.unitP*i.qty,0);
+  $('cf-list').innerHTML=cart.map((i,idx)=>`<div class="cl-item" style="animation-delay:${idx*.05}s">
+    <span>${i.qty}× ${i.name}${i.sz?' ('+i.sz+')':''}</span>
+    <span>€${(i.unitP*i.qty).toFixed(2)}</span>
+  </div>`).join('')+
+  `<div class="cl-tot"><span>${tx.totL}</span><span>€${tot.toFixed(2)}</span></div>`;
+  $('conf-modal').classList.add('open');
+}
+function closeConf(){$('conf-modal').classList.remove('open')}
+function placeOrder(){
+  $('conf-modal').classList.remove('open');
+  $('succ-modal').classList.add('open');
+  cart=[];renderCart();
+  setTimeout(()=>$('succ-modal').classList.remove('open'),3500);
+}
+
+function srv(k){
+  const tx=t();
+  const m={w:tx.tW,b:tx.tB,wa:tx.tWa,c:tx.tC};
+  toast(m[k]);
+}
+
+function toast(msg){
+  const el=$('toast');el.textContent=msg;
+  el.classList.remove('on');el.offsetHeight;el.classList.add('on');
+  clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('on'),2500);
+}
+
+// QR pattern
+(function(){
+  const p=[1,1,1,1,1,1,1,0,1,0,1,0,1,1,1,1,1,0,0,0,1,1,1,0,1,1,1,0,1,0,0,0,1,1,1,0,1,1,1,0,1,0,0,0,1,1,1,0,1,0,1,0,0,0,1,0,1,1,1,1,1,1,1,0];
+  const g=$('qr-grid');
+  if(g)g.innerHTML=p.map(b=>`<div class="qc${b===0?' e':''}"></div>`).join('');
+})();
+
+applyTx();
+</script>
+</body>
+</html>

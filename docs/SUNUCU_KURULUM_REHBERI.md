@@ -53,7 +53,10 @@ Sunucunuzun IP adresini öğrendikten sonra, domain sağlayıcınızın paneline
 
 ---
 
-## Adım 5: Kodların Sunucuya Çekilmesi ve Derlenmesi
+## Adım 5: Kodların Sunucuya Çekilmesi ve Derlenmesi (Private Repo)
+
+Projeniz muhtemelen **Gizli (Private)** bir repo olduğu için doğrudan `git clone` komutu "Authentication failed" veya "Repository not found" hatası verecektir. GitHub'dan bir **Personal Access Token (PAT)** almanız gerekir. 
+*(GitHub > Settings > Developer settings > Personal access tokens (classic) > Generate new token yolunu izleyip **repo** yetkisine sahip bir token oluşturun).*
 
 Sunucuya SSH ile bağlıyken sırasıyla şu komutları çalıştırın:
 
@@ -61,8 +64,8 @@ Sunucuya SSH ile bağlıyken sırasıyla şu komutları çalıştırın:
 # 1. Proje klasörüne gidin
 cd /www/wwwroot
 
-# 2. Github'dan projeyi indirin
-git clone https://github.com/hasanperto/nextpos.git
+# 2. Github'dan projeyi indirin (TOKEN_BURAYA yazan yere token'ınızı yapıştırın)
+git clone https://TOKEN_BURAYA@github.com/hasanperto/nextpos.git
 cd nextpos
 
 # 3. Bağımlılıkları kurun

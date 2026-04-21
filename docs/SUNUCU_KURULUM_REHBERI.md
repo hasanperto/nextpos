@@ -236,8 +236,10 @@ Bu adım biraz farklı. Çünkü API statik dosya değil, Node.js uygulamasında
 6. **Reverse proxy** sekmesine gelin. "Add reverse proxy" deyin:
    - Target URL: `http://127.0.0.1:4500`
    - Submit deyin.
-7. Oluşan Proxy kuralının sağındaki "Conf" (veya Config) düzenleme ekranını açın. WebSocket'lerin çalışması için configuration metnini şu şekilde güncelleyin:
-
+7. Oluşan Proxy kuralının sağındaki "**Conf**" (veya Config) düzenleme ekranını açın.
+   > ⚠️ **YENİ BLOK EKLEMEYİN!** aaPanel zaten bir `location /` bloğu oluşturdu. O **mevcut bloğu düzenleyin**, yoksa "duplicate location" hatası alırsınız.
+   
+   Mevcut `location /` bloğunun **içeriğini** şu şekilde değiştirin:
    ```nginx
    location / {
      proxy_pass http://127.0.0.1:4500;
@@ -246,9 +248,11 @@ Bu adım biraz farklı. Çünkü API statik dosya değil, Node.js uygulamasında
      proxy_set_header Connection "upgrade";
      proxy_set_header Host $host;
      proxy_set_header X-Real-IP $remote_addr;
+     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+     proxy_set_header X-Forwarded-Proto $scheme;
    }
    ```
-8. Kaydedip kapatın.
+8. Kaydedip kapatın. Terminalde `nginx -t && nginx -s reload` ile test edin.
 
 ---
 

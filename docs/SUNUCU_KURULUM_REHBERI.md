@@ -38,8 +38,7 @@ Sunucunuzun IP adresini öğrendikten sonra, domain sağlayıcınızın paneline
 - `posreseller.webotonom.de` (Bayi paneli için)
 - `*.posmenu.webotonom.de` (Wildcard kayıt - QR Menü otomasyonu için)
 
-*(Not: `webotonom.de` yerine kendi ana domaininizi yazın).*
-
+*(Not: Bu rehber doğrudan sizin domaininiz olan `webotonom.de` için özel olarak hazırlanmıştır).*
 ---
 
 ## Adım 4: Veritabanı (PostgreSQL) Hazırlığı

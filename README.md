@@ -132,11 +132,11 @@ aaPanel tarafında iki ana yaklaşım var. QR Web otomasyonunu (tenant açılın
 Bu modelde aaPanel Nginx’i yönetir. API Node (PM2) ile host üzerinde çalışır. Vite uygulamaları build edilip Nginx ile statik servis edilir.
 
 **Önerilen domainler:**
-- `api.example.com` → API (Node)
+- `posapi.example.com` → API (Node)
 - `pos.example.com` → POS (statik)
-- `admin.example.com` → SaaS Admin (statik)
-- `reseller.example.com` → Bayi (statik)
-- `menu.example.com` veya `*.example.com` → QR web menü (opsiyon)
+- `posadmin.example.com` → SaaS Admin (statik)
+- `posreseller.example.com` → Bayi (statik)
+- `posmenu.example.com` veya `pos*.example.com` → QR web menü (opsiyon)
 
 **Önerilen portlar (host üzerinde):**
 - API: `5000` (dışarıdan direkt açmak yerine Nginx reverse proxy ile)
@@ -160,8 +160,8 @@ PORT=5000
 DATABASE_URL=postgresql://nextpos:nextpos@127.0.0.1:5432/nextpos
 REDIS_URL=redis://127.0.0.1:6379
 
-CORS_ORIGIN=https://pos.example.com,https://admin.example.com,https://reseller.example.com
-SOCKET_CORS_ORIGIN=https://pos.example.com,https://admin.example.com,https://reseller.example.com
+CORS_ORIGIN=https://pos.example.com,https://posadmin.example.com,https://posreseller.example.com
+SOCKET_CORS_ORIGIN=https://pos.example.com,https://posadmin.example.com,https://posreseller.example.com
 ```
 
 #### 3) Build + migration
@@ -186,8 +186,8 @@ pm2 save
 
 Her domain için “Website → Add site”:
 - `pos.example.com` root: `.../apps/pos/dist`
-- `admin.example.com` root: `.../apps/admin/dist`
-- `reseller.example.com` root: `.../apps/reseller/dist`
+- `posadmin.example.com` root: `.../apps/admin/dist`
+- `posreseller.example.com` root: `.../apps/reseller/dist`
 
 SPA routing için Nginx rewrite (site conf içine):
 
@@ -232,7 +232,7 @@ Repo içindeki `docker-compose.production.yml` şu portları map ediyor:
 - POS container: `8080:80`
 
 Bu modelde aaPanel Nginx reverse proxy ile:
-- `api.example.com` → `http://127.0.0.1:3001`
+- `posapi.example.com` → `http://127.0.0.1:3001`
 - `pos.example.com` → `http://127.0.0.1:8080`
 
 Bu yaklaşımda **QR Web aaPanel otomasyonu** (Nginx conf yazma + certbot çalıştırma) container içinden host’a erişemeyeceği için pratikte kapatılmalıdır:
@@ -253,7 +253,7 @@ AAPANEL_QR_WEB_ROOT=/www/wwwroot
 AAPANEL_QR_TEMPLATE_DIR=/www/wwwroot/qr-web-template
 AAPANEL_NGINX_CONF_DIR=/www/server/panel/vhost/nginx
 AAPANEL_ACME_WEBROOT=/www/wwwroot/.well-known/acme-challenge
-AAPANEL_QR_API_ORIGIN=https://api.example.com
+AAPANEL_QR_API_ORIGIN=https://posapi.example.com
 AAPANEL_CERTBOT_EMAIL=admin@example.com
 ```
 

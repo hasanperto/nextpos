@@ -258,20 +258,46 @@ Bu adım biraz farklı. Çünkü API statik dosya değil, Node.js uygulamasında
 
 ## Adım 9: QR Web Menü Otomasyonu İçin Şablon Hazırlığı
 
-Müşterilere yeni restoran açtığınızda sistem otomatik olarak alt domain (`restoranadi.posmenu.webotonom.de`) ve SSL kuracak. Bunun için bir referans şablon klasörü oluşturmalıyız.
+### Nasıl Çalışır?
 
-Sunucuda (SSH) şu komutları çalıştırın:
+Sistem her yeni restoran açıldığında otomatik olarak:
+1. `restoranadi.posmenu.webotonom.de` alt domaini oluşturur
+2. QR menü şablon dosyalarını bu domaine kopyalar
+3. Nginx config + SSL sertifikası otomatik ayarlanır
+4. Restoran domain → tenant eşleşmesi veritabanına kaydedilir
+
+Müşteri `restoranadi.posmenu.webotonom.de` adresini ziyaret ettiğinde:
+- **Backend** (domainTenant middleware) domain'den tenant ID'yi bulur
+- **QR Menü** bu restoranın menüsü, renkleri, logosu ve dil ayarlarını API'den çeker
+- Her restoran **kendi veritabanına** bağlıdır, veriler otomatik ayrışır
+
+### Şablon Kurulumu
+
+QR menü bir **Vite SPA** (statik HTML/JS/CSS) olduğu için, build çıktısı şablon olarak kullanılır:
 
 ```bash
-# Şablon klasörünü oluştur
+# 1. Şablon klasörünü oluştur
 mkdir -p /www/wwwroot/qr-web-template
 
-# QrMenu (Next.js) build dosyalarını şablona kopyala
-# Not: Eğer apps/qrmenu kullanıyorsanız o klasörün build çıktılarını buraya kopyalamalısınız.
-cp -r /www/wwwroot/nextpos/apps/qrmenu/out/* /www/wwwroot/qr-web-template/
+# 2. QR Menü build çıktısını şablona kopyala
+cp -r /www/wwwroot/nextpos/apps/qr-menu/dist/* /www/wwwroot/qr-web-template/
+
+# 3. Şablonun doğru kopyalandığını kontrol et
+ls /www/wwwroot/qr-web-template/
+# Beklenen çıktı: index.html  assets/  favicon.svg
 ```
 
-*Not: Eğer Next.js uygulamanız SSR çalışacaksa statik HTML yerine onu da bir PM2 servisi olarak ayağa kaldırmanız ve şablon Nginx ayarlarında (otomasyon servisi içinde) proxy yapmanız gerekebilir.*
+> 💡 **Güncelleme:** QR menü güncellendiğinde `npm run build` sonrası bu kopyalama komutunu tekrar çalıştırmanız yeterlidir.
+
+### Wildcard DNS Kontrolü
+
+Adım 3'te eklediğiniz `*.posmenu.webotonom.de` wildcard A kaydının çalıştığını doğrulayın:
+
+```bash
+# Test: rastgele bir alt domain sunucuya gelsin mi?
+dig +short test123.posmenu.webotonom.de
+# Beklenen çıktı: 89.144.20.74 (sunucu IP'niz)
+```
 
 ---
 

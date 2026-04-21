@@ -154,7 +154,8 @@ function tpl(t: (k: string) => string, key: string, vars: Record<string, string 
 
 export const AdminSettings: React.FC = () => {
     const { t, lang } = usePosLocale();
-    const { getAuthHeaders, tenantId } = useAuthStore();
+    const getAuthHeaders = useAuthStore(s => s.getAuthHeaders);
+    const tenantId = useAuthStore(s => s.tenantId);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [status, setStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);

@@ -51,8 +51,13 @@ const maxHourly = (rows: { order_count: number }[]) =>
 
 export const AdminDashboard: React.FC = () => {
     const { t } = usePosLocale();
-    const { getAuthHeaders, logout, tenantName } = useAuthStore();
-    const { settings, fetchSettings } = usePosStore();
+    const getAuthHeaders = useAuthStore(s => s.getAuthHeaders);
+    const logout = useAuthStore(s => s.logout);
+    const tenantName = useAuthStore(s => s.tenantName);
+    
+    const settings = usePosStore(s => s.settings);
+    const fetchSettings = usePosStore(s => s.fetchSettings);
+    
     const currency = settings?.currency || '€';
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);

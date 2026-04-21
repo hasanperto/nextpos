@@ -657,7 +657,9 @@ const HandoverPINModal = ({ onConfirm, onClose }: { onConfirm: (pin: string) => 
 };
 
 export const CourierPanel: React.FC = () => {
-    const { user, getAuthHeaders, logout } = useAuthStore();
+    const user = useAuthStore(s => s.user);
+    const getAuthHeaders = useAuthStore(s => s.getAuthHeaders);
+    const logout = useAuthStore(s => s.logout);
     const fetchSettings = usePosStore((s) => s.fetchSettings);
     const { t, lang } = usePosLocale();
 

@@ -1,0 +1,511 @@
+﻿:: >Garson çağır<
+:: >STATION_STAFF<
+:: > Promise<
+:: >Kamera ile tara<
+:: >Seçim gerekli<
+:: >Satır tutarı<
+:: >QR SİPARİŞ HAVUZU<
+:: >CANLI<
+:: >Müşteri Kartı veya QR Menü<
+:: >BU BÖLGE BOŞ<
+:: >BOŞ<
+:: >KAT PLANI TASARIMCISI<
+:: > TEMİZLE <
+:: > void | Promise<
+:: >, ticketIds: Set<
+:: >2 gün önce<
+:: > removeCoupon()} className="text-white/30 hover:text-red-400 ml-2" aria-label="Kuponu kaldır" title="Kuponu kaldır"><
+:: >Yükleniyor…<
+:: >Garson seçin…<
+:: >POpüler<
+:: >Telefon veya İsimle Ara<
+:: >Müşteriye Özel Sadakat QR Kodu<
+:: >Müşteri telefonuna okutarak adresi hızlı kaydedebilir veya menüden sipariş edebilir.<
+:: >İptal nedeni<
+:: >PARÇALI <
+:: >ÖDEME<
+:: >KALAN BAKİYE<
+:: >ÖDENECEK TUTAR<
+:: >ÖDEYECEK TUTAR<
+:: >NEXTPOS TERMINAL SIM v1.0<
+:: > i && <
+:: >İPTAL SEBEBİ (OPSİYONEL)<
+:: >Yükleniyor...<
+:: >Ürün bulunamadı<
+:: >Seçilen Tutar<
+:: > ÖDE <
+:: >Kilitle<
+:: >Personel Paneli<
+:: >Sistem Durumu<
+:: >Online<
+:: >Built with precision<
+:: >ÜRÜN <
+:: >TRANSFERİ<
+:: >TAŞINACAK ÜRÜN<
+:: >MİKTAR<
+:: >BOŞ<
+:: >E-ÖDEME<
+:: >Dil<
+:: >İşlem<
+:: >Şube Adı<
+:: >Dil<
+:: >Türkçe<
+:: >English<
+:: >Tactical Revenue Terminal<
+:: > openInvoice(p.invoice_number)} className="p-2.5 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-xl transition-all active:scale-90 border border-transparent hover:border-blue-500/20 shadow-2xl"><
+:: > updatePaymentStatus(p.id, 'paid')} className="p-2.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-all active:scale-90 border border-transparent hover:border-emerald-500/20 shadow-2xl"><
+:: > sendPaymentDueMail(p.id)} className="p-2.5 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 rounded-xl transition-all active:scale-90 border border-transparent hover:border-amber-500/20 shadow-2xl"><
+:: > updatePaymentStatus(p.id, 'paid')} className="p-2.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-2xl opacity-40 group-hover:opacity-100 transition-all"><
+:: >PAID<
+:: >Retrieving Document...<
+:: >Financial Services Ltd.<
+:: >Issued On<
+:: >Email<
+:: >Address Detail<
+:: >INVOICE<
+:: >Billed To<
+:: >Account Details<
+:: >Authorized<
+:: >Tax ID<
+:: >Description<
+:: >Price<
+:: >npm run billing:seed<
+:: >Filtre:<
+:: >Henüz kampanya yok<
+:: >Filtre:<
+:: >Henüz kupon yok<
+:: >Tür<
+:: >Değer<
+:: >Geçerlilik<
+:: >Kullanım<
+:: >İşlem<
+:: >Henüz veri yok<
+:: >Kampanya Seç<
+:: >Kampanya seçin...<
+:: >Açıklama<
+:: >İndirim Türü<
+:: >Hedef Kitle<
+:: >Otomatik uygula (müşteri girişinde)<
+:: >Recorded by Admin<
+:: >Digital PDF<
+:: >SLA Audit<
+:: >Interaction Context<
+:: >Save Interaction<
+:: >DRAFT / PENDING SIGNATURE<
+:: >Initialize Contract<
+:: >Intel<
+:: >Yonetici Ozeti<
+:: >Risk Izleme<
+:: >Operasyon Nabzi<
+:: >Transaction Node<
+:: >ACTIVE<
+:: >Operational Latency<
+:: >TENANT SAGLIK OZETI<
+:: >Acil geri donus gerekli<
+:: >Kritik sorun algilanmadi<
+:: >Stratejik Ongoruler<
+:: >Veri destekli yonetim ozetleri<
+:: >Churn Risk Endeksi<
+:: >Core Engine<
+:: >Total Uptime<
+:: >Destek Ekibi<
+:: >Oncelikli is ortagi kanali<
+:: >ACTIVE_NODE<
+:: >Infrastructure Layer v4.2<
+:: >Uptime Pulse<
+:: >Instance Name<
+:: >INFO<
+:: >Auto-scaling group 'EU-DE-1' adjusted to 3 active nodes.<
+:: >Global SSL certificate check: 100% valid. Next expiry: 342 days.<
+:: >Memory threshold reached in REDIS-PRIMARY-01 [Usage: 88%].<
+:: >Brute-force mitigation active for IP 185.122.x.x.<
+:: >Security Protocol<
+:: >Portfolio Guard v2.0<
+:: >Operational Nodes Active<
+:: >Replica Cluster Synced<
+:: >GLOBAL GEOMETRY INTERFACE<
+:: >Virtual POS Checkout v2<
+:: > LİNK OLUŞTUR<
+:: >Ödeme linkiniz hazır:<
+:: >GÜVENLİ ÖDEME URL<
+:: > KOPYALANDI<
+:: > Promise<
+:: >Aylık Cihaz Sıfırlama<
+:: > setStep(1)} className="px-5 py-3 text-sm font-bold text-slate-400 hover:text-white transition-all flex items-center gap-2"><
+:: > Promise<
+:: >PDF üretim, e‑posta gönderim ve hata logları (POS satış faturası).<
+:: >Aksiyon<
+:: >POS satış faturaları: arama, PDF, e‑posta gönderim ve log.<
+:: >Fatura numarası, telefon, e‑posta, müşteri adı veya order id ile arayın.<
+:: >Liste satırına tıklayın: detay + PDF + mail.<
+:: >Tarih<
+:: >Şube<
+:: >Kasiyer<
+:: >Ödeme<
+:: >Aksiyon<
+:: >Yükleniyor…<
+:: >Müşteri<
+:: >Ödemeler<
+:: >Ödeme yok.<
+:: >Yükleniyor…<
+:: >AESTHETIC-DRIVEN<
+:: >Dynamic resource allocation and reseller micro-incentives active.<
+:: >Partner Details<
+:: >Portfolio<
+:: >Commission<
+:: >Operational Status<
+:: >LIQUID BALANCE<
+:: >Global Partner Expansion<
+:: >Strategic Network Visualizer Under Active Integration<
+:: >Simulating partner nodes across major economic zones...<
+:: >WALLET_LIQUIDITY<
+:: >Revenue Generation<
+:: >High<
+:: >Operational Nodes<
+:: > : isDown ? <
+:: >Synchronizing Data...<
+:: >Risk<
+:: >MEDIUM<
+:: >HIGH<
+:: >SENDER/ORIGIN<
+:: >RISK<
+:: >} message="No logs detected in this frequency." /><
+:: >ACTIVE<
+:: > revokeApiKey(key.id)} className="text-rose-500 hover:text-rose-400 transition-colors">REVOKE ACCESS<
+:: >} message="No active API tokens found." /><
+:: > setIsAddKeyModalOpen(false)} className="flex-1 py-4 text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition-all">Cancel<
+:: >Optimal<
+:: >Fiscal-compliant transaction logging active<
+:: >Regulatory Requirement: 10Y (DE)<
+:: >Global Compliance Hint<
+:: >Varsayılan: <
+:: >Compliance<
+:: >NO FISCAL<
+:: >Satış / İptal / İade kayıtları<
+:: >Personnel Matrix<
+:: >ID<
+:: >Transactional Value<
+:: >Operational Override<
+:: >Lifecycle Status<
+:: >VERIFIED SETTLEMENT<
+:: >VOIDED / TERMINATED<
+:: >Override Rationale<
+:: > setEditing(null)} className="px-8 py-5 text-xs font-black text-slate-500 hover:text-white transition-all uppercase tracking-widest">Vazgeç<
+:: >Muhasebeden Gizle<
+:: > c.isOnline).length, icon: <
+:: >Lojistik verileri senkronize ediliyor...<
+:: >Teslimat<
+:: >Hız<
+:: >Courier <
+:: >Details<
+:: > setSelectedCourierId(null)} className="p-2 hover:bg-white/10 rounded-xl transition-all"><
+:: >Teslim Edilecek Nakit<
+:: >Son Teslimatlar<
+:: >Kayıt Başlamadı<
+:: >Veriler Okunuyor...<
+:: >Müşteri CRM & Sadakat<
+:: >Portföy ve Kampanya Yönetimi<
+:: > setCampaignModal(true)} aria-label="Kampanya ata" title="Kampanya ata" className="p-2 bg-white rounded-lg text-orange-500 hover:bg-orange-50 shadow-sm transition-colors border border-orange-100"><
+:: > handleBulkAction('status', 'active')} aria-label="Aktif yap" title="Aktif yap" className="p-2 bg-white rounded-lg text-emerald-500 hover:bg-emerald-50 shadow-sm transition-colors border border-emerald-100"><
+:: > handleBulkAction('status', 'passive')} aria-label="Pasif yap" title="Pasif yap" className="p-2 bg-white rounded-lg text-slate-400 hover:bg-slate-50 shadow-sm transition-colors border border-slate-200"><
+:: > handleBulkAction('delete')} aria-label="Seçilenleri sil" title="Seçilenleri sil" className="p-2 bg-white rounded-lg text-red-500 hover:bg-red-50 shadow-sm transition-colors border border-red-100"><
+:: >TOPLAM MÜŞTERİ<
+:: >VIP MÜŞTERİ<
+:: >TOPLAM CİRO<
+:: >Müşteri<
+:: >İletişim<
+:: >İLETİŞİM KAMPANYASI<
+:: >MESAJ İÇERİĞİ<
+:: >Değişkenler: <
+:: > setCampaignModal(false)} className="px-6 py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">İPTAL<
+:: >MÜŞTERİ NUMARASI<
+:: >Bu kod fiziksel kart veya mobil tarama için kullanılabilir<
+:: >MÜŞTERİ NOTLARI / ALERJİLER<
+:: >Henüz sipariş kaydı bulunmuyor<
+:: >Tarih<
+:: >Adisyon #<
+:: >HARCAMA ANALİZİ<
+:: >TOPLAM SİPARİŞ<
+:: >FAVORİ ÜRÜNLER<
+:: >AYLIK ZİYARET TRENDİ<
+:: >SADAKAT SEGMENTİ<
+:: >POS Terminali<
+:: >Kasa ekranına geçiş yap<
+:: >Sipariş akışını yönet<
+:: >Teslim Merkezi<
+:: >Paket & Servis monitörü<
+:: >Garson Paneli<
+:: >Saha operasyonlarını yönet<
+:: >Kurye Takibi<
+:: >Canlı kurye koordinasyonu<
+:: >Sistem Ayarları<
+:: >Fiş ve POS yapılandırması<
+:: >Bekliyor<
+:: >Hazırlanıyor<
+:: >Hazır<
+:: >Yoldaki Sipariş<
+:: >Veri yok<
+:: >WA Siparişi<
+:: >Gelen Çağrı<
+:: >Mutfak Hazır<
+:: >Web Siparişi<
+:: > setShowWaBot(false)} className="text-slate-500 hover:text-white" aria-label="Kapat" title="Kapat"><
+:: >Müşteri Telefon<
+:: > Web Sipariş Konfigürasyonu<
+:: > setShowWebSimForm(false)} className="text-slate-500 hover:text-white" aria-label="Kapat" title="Kapat"><
+:: >Müşteri Adı<
+:: >Adres (Paket ise)<
+:: >Sipariş Tipi<
+:: >Paket Servis<
+:: >Ödeme Yöntemi<
+:: >Nakit<
+:: >Ödeme yapıldı mı? (Online)<
+:: >Şüpheli İptal (Z-Raporu Öncesi)<
+:: >Kasiyer Ali 3 adet "Karışık Izgara" iptal etti.<
+:: >Geçersiz Şifre Denemesi<
+:: >Admin hesabına 5 başarısız giriş.<
+:: >Daha eski kayıtlar...<
+:: >Teslimat bölgeleri<
+:: >Bölge<
+:: >Süre (dk)<
+:: >Şube<
+:: >Aktif<
+:: >(Tüm şubeler)<
+:: >Masa bölgelerini ve interaktif kat planını tasarlayın.<
+:: >Bölge<
+:: >Kapasite<
+:: >Şekil<
+:: >Yeni bölge<
+:: >Sıra<
+:: >Bölge<
+:: >Seçin<
+:: >Örnek İsim Ön Ek (TR)<
+:: >Başlangıç No<
+:: >Bitiş No<
+:: >DE (Tisch)<
+:: >İngilizce Ad (EN)<
+:: >Kapasite<
+:: >Şekil<
+:: >Dikdörtgen<
+:: >Menü yönetimi<
+:: >ID<
+:: >İKON<
+:: >SIRA<
+:: >İSTASYON<
+:: >Toplu fiyat<
+:: >Tüm Kategoriler<
+:: >Bu kategoride ürün bulunamadı.<
+:: >Kullanılacak Fiyatlar<
+:: >Yüzde (%) Ekle/Çıkar<
+:: >Masa fiyatına oranla (%)<
+:: >Yükleniyor...<
+:: >Sonuç bulunamadı<
+:: >Ürün adı<
+:: >Kategori<
+:: >Seçiniz<
+:: >Açıklama<
+:: >Hazırlık Süresi (DK)<
+:: >Çeviri İsimleri (Opsiyonel)<
+:: >Satışta<
+:: >Menüde aktif olarak gösterilir<
+:: >Ana mutfak (sıcak)<
+:: >Soğuk<
+:: >Varyantları Kopyala<
+:: >Bu ürünün boyut ve varyantlarını diğer ürünlere aktarın.<
+:: >Aynı Kategoridekiler<
+:: >Bu ürünle aynı kategorideki tüm ürünlere kopyalar.<
+:: >Belirli Ürünler<
+:: >Listeden seçeceğiniz belirli ürünlere kopyalar.<
+:: >Modifikatör seçimi<
+:: >Hızlı Yeni Ekle<
+:: >Modifikatörleri Kopyala<
+:: >Bu ürünün seçili ek malzemelerini diğer ürünlere aktarın.<
+:: >Aynı Kategoridekiler<
+:: >Bu ürünle aynı kategorideki tüm ürünlere kopyalar.<
+:: >Belirli Ürünler<
+:: >Listeden seçeceğiniz belirli ürünlere kopyalar.<
+:: >Varyant özel:<
+:: >Siparişte stok düşümü<
+:: >Reçetesi olmayan menü ürününde stok düşmez.<
+:: >Yetersiz hammadde stokunda sipariş reddedilir (400, kod: INSUFFICIENT_STOCK).<
+:: >Sipariş iptal / QR red / açık oturum iptali: tamamlanmamış siparişlerde reçete iadesi yapılır.<
+:: >Menü ürünü<
+:: >— Seçin —<
+:: >Reçete satırları<
+:: >Önce menü ürünü seçin.<
+:: >Tüm varyantlar<
+:: >Eşleşen ürün yok<
+:: >Reçete tüketim özeti<
+:: >Başlangıç<
+:: >Bitiş<
+:: >Düşüm<
+:: >İade (iptal)<
+:: >Financial Command<
+:: >Intelligence Sector: Performance Metrics<
+:: >Avg Transaction<
+:: >Efficiency Multiplier<
+:: >Strategic Pulse<
+:: >optimal<
+:: >. Dinner service accounts for <
+:: >Staff Performance Intelligence<
+:: >Operational Efficiency Analysis<
+:: >Waiters (Floor Efficiency)<
+:: >Pickups<
+:: >Avg Time<
+:: >Couriers (Delivery Intelligence)<
+:: >Delivered<
+:: >Avg Time<
+:: >Daily Integrity (Z-Report)<
+:: >Operational Closing Status<
+:: >Tips<
+:: >Tips<
+:: >Awaiting Date Selection<
+:: >Daily Revenue Stream<
+:: >Gunluk rezervasyon takibi ve masa atama<
+:: >Iptal / Gelmedi<
+:: >Masa sec (opsiyonel)<
+:: >Musteri<
+:: >Kisi<
+:: >Islem<
+:: >Konfigürasyon Terminali Hazırlanıyor<
+:: >Merkezi POS Yönetimi<
+:: >Sistem v3.1 Aktif<
+:: >Android Uygulama Webhook URL<
+:: >Bu URL'yi Android "Caller ID to Webhook" uygulamasına kopyalayın.<
+:: >ALARM & BİLDİRİM SESLERİ<
+:: >FİŞ METİNLERİ<
+:: >KDV YAPILANDIRMASI<
+:: > updateVat(i, 'value', Number(e.target.value))} /><
+:: >idx!==i)}))} className="text-rose-400 p-2" aria-label="Vergi satırını sil" title="Vergi satırını sil"><
+:: >+ VERGİ EKLE<
+:: >/kiosk<
+:: >Henüz kiosk kurulumu yok.<
+:: >Bağlı cihazları kodla ilişkilendirme<
+:: >window.print<
+:: >npm run printer-agent<
+:: >Abonelik — yazıcı istasyonu kotası<
+:: >«Ek Yazıcı İstasyonu»<
+:: >Mutfak istasyonu<
+:: >Sistem / ağ yazıcısı<
+:: >— Listeden seçin —<
+:: >Adisyon / makbuz<
+:: >Sistem / ağ yazıcısı<
+:: >— Listeden seçin —<
+:: >— Listeden seçin —<
+:: >Masa planı + QR kodlar<
+:: >Pizza/Burger/İçecek/Tatlı<
+:: >1x Super Pizza<
+:: >Personel & Erişim<
+:: >Sistem kullanıcılarını yönetin<
+:: >AKTİF PERSONEL<
+:: >LİSANS DURUMU<
+:: >GÜVENLİK<
+:: >2FA & PIN AKTİF<
+:: >Kullanıcı Adı<
+:: >Salon / Bölge<
+:: >PIN<
+:: >Son Giriş<
+:: >Cihaz<
+:: >Tam Adı<
+:: >Kullanıcı Adı<
+:: >Erişim Şifresi<
+:: >Sistem Rolü<
+:: >Oturum PIN (6 Haneli)<
+:: >Bölge seçin…<
+:: >Tüm İstasyonlar<
+:: >Ana Mutfak (Sıcak)<
+:: >Soğuk<
+:: > setModal(false)} className="rounded-xl px-6 py-3.5 text-xs font-black text-slate-400 hover:text-slate-600 transition-colors uppercase">Vazgeç<
+:: >Değişiklikleri Onayla<
+:: >Verimlilik, Satış ve Mesai Takibi<
+:: >Canlı Veri<
+:: >Veri bulunamadı<
+:: >Ciro Katkısı<
+:: >İşlem<
+:: >Günün Yıldızı<
+:: >CİRO<
+:: >MESAİ<
+:: >Büyük başarılar bekleniyor...<
+:: >SLA Hızı / Ortalama<
+:: >Mesai ve Vardiya Kayıtları<
+:: >Son 100 işlem kaydı<
+:: >Giriş<
+:: >Çıkış<
+:: >Süre<
+:: >Satış / Sipariş<
+:: >Henüz kayıt yok<
+:: >Stok / müsaitlik<
+:: >Düşük stok alarmları<
+:: >Ürün<
+:: >Tedarikçi<
+:: >Son Alış<
+:: >Son Tarih<
+:: >Min<
+:: >Açık<
+:: >Seviye<
+:: >Kritik stok alarmı yok.<
+:: >Satista<
+:: >Kapali<
+:: >Kritik Stok<
+:: >Sadece satista<
+:: >Sadece kapali<
+:: >Sadece kritik stok<
+:: >Ürün<
+:: >Tedarik<
+:: >Müsait<
+:: > string, key: string, vars: Record<
+:: >İptal nedeni<
+:: > i && <
+:: > 0 && diff <
+:: >Musteri:<
+:: >Digital Gastronomy Suite<
+:: >Choose Service<
+:: >Tactical Logistic Selection<
+:: >Live Production Queue<
+:: >Ready for Pickup<
+:: >Under Production<
+:: >PULSE_REALTIME_SYNC_ACTIVE // 60FPS_CORE<
+:: >Secure Digital Identity<
+:: >QUICK_ACCESS_LOCAL<
+:: >ALL_ITEMS<
+:: >Tactical Checkout<
+:: >Card Identifier<
+:: >Expiry<
+:: >SELECT_SIZE<
+:: >PERSONALIZATION<
+:: > setModalQty(q => Math.max(1, q - 1))} className="w-14 h-14 flex items-center justify-center text-slate-400 hover:text-white transition-colors"><
+:: > setModalQty(q => q + 1)} className="w-14 h-14 bg-emerald-600 text-white rounded-2xl flex items-center justify-center shadow-lg active:scale-90 transition-all"><
+:: >TOTAL_UNIT<
+:: >QR_INVALID_OR_NOT_FOUND<
+:: >Lütfen restoranın sunduğu geçerli bir QR kodunu tarayın veya personelden yardım isteyin.<
+:: >PULSE_SYNC_ACTIVE<
+:: >Teslim Merkezi<
+:: >Canli durum ozeti + hizli teslim operasyonu<
+:: >Hazir Siparis<
+:: >Hazirlaniyor<
+:: > Promise<
+:: >Şemaya bağlantı<
+:: > kiracısı için açıldı. Master şifre ile <
+:: >admin<
+:: > Restoran Kimliği<
+:: >Kullanıcı Adı<
+:: >Şifre<
+:: >GİRİŞ YAP <
+:: >EKRANI<
+:: >GLOBAL_SIGNAL_CORE<
+:: >HAZIRLANIYOR<
+:: >PROCESSING...<
+:: >AFİYET OLSUN!<
+:: >DEPLOYMENT_IDLE<
+:: >PULSE_SIGNAL_ACTIVE_CORE<
+:: >INTERFACE_VERSION<
+:: >DS_ELITE_v4.4.2_TACTICAL<
+:: >NEXTPOS_STATION_CLOUD<
+:: >UNITS<
+:: >QR Web Menü Domain<
+:: >Restoranın QR menü web adresi (ör. qrpizza.webotonom.de)<
+:: >Confirm Registration<
+:: > string, key: string, vars: Record<
+:: > i && <
+:: > setIsMenuOpen(false)} className="w-14 h-14 glass rounded-full flex items-center justify-center text-slate-500 hover:text-white transition-all"><
+:: > t.active_session_id).length}<

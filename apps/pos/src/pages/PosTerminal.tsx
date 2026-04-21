@@ -70,13 +70,19 @@ const CATEGORY_COLORS = [
 ];
 
 const PosTerminal: React.FC = () => {
-    const { 
-        fetchSettings, fetchProducts, fetchCategories,
-        cashierView, selectedTable, 
-        setActiveCategory, activeCategoryId, categories
-    } = usePosStore();
-    const { isCartOpen, setCartOpen } = useUIStore();
-    const { user } = useAuthStore();
+    const fetchSettings = usePosStore(s => s.fetchSettings);
+    const fetchProducts = usePosStore(s => s.fetchProducts);
+    const fetchCategories = usePosStore(s => s.fetchCategories);
+    const cashierView = usePosStore(s => s.cashierView);
+    const selectedTable = usePosStore(s => s.selectedTable);
+    const setActiveCategory = usePosStore(s => s.setActiveCategory);
+    const activeCategoryId = usePosStore(s => s.activeCategoryId);
+    const categories = usePosStore(s => s.categories);
+
+    const isCartOpen = useUIStore(s => s.isCartOpen);
+    const setCartOpen = useUIStore(s => s.setCartOpen);
+    
+    const user = useAuthStore(s => s.user);
     const { t } = usePosLocale();
 
     const [searchTerm, setSearchTerm] = useState('');

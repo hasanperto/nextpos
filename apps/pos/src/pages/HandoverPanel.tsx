@@ -14,7 +14,8 @@ type HandoverOrderRow = {
 /** Tam ekran teslim merkezi — gel-al için «Adisyona ekle» yok; kasa mutfak modalında. */
 const HandoverPanel: React.FC = () => {
     const fetchSettings = usePosStore((s) => s.fetchSettings);
-    const { getAuthHeaders, logout } = useAuthStore();
+    const getAuthHeaders = useAuthStore(s => s.getAuthHeaders);
+    const logout = useAuthStore(s => s.logout);
     const { t } = usePosLocale();
     const [loading, setLoading] = useState(false);
     const [readyOrders, setReadyOrders] = useState<HandoverOrderRow[]>([]);

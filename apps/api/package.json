@@ -8,6 +8,7 @@
     },
     "scripts": {
         "dev": "tsx watch src/index.ts",
+        "prebuild": "prisma generate",
         "build": "tsc && node ./scripts/copy-billing-sql.mjs",
         "lint": "eslint src/",
         "start": "node dist/index.js",

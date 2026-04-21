@@ -56,7 +56,7 @@ export async function domainTenantMiddleware(req: Request, res: Response, next: 
                 return res.status(404).json({ error: 'Bu domain için QR menü kaydı bulunamadı' });
             }
             tenantId = record.tenantId;
-            domainCache.set(domain, { tenantId, ts: Date.now() });
+            domainCache.set(domain, { tenantId: tenantId!, ts: Date.now() });
         }
 
         const tenant = await prisma.tenant.findUnique({ where: { id: tenantId! } });

@@ -1,9 +1,36 @@
 import React, { useState, useEffect, useCallback, useLayoutEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { FiLock, FiUser, FiHash, FiDatabase, FiArrowRight, FiDelete, FiShield, FiExternalLink, FiMail } from 'react-icons/fi';
+import { FiLock, FiUser, FiHash, FiDatabase, FiArrowRight, FiDelete, FiShield, FiExternalLink, FiMail, FiGlobe } from 'react-icons/fi';
 import { useAuthStore } from '../store/useAuthStore';
+import { usePosLocale } from '../contexts/PosLocaleContext';
+import { usePosStore } from '../store/usePosStore';
+import { POS_LANGS } from '../i18n/posMessages';
 
 const PWA_PREFERRED_PATH_KEY = 'nextpos_pwa_preferred_path';
+
+// Language Switcher Component
+const LangSwitcher: React.FC = () => {
+    const { lang, setLang } = usePosStore();
+    return (
+        <div className="flex items-center gap-1.5 bg-white/[0.03] p-1 rounded-2xl border border-white/5 backdrop-blur-xl shadow-2xl">
+            {POS_LANGS.map((l) => (
+                <button
+                    key={l.code}
+                    type="button"
+                    onClick={() => setLang(l.code)}
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                        lang === l.code 
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 shadow-lg shadow-emerald-500/10' 
+                            : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'
+                    }`}
+                    title={l.label}
+                >
+                    <span className="text-lg filter grayscale-[0.2] hover:grayscale-0 transition-all">{l.emoji}</span>
+                </button>
+            ))}
+        </div>
+    );
+};
 
 function defaultPathForRole(role?: string): string {
     switch (role) {
@@ -54,6 +81,7 @@ export function resolvePostLoginPath(role?: string): string {
 
 const LoginPage: React.FC = () => {
     const navigate = useNavigate();
+    const { t } = usePosLocale();
     const [searchParams] = useSearchParams();
     const { login, loginWithPin, tenantId, setTenantId, logout, isAuthenticated, tenantName, clearTenant } = useAuthStore();
     const [mode, setMode] = useState<'credentials' | 'pin'>('credentials');
@@ -119,9 +147,9 @@ const LoginPage: React.FC = () => {
 
     const handleCredentialLogin = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!localTenantId.trim()) { setError('Tenant ID gerekli'); return; }
-        if (!username.trim()) { setError('Kullanıcı adı gerekli'); return; }
-        if (!password) { setError('Şifre gerekli'); return; }
+        if (!localTenantId.trim()) { setError(t('auth.error.tenantRequired')); return; }
+        if (!username.trim()) { setError(t('auth.error.usernameRequired')); return; }
+        if (!password) { setError(t('auth.error.passwordRequired')); return; }
 
         setError('');
         setIsLoading(true);
@@ -135,13 +163,13 @@ const LoginPage: React.FC = () => {
             navigate(resolvePostLoginPath(currentUserRole), { replace: true });
         } catch (err: any) {
             console.error('Login error:', err);
-            let msg = err.message || 'Kullanıcı adı veya şifre hatalı';
+            let msg = err.message || t('auth.error.invalidCredentials');
             if (msg.includes('pasif')) {
-                msg = 'Restoran hesabı pasif. Lütfen destek ile iletişime geçin.';
+                msg = t('auth.error.tenantInactive');
             } else if (msg.includes('bulunamadı')) {
-                msg = 'Restoran hesabı bulunamadı. Lütfen kimliği kontrol edin.';
+                msg = t('auth.error.tenantNotFound');
             } else if (msg.includes('Invalid credentials') || msg.includes('Giriş başarısız')) {
-                msg = 'Kullanıcı adı veya şifre hatalı';
+                msg = t('auth.error.invalidCredentials');
             }
             setError(msg);
         }
@@ -151,7 +179,7 @@ const LoginPage: React.FC = () => {
     const doPinLogin = useCallback(async (pinCode: string) => {
         if (pinCode.length !== 6) return;
         const tid = localTenantId.trim();
-        if (!tid) { setError('Tenant ID gerekli'); return; }
+        if (!tid) { setError(t('auth.error.tenantRequired')); return; }
 
         setError('');
         setIsLoading(true);
@@ -164,19 +192,19 @@ const LoginPage: React.FC = () => {
             navigate(resolvePostLoginPath(currentUserRole), { replace: true });
         } catch (err: any) {
             console.error('PIN error:', err);
-            let msg = err.message || 'PIN kodu hatalı';
+            let msg = err.message || t('auth.error.invalidPin');
             if (msg.includes('pasif')) {
-                msg = 'Restoran hesabı pasif. Lütfen destek ile iletişime geçin.';
+                msg = t('auth.error.tenantInactive');
             } else if (msg.includes('bulunamadı')) {
-                msg = 'Restoran hesabı bulunamadı. Lütfen kimliği kontrol edin.';
+                msg = t('auth.error.tenantNotFound');
             } else if (msg.includes('PIN geçersiz') || msg.includes('Invalid credentials')) {
-                msg = 'Geçersiz PIN kodu';
+                msg = t('auth.error.invalidPin');
             }
             setError(msg);
             setPin('');
         }
         setIsLoading(false);
-    }, [localTenantId, loginWithPin, navigate, setTenantId]);
+    }, [localTenantId, loginWithPin, navigate, setTenantId, t]);
 
     const handlePinPad = (digit: string) => {
         if (pin.length >= 6) return;
@@ -199,6 +227,11 @@ const LoginPage: React.FC = () => {
                 <div className="absolute top-[30%] right-[10%] w-[30vw] h-[30vw] bg-cyan-500/5 rounded-full blur-[120px]" style={{ animationDelay: '2s', animationDuration: '6s' }} />
             </div>
 
+            {/* Language Switcher - Floats at top right */}
+            <div className="absolute top-6 right-6 z-50">
+                <LangSwitcher />
+            </div>
+
             {/* Grid Pattern Overlay */}
             <div className="absolute inset-0 opacity-[0.03]" style={{
                 backgroundImage: 'linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)',
@@ -216,7 +249,7 @@ const LoginPage: React.FC = () => {
                         Next<span className="text-emerald-400">POS</span>
                     </h1>
                     <p className="text-slate-500 mt-1 text-sm font-medium">
-                        Pizza & Kebab Restoran Sistemi
+                        {t('auth.tagline')}
                     </p>
                 </div>
 
@@ -227,8 +260,8 @@ const LoginPage: React.FC = () => {
                         <div className="mx-8 mt-6 mb-0 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300/95 text-xs font-semibold flex items-start gap-2">
                             <FiExternalLink className="shrink-0 mt-0.5 opacity-80" size={14} />
                             <span>
-                                <span className="text-[10px] uppercase tracking-wider text-emerald-500/80 block mb-0.5">Şemaya bağlantı</span>
-                                Bu oturum <span className="text-white font-bold">{linkedName}</span> kiracısı için açıldı. Master şifre ile <code className="text-emerald-200">admin</code> hesabına giriş yapabilirsiniz.
+                                <span className="text-[10px] uppercase tracking-wider text-emerald-500/80 block mb-0.5">{t('auth.linkedSchema')}</span>
+                                {t('auth.linkedHint').replace('{{name}}', linkedName)}
                             </span>
                         </div>
                     )}
@@ -236,7 +269,7 @@ const LoginPage: React.FC = () => {
                     {/* Tenant ID Section */}
                     <div className="px-8 pt-8 pb-4">
                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[2px] mb-2 flex items-center justify-between gap-1.5">
-                            <span className="flex items-center gap-1.5"><FiDatabase size={10} /> Restoran Kimliği</span>
+                            <span className="flex items-center gap-1.5"><FiDatabase size={10} /> {t('auth.tenantLabel')}</span>
                             {tenantName && (
                                 <button
                                     type="button"
@@ -246,7 +279,7 @@ const LoginPage: React.FC = () => {
                                     }}
                                     className="text-[9px] text-emerald-500 hover:text-emerald-400 font-bold underline cursor-pointer bg-transparent border-none p-0"
                                 >
-                                    Değiştir
+                                    {t('auth.changeTenant')}
                                 </button>
                             )}
                         </label>
@@ -260,7 +293,7 @@ const LoginPage: React.FC = () => {
                                 type="text"
                                 value={localTenantId}
                                 onChange={(e) => setLocalTenantId(e.target.value)}
-                                placeholder="Tenant UUID yapıştır..."
+                                placeholder={t('auth.tenantPlaceholder')}
                                 className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-white/90 text-xs font-mono outline-none focus:border-emerald-500/40 focus:bg-white/[0.06] transition-all placeholder:text-white/20"
                             />
                         )}
@@ -272,13 +305,13 @@ const LoginPage: React.FC = () => {
                             onClick={() => { setMode('credentials'); setError(''); }}
                             className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${mode === 'credentials' ? 'bg-emerald-500/15 text-emerald-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
                         >
-                            <FiUser size={13} /> Kullanıcı Adı
+                            <FiUser size={13} /> {t('auth.usernameLabel')}
                         </button>
                         <button
                             onClick={() => { setMode('pin'); setError(''); }}
                             className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${mode === 'pin' ? 'bg-emerald-500/15 text-emerald-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
                         >
-                            <FiHash size={13} /> PIN Girişi
+                            <FiHash size={13} /> {t('auth.pinLogin')}
                         </button>
                     </div>
 
@@ -288,10 +321,10 @@ const LoginPage: React.FC = () => {
                             <span className="leading-relaxed">{error}</span>
                             {(error.includes('pasif') || error.includes('yönetimle') || error.includes('Sistem kaydı bulunamadı')) && (
                                 <a 
-                                    href={`mailto:destek@nextpos.com?subject=NextPOS%20Giriş%20Desteği%20Talebi&body=Merhaba,%20giriş%20yaparken%20sorun%20yaşıyorum.%0A%0ATenant%20ID:%20${localTenantId}%0AHata:%20${error}`}
+                                    href={`mailto:destek@nextpos.com?subject=NextPOS%20Giriş%20Desteği%20Talebi&body=${t('auth.supportMsg')}%0A%0ATenant%20ID:%20${localTenantId}%0AHata:%20${error}`}
                                     className="mt-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
                                 >
-                                    <FiMail size={14} /> Destek Merkezi İle İletişime Geç
+                                    <FiMail size={14} /> {t('auth.contactSupport')}
                                 </a>
                             )}
                         </div>
@@ -301,7 +334,7 @@ const LoginPage: React.FC = () => {
                     {mode === 'credentials' && (
                         <form onSubmit={handleCredentialLogin} className="px-8 pb-8 space-y-4">
                             <div>
-                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[2px] mb-2 block">Kullanıcı Adı</label>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[2px] mb-2 block">{t('auth.usernameLabel')}</label>
                                 <div className="relative">
                                     <FiUser className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" size={16} />
                                     <input
@@ -310,13 +343,13 @@ const LoginPage: React.FC = () => {
                                         value={username}
                                         onChange={(e) => setUsername(e.target.value)}
                                         className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-11 pr-4 py-3.5 text-white outline-none focus:border-emerald-500/40 focus:bg-white/[0.06] transition-all font-medium"
-                                        placeholder="admin"
+                                        placeholder={t('auth.usernamePlaceholder')}
                                         autoComplete="username"
                                     />
                                 </div>
                             </div>
                             <div>
-                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[2px] mb-2 block">Şifre</label>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[2px] mb-2 block">{t('auth.passwordLabel')}</label>
                                 <div className="relative">
                                     <FiLock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" size={16} />
                                     <input
@@ -325,7 +358,7 @@ const LoginPage: React.FC = () => {
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
                                         className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-11 pr-4 py-3.5 text-white outline-none focus:border-emerald-500/40 focus:bg-white/[0.06] transition-all font-medium"
-                                        placeholder="••••••••"
+                                        placeholder={t('auth.passwordPlaceholder')}
                                         autoComplete="current-password"
                                     />
                                 </div>
@@ -340,7 +373,7 @@ const LoginPage: React.FC = () => {
                                 {isLoading ? (
                                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                 ) : (
-                                    <>GİRİŞ YAP <FiArrowRight /></>
+                                    <>{t('auth.loginBtn')} <FiArrowRight /></>
                                 )}
                             </button>
                         </form>
@@ -402,10 +435,18 @@ const LoginPage: React.FC = () => {
                     )}
                 </div>
 
-                {/* Footer */}
-                <p className="text-center text-slate-600 text-[10px] mt-6 font-medium tracking-wider">
-                    NextPOS v2.0 • Multi-Tenant SaaS • XAMPP MySQL
-                </p>
+                {/* Updated Footer Styling */}
+                <div className="text-center mt-10">
+                    <p className="text-slate-600 text-[10px] font-bold uppercase tracking-[0.2em] opacity-80 hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <span className="w-8 h-[1px] bg-white/10" />
+                        {t('auth.footer')}
+                        <span className="w-8 h-[1px] bg-white/10" />
+                    </p>
+                    <div className="mt-2 flex items-center justify-center gap-4 text-[9px] text-slate-700 font-bold">
+                        <span className="flex items-center gap-1"><FiGlobe size={10} /> MULTI-TENANT</span>
+                        <span className="flex items-center gap-1"><FiShield size={10} /> SECURE</span>
+                    </div>
+                </div>
             </div>
         </div>
     );

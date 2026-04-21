@@ -1255,7 +1255,7 @@ export const CourierPanel: React.FC = () => {
                                             setIsDriveStarted(true);
                                             const opened = window.open(links.googleWeb, '_blank', 'noopener,noreferrer');
                                             if (!opened) {
-                                                toast.error('Harita açılamadı — tarayıcı açılır pencere engelini kaldırın', { icon: '🔒', duration: 6000 });
+                                                toast.error(t('courier.map_popup_blocked'), { icon: '🔒', duration: 6000 });
                                             } else {
                                                 toast.success(t('courier.nav_toast_opened'), { icon: '🗺️' });
                                             }
@@ -1569,7 +1569,7 @@ export const CourierPanel: React.FC = () => {
                 {cancelOrder && (
                     <CancelOrderModal
                         title={t('courier.cancel_btn')}
-                        description="Bu siparişi iptal etmek istiyor musunuz? İptal nedeni yazmanız önerilir."
+                        description={t('courier.cancel_confirm')}
                         reason={cancelReason}
                         setReason={setCancelReason}
                         onClose={() => {
@@ -1579,9 +1579,10 @@ export const CourierPanel: React.FC = () => {
                         onConfirm={() => {
                             const r = cancelReason.trim();
                             if (!r) {
-                                toast.error('İptal nedeni boş olamaz');
+                                toast.error(t('courier.cancel_reason_required'));
                                 return;
                             }
+                            if (!window.confirm(t('courier.cancel_confirm'))) return;
                             void handleAction(cancelOrder.id, 'cancel', { reason: r });
                         }}
                     />

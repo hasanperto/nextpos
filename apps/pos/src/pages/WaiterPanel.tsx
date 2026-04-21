@@ -120,7 +120,8 @@ function formatReadyOrderItemExtras(
         modifiers?: unknown;
         notes?: string | null;
     },
-    notePrefix = 'Not: '
+    t: (k: string) => string,
+    notePrefix = t('waiter.note_prefix')
 ): string[] {
     const lines: string[] = [];
     const vn = item.variant_name != null ? String(item.variant_name).trim() : '';
@@ -467,7 +468,7 @@ const HandoverPINModal = ({ onConfirm, onClose }: { onConfirm: (pin: string) => 
 
 export const WaiterPanel: React.FC = () => {
     const { getAuthHeaders, logout, user, tenantId, token } = useAuthStore();
-    const { t } = usePosLocale();
+    const { t, lang } = usePosLocale();
     const [currentTime, setCurrentTime] = useState(Date.now());
 
     useEffect(() => {
@@ -1037,9 +1038,9 @@ export const WaiterPanel: React.FC = () => {
     // Filter Logic
     const sections = useMemo(() => {
         const names = new Set<string>();
-        tables.forEach((x) => names.add(x.section_name || 'Genel'));
+        tables.forEach((x) => names.add(x.section_name || t('waiter.section_general')));
         return ['all', ...Array.from(names).sort()];
-    }, [tables]);
+    }, [tables, t]);
 
     const filteredProducts = useMemo(() => {
         let list = products;
@@ -1217,7 +1218,7 @@ export const WaiterPanel: React.FC = () => {
             setSelectedTable({
                 id: tbl.id,
                 name: tbl.name,
-                sectionName: tbl.section_name || 'Genel',
+                sectionName: tbl.section_name || t('waiter.section_general'),
                 sessionId: tbl.active_session_id,
             });
             setOrderType('dine_in');
@@ -1249,7 +1250,7 @@ export const WaiterPanel: React.FC = () => {
                 setSelectedTable({
                     id: openModalTable.id,
                     name: openModalTable.name,
-                    sectionName: openModalTable.section_name || 'Genel',
+                    sectionName: openModalTable.section_name || t('waiter.section_general'),
                     sessionId: data.sessionId
                 });
                 setOrderType('dine_in');
@@ -1361,22 +1362,22 @@ export const WaiterPanel: React.FC = () => {
 
             <div className="flex-1 overflow-y-auto no-scrollbar min-h-0 overscroll-contain">
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-6">
-                    {tables.filter(t => sectionTab === 'all' || (t.section_name || 'Genel') === sectionTab).map((t) => (
+                    {tables.filter(tbl => sectionTab === 'all' || (tbl.section_name || t('waiter.section_general')) === sectionTab).map((tbl) => (
                         <TableCard 
-                            key={`table-${t.id}`} 
-                            table={t} 
-                            status={tableStatuses[t.id] || 'empty'}
-                            readyAt={tableReadyTimes[t.id]}
-                            partialItems={partialReadyItems[t.id]}
-                            onClick={() => void onTableAction(t)}
-                            serviceCallMeta={pendingServiceCalls[t.id] ?? null}
+                            key={`table-${tbl.id}`} 
+                            table={tbl} 
+                            status={tableStatuses[tbl.id] || 'empty'}
+                            readyAt={tableReadyTimes[tbl.id]}
+                            partialItems={partialReadyItems[tbl.id]}
+                            onClick={() => void onTableAction(tbl)}
+                            serviceCallMeta={pendingServiceCalls[tbl.id] ?? null}
                             currentUserId={user?.id != null ? Number(user.id) : undefined}
                             onServe={(e) => {
                                 e.stopPropagation();
                                 if (settings?.pickupSecurity?.requirePIN) {
-                                    setPinModal({ open: true, tableId: t.id });
+                                    setPinModal({ open: true, tableId: tbl.id });
                                 } else {
-                                    void handleServe(t.id);
+                                    void handleServe(tbl.id);
                                 }
                             }}
                         />
@@ -1504,7 +1505,7 @@ export const WaiterPanel: React.FC = () => {
                             </div>
                             <div className="flex justify-between items-end">
                                 <span className="text-lg font-black text-white italic tracking-tighter">
-                                    ₺{Math.round(Number(p.basePrice))}
+                                    {currency}{Math.round(Number(p.basePrice))}
                                 </span>
                                 <div className="w-10 h-10 rounded-2xl glass flex items-center justify-center text-white/20 group-hover:bg-[#e91e63] group-hover:text-white group-hover:shadow-lg group-hover:shadow-pink-600/30 transition-all border-white/5">
                                     <FiPlus size={20} />
@@ -1544,7 +1545,7 @@ export const WaiterPanel: React.FC = () => {
                     {[
                         { label: t('waiter.stats_orders'), val: statsData?.totalOrders || '24', icon: <FiShoppingBag />, color: 'text-blue-400' },
                         { label: t('waiter.stats_tables'), val: statsData?.servedTables || '12', icon: <FiLayout />, color: 'text-[#e91e63]' },
-                        { label: t('waiter.stats_avg'), val: '₺' + (statsData?.avgOrder || '480'), icon: <FiTrendingUp />, color: 'text-emerald-400' },
+                        { label: t('waiter.stats_avg'), val: currency + (statsData?.avgOrder || '480'), icon: <FiTrendingUp />, color: 'text-emerald-400' },
                     ].map((s, idx) => (
                         <div key={idx} className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-10 rounded-[48px] shadow-2xl relative overflow-hidden group">
                             <div className="absolute top-0 right-0 p-8 text-white/10 group-hover:text-white/20 transition-all">
@@ -1687,7 +1688,7 @@ export const WaiterPanel: React.FC = () => {
                                                     {t('waiter.qr_tablet_order_badge')}
                                                 </span>
                                                 <p className="mt-1 break-words text-lg font-black uppercase italic tracking-tighter text-white">
-                                                    {`${q.tableName} · ${q.customerName || t('waiter.guest_upper')} ·��${Number(q.totalAmount ?? 0).toFixed(0)}`}
+                                                    {`${q.tableName} · ${q.customerName || t('waiter.guest_upper')} · ${currency}${Number(q.totalAmount ?? 0).toFixed(0)}`}
                                                 </p>
                                             </div>
                                         </div>
@@ -1696,14 +1697,14 @@ export const WaiterPanel: React.FC = () => {
                                                 type="button"
                                                 onClick={() =>
                                                     setConfirm({
-                                                        title: 'QR siparişini reddet',
-                                                        description: 'Bu QR siparişini reddetmek istiyor musunuz? Bu işlem geri alınamaz.',
-                                                        confirmText: 'REDDET',
+                                                        title: t('waiter.qr_reject_title'),
+                                                        description: t('waiter.qr_reject_desc'),
+                                                        confirmText: t('waiter.qr_reject_confirm'),
                                                         type: 'danger',
                                                         onConfirm: () => void rejectQr(q.orderId),
                                                     })
                                                 }
-                                                aria-label="QR siparişini reddet"
+                                                aria-label={t('waiter.qr_reject_title')}
                                                 className="min-h-[48px] min-w-[48px] rounded-2xl border border-white/10 bg-white/5 px-3 text-rose-400 hover:bg-rose-500 hover:text-white"
                                             >
                                                 <FiX size={22} className="mx-auto" />
@@ -1860,7 +1861,7 @@ export const WaiterPanel: React.FC = () => {
                             </div>
                         </div>
                         <div className="text-sm font-black text-white tabular-nums bg-white/5 px-2 py-1 rounded-lg border border-white/5 shrink-0">
-                            {new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                            {new Date().toLocaleTimeString(lang === 'tr' ? 'tr-TR' : lang === 'de' ? 'de-DE' : 'en-GB', { hour: '2-digit', minute: '2-digit' })}
                         </div>
                     </header>
 
@@ -2080,7 +2081,7 @@ export const WaiterPanel: React.FC = () => {
                                                     <span className="px-2 py-0.5 bg-[#e91e63] text-white text-[8px] font-black rounded-full shadow-lg">{t('waiter.new_badge')}</span>
                                                 </div>
                                                 <span className="text-base sm:text-xl font-black text-white italic tracking-tighter uppercase break-words mt-1">
-                                                    {q.tableName} · {q.customerName || t('waiter.guest_upper')} · ₺{Number(q.totalAmount).toFixed(0)}
+                                                    {q.tableName} · {q.customerName || t('waiter.guest_upper')} · {currency}{Number(q.totalAmount).toFixed(0)}
                                                 </span>
                                             </div>
                                         </div>
@@ -2089,14 +2090,14 @@ export const WaiterPanel: React.FC = () => {
                                                 type="button"
                                                 onClick={() =>
                                                     setConfirm({
-                                                        title: 'QR siparişini reddet',
-                                                        description: 'Bu QR siparişini reddetmek istiyor musunuz? Bu işlem geri alınamaz.',
-                                                        confirmText: 'REDDET',
+                                                        title: t('waiter.qr_reject_title'),
+                                                        description: t('waiter.qr_reject_desc'),
+                                                        confirmText: t('waiter.qr_reject_confirm'),
                                                         type: 'danger',
                                                         onConfirm: () => void rejectQr(q.orderId),
                                                     })
                                                 }
-                                                aria-label="QR siparişini reddet"
+                                                aria-label={t('waiter.qr_reject_title')}
                                                 className="min-h-[48px] min-w-[48px] sm:w-16 sm:h-16 glass rounded-[20px] sm:rounded-[24px] flex items-center justify-center text-rose-500 hover:bg-rose-500 hover:text-white hover:shadow-xl hover:shadow-rose-600/30 transition-all touch-manipulation active:scale-95 shrink-0"
                                             >
                                                 <FiX size={26} />
@@ -2236,7 +2237,7 @@ export const WaiterPanel: React.FC = () => {
                             </div>
                             <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-2 min-h-0">
                                 {(readyOrderDetail.items || []).map((item: any, i: number) => {
-                                    const extras = formatReadyOrderItemExtras(item, t('waiter.note_prefix'));
+                                    const extras = formatReadyOrderItemExtras(item, t);
                                     return (
                                         <div
                                             key={item.id ?? i}
@@ -2630,7 +2631,7 @@ export const WaiterPanel: React.FC = () => {
                                 {t('waiter.qr_add_to_tab_title')}
                             </h3>
                             <p className="mt-2 text-[11px] font-bold uppercase tracking-widest text-slate-500">
-                                {qrAdisyonModal.tableName} · ₺{Number(qrAdisyonModal.totalAmount ?? 0).toFixed(0)}
+                                {qrAdisyonModal.tableName} · {currency}{Number(qrAdisyonModal.totalAmount ?? 0).toFixed(0)}
                             </p>
                             <p className="mt-3 text-xs text-slate-400">{t('waiter.qr_add_to_tab_hint')}</p>
                             <label className="mt-5 block text-[10px] font-black uppercase tracking-widest text-slate-500">
@@ -2694,8 +2695,8 @@ export const WaiterPanel: React.FC = () => {
                 onClose={() => setConfirm(null)}
                 title={confirm?.title || ''}
                 description={confirm?.description || ''}
-                confirmText={confirm?.confirmText || 'EVET'}
-                cancelText="VAZGEÇ"
+                confirmText={confirm?.confirmText || t('waiter.confirm_yes')}
+                cancelText={t('waiter.confirm_cancel')}
                 type={confirm?.type || 'warning'}
                 onConfirm={() => confirm?.onConfirm()}
             />

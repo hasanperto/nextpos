@@ -3,6 +3,7 @@ import { FiAlertTriangle, FiCheckCircle, FiClock, FiRefreshCcw } from 'react-ico
 import { HandoverCenterContent } from '../features/handover/HandoverCenterContent';
 import { usePosStore } from '../store/usePosStore';
 import { useAuthStore } from '../store/useAuthStore';
+import { usePosLocale } from '../contexts/PosLocaleContext';
 
 type HandoverOrderRow = {
     id?: number;
@@ -14,6 +15,7 @@ type HandoverOrderRow = {
 const HandoverPanel: React.FC = () => {
     const fetchSettings = usePosStore((s) => s.fetchSettings);
     const { getAuthHeaders, logout } = useAuthStore();
+    const { t } = usePosLocale();
     const [loading, setLoading] = useState(false);
     const [readyOrders, setReadyOrders] = useState<HandoverOrderRow[]>([]);
     const [preparingOrders, setPreparingOrders] = useState<HandoverOrderRow[]>([]);
@@ -59,43 +61,53 @@ const HandoverPanel: React.FC = () => {
     }, [readyOrders]);
 
     return (
-        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-950">
-            <header className="shrink-0 border-b border-white/10 bg-slate-900/80 px-6 py-4">
+        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-50">
+            <header className="shrink-0 border-b border-slate-200 bg-white px-6 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                        <h2 className="text-lg font-black uppercase tracking-wider text-white">Teslim Merkezi</h2>
-                        <p className="text-xs text-slate-400">Canli durum ozeti + hizli teslim operasyonu</p>
+                        <h1 className="text-3xl font-black text-slate-800 tracking-tight leading-none">
+                            {t('handover.title_lead')}
+                        </h1>
+                        <p className="text-slate-500 font-medium mt-1">
+                            {t('handover.title_sub')}
+                        </p>
                     </div>
                     <button
                         type="button"
                         onClick={() => void loadStats()}
-                        className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-white/10"
+                        className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-600 font-semibold hover:bg-slate-50 transition-colors"
                     >
                         <FiRefreshCcw className={loading ? 'animate-spin' : ''} />
-                        Yenile
+                        {t('handover.refresh')}
                     </button>
                 </div>
                 <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3">
-                        <div className="flex items-center gap-2 text-blue-300">
-                            <FiCheckCircle />
-                            <span className="text-[11px] font-bold uppercase">Hazir Siparis</span>
+                    <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
+                        <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-500">
+                            <FiCheckCircle size={24} />
                         </div>
-                        <p className="mt-1 text-2xl font-black text-white">{readyOrders.length}</p>
+                        <div className="flex flex-col">
+                            <span className="text-2xl font-bold text-emerald-600 leading-none">{readyOrders.length}</span>
+                            <span className="text-[10px] font-bold text-emerald-500/80 uppercase tracking-wider">{t('handover.ready_order_label')}</span>
+                        </div>
                     </div>
-                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
-                        <div className="flex items-center gap-2 text-amber-300">
-                            <FiClock />
-                            <span className="text-[11px] font-bold uppercase">Hazirlaniyor</span>
+                    <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
+                        <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-amber-500">
+                            <FiClock size={24} />
                         </div>
-                        <p className="mt-1 text-2xl font-black text-white">{preparingOrders.length}</p>
+                        <div className="flex flex-col">
+                            <span className="text-2xl font-bold text-amber-600 leading-none">{preparingOrders.length}</span>
+                            <span className="text-[10px] font-bold text-amber-500/80 uppercase tracking-wider">{t('handover.preparing_label')}</span>
+                        </div>
                     </div>
-                    <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3">
-                        <div className="flex items-center gap-2 text-rose-300">
-                            <FiAlertTriangle />
-                            <span className="text-[11px] font-bold uppercase">20+ dk Bekleyen</span>
+                    <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
+                        <div className="w-12 h-12 bg-rose-50 rounded-xl flex items-center justify-center text-rose-500">
+                            <FiAlertTriangle size={24} />
                         </div>
-                        <p className="mt-1 text-2xl font-black text-white">{lateReadyCount}</p>
+                        <div className="flex flex-col">
+                            <span className="text-2xl font-bold text-rose-600 leading-none">{lateReadyCount}</span>
+                            <span className="text-[10px] font-bold text-rose-500/80 uppercase tracking-wider">{t('handover.late_label')}</span>
+                        </div>
                     </div>
                 </div>
             </header>

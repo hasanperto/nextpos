@@ -165,6 +165,14 @@ export function App() {
                             {isLoading ? t('login.loading') : login2faRequired ? '2FA Doğrula' : t('login.submit')}
                         </button>
                     </form>
+
+                    <div className="text-center mt-10">
+                        <p className="text-slate-600 text-[10px] font-bold uppercase tracking-[0.2em] opacity-80 hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <span className="w-8 h-[1px] bg-white/10" />
+                            {t('login.footer')}
+                            <span className="w-8 h-[1px] bg-white/10" />
+                        </p>
+                    </div>
                 </div>
             </div>
         );

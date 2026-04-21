@@ -4,6 +4,7 @@ import { FiCheckCircle, FiClock, FiActivity, FiArrowRight } from 'react-icons/fi
 import { motion, AnimatePresence } from 'framer-motion';
 import { GiCookingPot } from 'react-icons/gi';
 import { useAuthStore } from '../store/useAuthStore';
+import { usePosLocale } from '../contexts/PosLocaleContext';
 
 interface QueueItem {
     id: number;
@@ -14,6 +15,7 @@ interface QueueItem {
 
 const QueueDisplay: React.FC = () => {
     const { tenantId, token, getAuthHeaders } = useAuthStore();
+    const { t } = usePosLocale();
     const [tickets, setTickets] = useState<QueueItem[]>([]);
     const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -31,9 +33,9 @@ const QueueDisplay: React.FC = () => {
 
     useEffect(() => {
         void fetchQueue();
-        const t = setInterval(fetchQueue, 15000);
+        const fetchInterval = setInterval(fetchQueue, 15000);
         const clock = setInterval(() => setCurrentTime(new Date()), 1000);
-        return () => { clearInterval(t); clearInterval(clock); };
+        return () => { clearInterval(fetchInterval); clearInterval(clock); };
     }, [fetchQueue]);
 
     useEffect(() => {
@@ -49,8 +51,8 @@ const QueueDisplay: React.FC = () => {
         return () => { socket.disconnect(); };
     }, [tenantId, token, fetchQueue]);
 
-    const preparing = tickets.filter(t => t.status === 'waiting' || t.status === 'preparing');
-    const ready = tickets.filter(t => t.status === 'ready');
+    const preparing = tickets.filter(item => item.status === 'waiting' || item.status === 'preparing');
+    const ready = tickets.filter(item => item.status === 'ready');
 
     return (
         <div className="min-h-screen bg-[#020617] text-white p-16 font-sans overflow-hidden flex flex-col relative selection:bg-emerald-500/30">
@@ -101,18 +103,18 @@ const QueueDisplay: React.FC = () => {
                     <div className="flex items-center justify-between mb-16 relative z-10">
                         <div className="flex items-center gap-8">
                             <div className="w-4 h-16 bg-amber-500/30 rounded-full blur-[2px]" />
-                            <h2 className="text-6xl font-black uppercase tracking-[0.3em] text-slate-500 italic">HAZIRLANIYOR</h2>
+                            <h2 className="text-6xl font-black uppercase tracking-[0.3em] text-slate-500 italic">{t('queue.preparing_title')}</h2>
                         </div>
                         <div className="px-8 py-3 bg-amber-500/10 border border-amber-500/20 rounded-3xl text-amber-500 text-xl font-black italic tracking-tighter shadow-2xl">
-                            {preparing.length} <span className="text-xs tracking-widest opacity-60">ORDERS</span>
+                            {preparing.length} <span className="text-xs tracking-widest opacity-60">{t('queue.orders_label')}</span>
                         </div>
                     </div>
                     
                     <div className="flex-1 overflow-y-auto grid grid-cols-2 gap-10 content-start pr-6 custom-scrollbar relative z-10">
                         <AnimatePresence mode="popLayout">
-                            {preparing.map(t => (
+                            {preparing.map(ticket => (
                                 <motion.div 
-                                    key={t.id} 
+                                    key={ticket.id} 
                                     layout
                                     initial={{ scale: 0.9, opacity: 0, x: -20 }}
                                     animate={{ scale: 1, opacity: 1, x: 0 }}
@@ -121,11 +123,11 @@ const QueueDisplay: React.FC = () => {
                                 >
                                     <div className="absolute top-0 left-0 w-full h-2 bg-amber-500/20 opacity-0 group-hover/item:opacity-100 transition-opacity" />
                                     <span className="text-8xl font-black text-slate-400 italic tracking-tighter drop-shadow-[0_0_20px_rgba(255,255,255,0.05)]">
-                                        #{t.ticket_number ?? t.id}
+                                        #{ticket.ticket_number ?? ticket.id}
                                     </span>
                                     <div className="mt-6 flex items-center justify-center gap-3 text-slate-600">
                                         <FiActivity className="animate-pulse" />
-                                        <span className="text-xs font-black uppercase tracking-[0.3em] italic">PROCESSING...</span>
+                                        <span className="text-xs font-black uppercase tracking-[0.3em] italic">{t('queue.processing_label')}</span>
                                     </div>
                                 </motion.div>
                             ))}
@@ -146,7 +148,7 @@ const QueueDisplay: React.FC = () => {
                     <div className="flex items-center justify-between mb-16 relative z-10">
                         <div className="flex items-center gap-8">
                             <div className="w-4 h-16 bg-emerald-500 rounded-full shadow-[0_0_30px_rgba(16,185,129,0.8)]" />
-                            <h2 className="text-6xl font-black uppercase tracking-[0.3em] text-emerald-400 italic">AFİYET OLSUN!</h2>
+                            <h2 className="text-6xl font-black uppercase tracking-[0.3em] text-emerald-400 italic">{t('queue.ready_title')}</h2>
                         </div>
                         <div className="px-10 py-4 bg-emerald-500 text-white rounded-[2rem] text-2xl font-black italic tracking-tighter shadow-2xl shadow-emerald-500/40">
                             {ready.length} <span className="text-sm tracking-[0.2em] opacity-80">STOCKED</span>
@@ -155,9 +157,9 @@ const QueueDisplay: React.FC = () => {
 
                     <div className="flex-1 overflow-y-auto grid grid-cols-2 gap-12 content-start pr-6 custom-scrollbar relative z-10">
                         <AnimatePresence mode="popLayout">
-                            {ready.map(t => (
+                            {ready.map(ticket => (
                                 <motion.div 
-                                    key={t.id} 
+                                    key={ticket.id} 
                                     layout
                                     initial={{ scale: 0.5, opacity: 0, y: 150 }}
                                     animate={{ scale: 1, opacity: 1, y: 0 }}
@@ -169,11 +171,11 @@ const QueueDisplay: React.FC = () => {
                                     <div className="absolute -inset-4 border-2 border-emerald-500 rounded-[5.5rem] animate-ping opacity-30 pointer-events-none" />
                                     
                                     <span className="text-[140px] font-black italic tracking-tighter leading-none block drop-shadow-2xl">
-                                        #{t.ticket_number ?? t.id}
+                                        #{ticket.ticket_number ?? ticket.id}
                                     </span>
                                     <div className="mt-10 flex flex-col items-center gap-6">
                                         <div className="px-8 py-3 bg-white/20 backdrop-blur-xl rounded-[2rem] text-sm font-black uppercase tracking-[0.3em] border border-white/20 flex items-center gap-4">
-                                            <FiCheckCircle size={24} className="animate-bounce" /> LÜTFEN TESLİM ALIN
+                                            <FiCheckCircle size={24} className="animate-bounce" /> {t('queue.please_pickup')}
                                         </div>
                                         <div className="flex items-center gap-3 text-white/40 text-[10px] font-black uppercase tracking-[0.5em]">
                                             SIGNAL_MATCH_VERIFIED <FiArrowRight />

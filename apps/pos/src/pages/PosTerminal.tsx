@@ -122,8 +122,8 @@ const PosTerminal: React.FC = () => {
     }, [searchTerm]);
 
     const hotkeysHint = useMemo(() => {
-        return 'F3: Ürün ara · ESC: Temizle/Kapat · F2: Sepet';
-    }, []);
+        return t('terminal.hotkeysHint') || 'F3: Ürün ara · ESC: Temizle/Kapat · F2: Sepet';
+    }, [t]);
 
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
@@ -242,7 +242,7 @@ const PosTerminal: React.FC = () => {
                                                 {activeCat?.displayName || activeCat?.name || t('terminal.all') || 'Favoriler'}
                                             </h2>
                                             <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest">
-                                                {selectedTable ? `${selectedTable.name} — ${selectedTable.sectionName}` : 'Hızlı Satış'}
+                                                {selectedTable ? `${selectedTable.name} — ${selectedTable.sectionName}` : t('terminal.quickSale') || 'Hızlı Satış'}
                                             </span>
                                         </div>
                                     </div>
@@ -261,7 +261,7 @@ const PosTerminal: React.FC = () => {
                                             <button
                                                 type="button"
                                                 onClick={() => setSearchTerm('')}
-                                                aria-label="Aramayı temizle"
+                                                aria-label={t('terminal.clearSearch') || "Aramayı temizle"}
                                                 className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-white/20"
                                             >
                                                 <FiX size={14} />
@@ -282,7 +282,7 @@ const PosTerminal: React.FC = () => {
                 <div className="xl:hidden fixed bottom-6 right-6 z-50">
                     <button
                         onClick={() => setCartOpen(!isCartOpen)}
-                        aria-label={isCartOpen ? 'Sepeti kapat' : 'Sepeti aç'}
+                        aria-label={isCartOpen ? (t('terminal.closeCart') || 'Sepeti kapat') : (t('terminal.openCart') || 'Sepeti aç')}
                         title={hotkeysHint}
                         className="w-16 h-16 bg-emerald-600 text-white rounded-2xl shadow-2xl shadow-emerald-900/40 flex items-center justify-center active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-white/20"
                     >

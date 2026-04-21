@@ -59,12 +59,12 @@ export async function domainTenantMiddleware(req: Request, res: Response, next: 
             domainCache.set(domain, { tenantId, ts: Date.now() });
         }
 
-        const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+        const tenant = await prisma.tenant.findUnique({ where: { id: tenantId! } });
         if (!tenant || tenant.status !== 'active') {
             return res.status(403).json({ error: 'Restoran bulunamadı veya pasif' });
         }
 
-        req.tenantId = tenantId;
+        req.tenantId = tenantId!;
         next();
     } catch (e) {
         console.error('domainTenantMiddleware', e);

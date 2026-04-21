@@ -212,7 +212,7 @@ export async function listTenants(resellerId?: number | string) {
         where: resellerId ? { resellerId: Number(resellerId) } : undefined,
         orderBy: { createdAt: 'desc' },
     });
-    return rows.map((t) => ({
+    return rows.map((t: typeof rows[number]) => ({
         id: t.id,
         name: t.name,
         schema_name: t.schemaName,

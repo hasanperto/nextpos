@@ -1,0 +1,46 @@
+# syntax=docker/dockerfile:1
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+# Enable corepack (for pnpm/npm)
+RUN corepack enable
+
+# 1. Copy root package files
+COPY package.json package-lock.json turbo.json ./
+
+# 2. Copy workspace package.json files
+COPY apps/api/package.json ./apps/api/
+COPY packages/shared-types/package.json ./packages/shared-types/
+
+# 3. Install ALL dependencies (for build)
+RUN npm ci --include=dev
+
+# 4. Copy source code
+COPY packages/shared-types ./packages/shared-types/
+COPY apps/api ./apps/api/
+
+# 5. Build (using turbo for monorepo efficiency)
+# Generate Prisma Client first
+RUN cd apps/api && npx prisma generate
+RUN npx turbo build --filter=@nextpos/api
+
+# Stage 2: Runtime
+FROM node:20-alpine
+WORKDIR /app
+
+# Copy built app and required deps
+# In this monorepo layout, we copy full node_modules temporarily or use a slimmer approach
+# For now, let's keep it simple and robust
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages/shared-types ./packages/shared-types/
+COPY --from=builder /app/apps/api ./apps/api/
+
+ENV NODE_ENV=production
+ENV PORT=3001
+
+EXPOSE 3001
+
+WORKDIR /app/apps/api
+CMD ["npm", "run", "start"]

@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS `users` (
     `status` VARCHAR(20) DEFAULT 'active',
     `last_login` DATETIME,
     `branch_id` INT,
+    `waiter_all_sections` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1=tüm salon, 0=tek bölge',
+    `waiter_section_id` INT NULL,
+    `kitchen_station` VARCHAR(20) DEFAULT 'all' COMMENT 'all, hot, cold, bar',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -45,6 +48,7 @@ CREATE TABLE IF NOT EXISTS `categories` (
     `image_url` VARCHAR(255),
     `sort_order` INT DEFAULT 0,
     `is_active` BOOLEAN DEFAULT true,
+    `kitchen_station` VARCHAR(20) DEFAULT 'hot',
     `branch_id` INT,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -228,6 +232,7 @@ CREATE TABLE IF NOT EXISTS `kitchen_tickets` (
     `order_id` INT NOT NULL,
     `table_name` VARCHAR(50),
     `waiter_name` VARCHAR(100),
+    `station` VARCHAR(20) NOT NULL DEFAULT 'hot',
     `status` ENUM('waiting', 'preparing', 'ready', 'completed', 'cancelled') DEFAULT 'waiting',
     `is_urgent` BOOLEAN DEFAULT false,
     `ticket_number` INT,

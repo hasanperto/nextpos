@@ -1,0 +1,22 @@
+NextPOS — hızlı başvuru (Windows, repo kökü: nextpos\)
+
+1) İlk kez (Docker Postgres+Redis, .env, Prisma, seed):
+   npm run setup:local
+
+2) Geliştirme — API + POS birlikte:
+   npm run dev:stack
+   veya çift tık: Baslat-Dev.bat
+   • API:  http://localhost:3001
+   • POS:  http://localhost:5173  (/api istekleri proxy ile API’ye gider)
+
+3) Portları kapatıp yeniden başlat:
+   npm run restart:dev
+   veya çift tık: YenidenBaslat-Dev.bat
+
+Not: docker-compose.yml PostgreSQL dış portu 5433. apps/api/.env → DATABASE_URL buna uygun olmalı (ilk kurulumda setup:local .env.example’dan kopyalar).
+
+Yazıcı listesi (Admin → Yazıcı): kasa PC’de ayrı terminalde  npm run printer-agent  (127.0.0.1:3910)
+
+EBUSY / turbo.exe kilitli hatası:
+  — Tüm "npm run dev" / Baslat-Dev pencerelerinde Ctrl+C ile durdurun, birkaç saniye bekleyin.
+  — Paketler zaten kuruluysa:  set SKIP_NPM_INSTALL=1&& npm run setup:local

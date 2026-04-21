@@ -1,38 +1,133 @@
 # NextPOS
 
-Turborepo monorepo: **API** (`apps/api`, Prisma), **POS arayüzü** (`apps/pos`), **admin** (`apps/admin`). Eski **PizzaPOS** PHP projesi (`pizzapos/`) bu repoya dahil değildir.
+SaaS Admin → Bayi (Reseller) → Restoran (Tenant) → Şube → POS / Garson / Mutfak / Kurye / QR Menü.
 
-## Plan dokümanı
+Monorepo yapısı (Turborepo):
+- `apps/api`: Backend API (Node.js/TypeScript) + PostgreSQL (Prisma)
+- `apps/pos`: POS + Restoran Admin (React/Vite/TypeScript)
+- `apps/admin`: SaaS Admin paneli (Vite)
+- `apps/reseller`: Bayi paneli (Vite)
 
-Hedef mimari, PostgreSQL şeması, modüller, WebSocket olayları ve faz planı: [`docs/yeni_nesil_pos_proje_plani.md`](docs/yeni_nesil_pos_proje_plani.md).
+## Hızlı Başlangıç (Yerel)
 
-## Kısa analiz özeti
+Gereksinimler:
+- Node.js >= 20
+- Docker (PostgreSQL + Redis için)
 
-| Alan | Durum |
-|------|--------|
-| Hedef | Hibrit POS: React/Vite istemciler, Node API, gerçek zamanlı (Socket), çok kiracılı SaaS yapısı |
-| Modüller | Kasiyer, garson, mutfak, kurye, müşteri menüsü, SaaS yönetim (plana uygun ekranlar) |
-| Veri | Prisma + MySQL (mevcut kurulum); plan uzun vadede PostgreSQL önerir |
-| i18n | Plan: DE / TR / EN — ürün çevirileri ve UI |
+Kurulum:
 
-## Geliştirme
-
-```powershell
-cd d:\xampp\htdocs\NextPOS
+```bash
 npm install
+docker compose up -d postgres redis
+npm run db:migrate
+npm run db:seed
 npm run dev
 ```
 
-API ve ortam değişkenleri için `apps/api` altındaki `.env` örneğine bakın (dosya repoda yoksa yerelde oluşturun).
+Yerel URL’ler (varsayılan):
+- API: http://127.0.0.1:3001 (sağlık: `/api/v1/health`)
+- POS: http://127.0.0.1:5173
+- Admin: http://127.0.0.1:5176
+- Bayi: http://127.0.0.1:4001
 
-## GitHub’a gönderme
+Demo hesaplar için: `apps/api/prisma/seed.ts`
 
-Yerelde commit için `git config user.name` / `user.email` ayarlayın (global veya sadece bu repo).
+## GitHub’a Yükleme Rehberi (Commit + Push)
 
-```powershell
-cd d:\xampp\htdocs\NextPOS
-git remote add origin https://github.com/KULLANICI_ADIN/nextpos.git
-git push -u origin main
+Bu repo zaten `origin` remote’una bağlı: `https://github.com/hasanperto/nextpos.git`.
+
+### 1) Güvenlik Kontrolü (Zorunlu)
+
+- `.env` dosyaları repoya eklenmez (ignore). Sadece `.env.example` commitlenir.
+- Build çıktıları commitlenmez (`dist/`, `.next/`, `.turbo/` ignore).
+
+Kontrol:
+
+```bash
+git status -sb
 ```
 
-Önce GitHub’da boş bir repo oluşturun. `gh` yüklüyse: `gh repo create nextpos --private --source=. --push`
+### 2) Lint + Build (Push’tan önce)
+
+```bash
+npm run lint
+npm run build
+```
+
+### 3) Dosyaları Stage Etme (Önerilen)
+
+Her şeyi tek seferde eklemek yerine, önce sistem dosyalarını stage etmek daha güvenlidir:
+
+```bash
+git add .github .gitignore README.md package.json package-lock.json turbo.json playwright.config.ts
+git add apps packages docs scripts e2e docker-compose.yml docker-compose.production.yml Dockerfile.*
+```
+
+Stage kontrol:
+
+```bash
+git status
+git diff --cached
+```
+
+### 4) Commit ve Push
+
+```bash
+git commit -m "chore: ship latest changes"
+git push origin main
+```
+
+Eğer push sırasında yetki hatası alırsanız:
+- GitHub’da Personal Access Token (PAT) oluşturun
+- GitHub Desktop veya Git Credential Manager ile giriş yapın
+
+## Sunucuya Yükleme Rehberi (VPS / Docker Compose)
+
+Bu bölüm “ilk canlı kurulum” için minimum adımları anlatır. (Detaylar projedeki `docker-compose.production.yml` ve `docs/PORT_CONFIGURATION.md` ile şekillenir.)
+
+### 1) Sunucuda Hazırlık
+
+- Docker + Docker Compose
+- Domain + DNS (API, Admin, POS, Reseller subdomain’leri)
+- PostgreSQL ve Redis (container veya managed)
+
+### 2) Kurulum Akışı (Önerilen)
+
+```bash
+git clone https://github.com/hasanperto/nextpos.git
+cd nextpos
+npm install
+```
+
+Ortam değişkenleri:
+- `apps/api/.env` üretim değerleri (DB/Redis/JWT/CORS/Stripe vb.)
+- `.env.example` dosyalarını referans alın
+
+Prod stack:
+
+```bash
+docker compose -f docker-compose.production.yml up -d --build
+```
+
+Migration:
+
+```bash
+npm run db:migrate
+```
+
+### 3) Reverse Proxy + SSL (Nginx)
+
+- 80/443 dışarı açık
+- Uygulama container portları internal
+- Let’s Encrypt (certbot) veya aaPanel üzerinden SSL
+
+Not: QR Web Menu için aaPanel otomasyonu kullanılacaksa API tarafında `AAPANEL_*` environment değişkenleri gerekir.
+
+## Komutlar
+
+- `npm run dev`: tüm uygulamalar
+- `npm run dev:api`: sadece API
+- `npm run dev:pos`: sadece POS
+- `npm run dev:admin`: sadece Admin
+- `npm run dev:reseller`: sadece Bayi
+- `npm run test:e2e`: Playwright E2E (api + pos)

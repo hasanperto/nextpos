@@ -20,12 +20,10 @@ subscriptionsRouter.get('/', listPlansHandler);
  * @desc Sadece SaaS Admins (Super Admin) görebilir ve yönetebilir
  */
 subscriptionsRouter.use(authMiddleware);
-// requireRole('super_admin') or something similar for SaaS
-// For now, let's assume it's SaaS admin since it's common and public-level
-// I'll add a check in the controller if we have SaaS admin flags
+const requireSuperAdminOnly = requireRole('super_admin');
 
-subscriptionsRouter.post('/', createPlanHandler);
-subscriptionsRouter.put('/:id', updatePlanHandler);
-subscriptionsRouter.delete('/:id', deletePlanHandler);
+subscriptionsRouter.post('/', requireSuperAdminOnly, createPlanHandler);
+subscriptionsRouter.put('/:id', requireSuperAdminOnly, updatePlanHandler);
+subscriptionsRouter.delete('/:id', requireSuperAdminOnly, deletePlanHandler);
 
 export default subscriptionsRouter;

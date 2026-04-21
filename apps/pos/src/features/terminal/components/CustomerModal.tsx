@@ -1,14 +1,18 @@
 import React from 'react';
 import { FiX, FiUser } from 'react-icons/fi';
 import { useUIStore } from '../../../store/useUIStore';
+import { usePosLocale } from '../../../contexts/PosLocaleContext';
 
 export const CustomerModal: React.FC = () => {
-    const { showCustomerModal, setCustomerModal, setActiveCustomer } = useUIStore();
+    const { t } = usePosLocale();
+    const { showCustomerModal, setCustomerModal, setActiveCustomer, activeCustomer } = useUIStore();
 
     if (!showCustomerModal) return null;
 
+    const prefill = activeCustomer && (activeCustomer.name || activeCustomer.phone);
+
     return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center animate-in fade-in">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[80] flex items-center justify-center animate-in fade-in">
             <div className="bg-[var(--color-pos-bg-secondary)] p-6 rounded-[24px] border border-[var(--color-pos-border-default)] max-w-md w-full relative">
                 <button onClick={() => setCustomerModal(false)} className="absolute top-4 right-4 text-[var(--color-pos-text-secondary)] hover:text-white p-2 bg-[var(--color-pos-bg-tertiary)] rounded-full">
                     <FiX size={20} />
@@ -19,6 +23,18 @@ export const CustomerModal: React.FC = () => {
                 </h3>
 
                 <div className="space-y-4">
+                    {prefill ? (
+                        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-emerald-400">{t('customer.from_web_order')}</p>
+                            {activeCustomer.name ? <p className="mt-2 font-bold text-white">{activeCustomer.name}</p> : null}
+                            {activeCustomer.phone ? <p className="mt-1 text-[var(--color-pos-text-secondary)]">{activeCustomer.phone}</p> : null}
+                            {activeCustomer.address ? (
+                                <p className="mt-2 text-xs leading-relaxed text-[var(--color-pos-text-secondary)]">{activeCustomer.address}</p>
+                            ) : (
+                                <p className="mt-2 text-xs font-bold text-amber-400">{t('customer.prefill_no_address_hint')}</p>
+                            )}
+                        </div>
+                    ) : null}
                     <div>
                         <label className="text-xs font-bold text-[var(--color-pos-text-secondary)] uppercase">Telefon veya İsimle Ara</label>
                         <input type="text" placeholder="0171 234 56 78" className="w-full mt-1 bg-[var(--color-pos-bg-tertiary)] text-[var(--color-pos-text-primary)] px-4 py-3 rounded-xl border border-[var(--color-pos-border-default)] outline-none focus:border-[var(--color-pos-info)]" />

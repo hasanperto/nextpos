@@ -1,12 +1,17 @@
 import React, { useEffect } from 'react';
 import { useSaaSStore } from '../../store/useSaaSStore';
+import { useSaaSLocale } from '../../contexts/SaaSLocaleContext';
 import { FiShoppingCart, FiCheck, FiInfo, FiTag, FiZap, FiPackage, FiDollarSign } from 'react-icons/fi';
+import toast from 'react-hot-toast';
 
 export const ShopTab: React.FC = () => {
+    const { t } = useSaaSLocale();
     const { 
         resellerPlans, fetchResellerPlans, purchaseResellerPlan, 
-        isLoading, error, admin 
+        isLoading, error, admin, settings 
     } = useSaaSStore();
+
+    const currency = settings?.currency || '€';
 
     useEffect(() => {
         fetchResellerPlans();
@@ -16,10 +21,10 @@ export const ShopTab: React.FC = () => {
     const currentPrice = currentPlan ? parseFloat(currentPlan.price) : 0;
 
     const handlePurchase = async (planId: number) => {
-        if (confirm('Bu paketi satın almak istediğinize emin misiniz? Ücret cüzdan bakiyenizden düşülecektir.')) {
+        if (confirm(t('shop.confirmPurchase'))) {
             const ok = await purchaseResellerPlan(planId);
             if (ok) {
-                alert('Satın alma başarılı! Lisanslarınız hesabınıza eklendi.');
+                toast.success(t('shop.alertSuccess'));
             }
         }
     };
@@ -32,19 +37,20 @@ export const ShopTab: React.FC = () => {
                     <FiShoppingCart size={120} />
                 </div>
                 <div className="relative z-10">
-                    <h2 className="text-2xl font-black text-white mb-2">Sanal Mağaza & Lisans Market</h2>
+                    <h2 className="text-2xl font-black text-white mb-2">{t('shop.title')}</h2>
                     <p className="text-slate-400 max-w-2xl text-sm font-medium leading-relaxed">
-                        Restoranlarınıza atayabileceğiniz lisansları uygun fiyatlarla toplu paketler halinde buradan satın alabilirsiniz. 
-                        Satın alınan lisanslar anında <span className="text-blue-400 font-bold">"Mevcut Lisans"</span> bakiyenize eklenir.
+                        {t('shop.intro')}{' '}
+                        <span className="text-blue-400 font-bold">&quot;{t('shop.introHighlight')}&quot;</span>{' '}
+                        {t('shop.introEnd')}
                     </p>
                     <div className="mt-6 flex items-center gap-4">
                         <div className="bg-blue-500/10 border border-blue-500/20 px-4 py-2 rounded-xl flex items-center gap-2">
                             <FiZap className="text-blue-400" />
-                            <span className="text-xs font-bold text-blue-100 italic">Hızlı Aktivasyon</span>
+                            <span className="text-xs font-bold text-blue-100 italic">{t('shop.badgeFast')}</span>
                         </div>
                         <div className="bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl flex items-center gap-2">
                             <FiTag className="text-emerald-400" />
-                            <span className="text-xs font-bold text-emerald-100">Toplu Alım İndirimi</span>
+                            <span className="text-xs font-bold text-emerald-100">{t('shop.badgeBulk')}</span>
                         </div>
                     </div>
                 </div>
@@ -69,7 +75,7 @@ export const ShopTab: React.FC = () => {
                         <div key={plan.id} className={`bg-white/5 border rounded-[32px] overflow-hidden transition-all group flex flex-col h-full ${isCurrent ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-white/5 hover:border-blue-500/30'}`}>
                             {isCurrent && (
                                 <div className="bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest text-center py-1.5 flex items-center justify-center gap-2">
-                                    <FiCheck /> MEVCUT PAKETİNİZ
+                                    <FiCheck /> {t('shop.currentBadge')}
                                 </div>
                             )}
                             
@@ -84,16 +90,18 @@ export const ShopTab: React.FC = () => {
                                 </div>
                                 <h3 className="text-xl font-bold text-white mb-2">{plan.name}</h3>
                                 <div className="flex items-baseline gap-1 mb-6">
-                                    <span className="text-3xl font-black text-white">€{plan.price}</span>
-                                    <span className="text-slate-500 text-xs font-bold">/ paket</span>
+                                    <span className="text-3xl font-black text-white">{currency}{plan.price}</span>
+                                    <span className="text-slate-500 text-xs font-bold">{t('shop.perPack')}</span>
                                 </div>
                             </div>
 
                             <div className="px-8 pb-8 flex-1 space-y-4">
                                 <div className={`p-4 rounded-2xl border ${isCurrent ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-blue-600/5 border-blue-500/10'}`}>
-                                    <span className="text-xs text-slate-400 block mb-1">Lisans Kapasitesi</span>
+                                    <span className="text-xs text-slate-400 block mb-1">{t('shop.licenseCap')}</span>
                                     <span className={`text-lg font-black ${isCurrent ? 'text-emerald-400' : 'text-blue-400'}`}>
-                                        {isUpgrade ? `+${plan.license_count - (currentPlan?.license_count || 0)} Ek Lisans` : `+${plan.license_count} Restoran Lisansı`}
+                                        {isUpgrade
+                                            ? t('shop.extraLicenses').replace('{n}', String(plan.license_count - (currentPlan?.license_count || 0)))
+                                            : t('shop.restLicenses').replace('{n}', String(plan.license_count))}
                                     </span>
                                 </div>
 
@@ -122,12 +130,12 @@ export const ShopTab: React.FC = () => {
                                     {isLoading ? (
                                         <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                     ) : isCurrent ? (
-                                        'AKTİF KULLANIM'
+                                        t('shop.btnActive')
                                     ) : isLower ? (
-                                        'DÜŞÜK PAKET'
+                                        t('shop.btnLower')
                                     ) : (
                                         <>
-                                            {isUpgrade ? `€${upgradeCost.toFixed(2)} İLE YÜKSELT` : 'HEMEN SATIN AL'} 
+                                            {isUpgrade ? t('shop.btnUpgrade').replace('{price}', upgradeCost.toFixed(2)) : t('shop.btnBuy')} 
                                             <FiChevronRight className="group-hover/btn:translate-x-1 transition-transform" />
                                         </>
                                     )}
@@ -145,11 +153,11 @@ export const ShopTab: React.FC = () => {
                         <FiDollarSign size={24} />
                     </div>
                     <div>
-                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Güncel Cüzdan Bakiyesi</span>
-                        <span className="text-2xl font-black text-white">€{admin?.wallet_balance || '0.00'}</span>
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">{t('shop.walletLabel')}</span>
+                        <span className="text-2xl font-black text-white">{currency}{admin?.wallet_balance || '0.00'}</span>
                     </div>
                 </div>
-                <button className="text-xs font-black text-blue-400 hover:text-blue-300 transition-all underline underline-offset-8">BAKİYE YÜKLE (KREDİ KARTI)</button>
+                <button type="button" className="text-xs font-black text-blue-400 hover:text-blue-300 transition-all underline underline-offset-8">{t('shop.topUp')}</button>
             </div>
         </div>
     );

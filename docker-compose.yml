@@ -1,0 +1,35 @@
+# PostgreSQL (Prisma) + Redis
+# Başlat: docker compose up -d
+# DATABASE_URL: postgresql://nextpos:nextpos@localhost:5433/nextpos
+# (5432 başka serviste kullanılıyorsa 5433 kullanın)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - '5433:5432'
+    environment:
+      POSTGRES_USER: nextpos
+      POSTGRES_PASSWORD: nextpos
+      POSTGRES_DB: nextpos
+    volumes:
+      - nextpos_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U nextpos -d nextpos']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    command: redis-server --appendonly yes
+    volumes:
+      - nextpos_redis:/data
+    restart: unless-stopped
+
+volumes:
+  nextpos_pg:
+  nextpos_redis:

@@ -1,10 +1,17 @@
 import { Request, Response } from 'express';
 import { withTenant } from '../lib/db.js';
+import { getCacheJson, setCacheJson } from '../lib/cache.js';
 
 export const getCategoriesHandler = async (req: Request, res: Response) => {
     try {
         const { lang } = req.query;
         const tenantId = req.tenantId!;
+        const cacheKey = `menu:${tenantId}:categories:${String(lang || 'tr')}`;
+        const cached = await getCacheJson<any[]>(cacheKey);
+        if (cached) {
+            res.setHeader('x-cache', 'hit');
+            return res.json(cached);
+        }
 
         const categories = await withTenant(tenantId, async (connection) => {
             const [rows]: any = await connection.query(
@@ -25,6 +32,8 @@ export const getCategoriesHandler = async (req: Request, res: Response) => {
             };
         });
 
+        await setCacheJson(cacheKey, mapped, 60);
+        res.setHeader('x-cache', 'miss');
         res.json(mapped);
     } catch (error) {
         console.error('❌ Kategoriler hatası:', error);
@@ -36,6 +45,12 @@ export const getProductsHandler = async (req: Request, res: Response) => {
     try {
         const { categoryId, lang } = req.query;
         const tenantId = req.tenantId!;
+        const cacheKey = `menu:${tenantId}:products:${String(lang || 'tr')}:${String(categoryId || 'all')}`;
+        const cached = await getCacheJson<any[]>(cacheKey);
+        if (cached) {
+            res.setHeader('x-cache', 'hit');
+            return res.json(cached);
+        }
 
         const products = await withTenant(tenantId, async (connection) => {
             let query = `
@@ -107,6 +122,8 @@ export const getProductsHandler = async (req: Request, res: Response) => {
             };
         });
 
+        await setCacheJson(cacheKey, mapped, 45);
+        res.setHeader('x-cache', 'miss');
         res.json(mapped);
     } catch (error) {
         console.error('❌ Ürünler hatası:', error);
@@ -118,17 +135,23 @@ export const getProductByIdHandler = async (req: Request, res: Response) => {
     try {
         const tenantId = req.tenantId!;
         const productId = Number(req.params.id);
+        const cacheKey = `menu:${tenantId}:product:${productId}`;
+        const cached = await getCacheJson<any>(cacheKey);
+        if (cached) {
+            res.setHeader('x-cache', 'hit');
+            return res.json(cached);
+        }
 
         const product = await withTenant(tenantId, async (connection) => {
             const [rows]: any = await connection.query(
                 `SELECT p.*, c.name as category_name,
-                        (SELECT JSON_ARRAYAGG(JSON_OBJECT(
+                        (SELECT COALESCE(json_agg(json_build_object(
                                 'id', v.id, 'name', v.name, 'price', v.price
-                           ))
+                           )), '[]'::json)
                             FROM product_variants v WHERE v.product_id = p.id) as variants,
-                        (SELECT JSON_ARRAYAGG(JSON_OBJECT(
-                                'id', m.id, 'name', m.name, 'price', m.price
-                           ))
+                        (SELECT COALESCE(json_agg(json_build_object(
+                                'id', m.id, 'name', m.name, 'price', m.price, 'category', m.category
+                           )), '[]'::json)
                             FROM product_modifiers pm
                             JOIN modifiers m ON pm.modifier_id = m.id
                             WHERE pm.product_id = p.id AND m.is_active = true) as modifiers
@@ -144,6 +167,8 @@ export const getProductByIdHandler = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Ürün bulunamadı' });
         }
 
+        await setCacheJson(cacheKey, product, 45);
+        res.setHeader('x-cache', 'miss');
         res.json(product);
     } catch (error) {
         console.error('❌ Ürün detay hatası:', error);
@@ -155,6 +180,12 @@ export const getModifiersHandler = async (req: Request, res: Response) => {
     try {
         const tenantId = req.tenantId!;
         const lang = req.query.lang as string || 'tr';
+        const cacheKey = `menu:${tenantId}:modifiers:${lang}`;
+        const cached = await getCacheJson<any[]>(cacheKey);
+        if (cached) {
+            res.setHeader('x-cache', 'hit');
+            return res.json(cached);
+        }
 
         const modifiers = await withTenant(tenantId, async (connection) => {
             const [rows]: any = await connection.query(
@@ -173,6 +204,8 @@ export const getModifiersHandler = async (req: Request, res: Response) => {
             return { ...m, displayName };
         });
 
+        await setCacheJson(cacheKey, localizedModifiers, 60);
+        res.setHeader('x-cache', 'miss');
         res.json(localizedModifiers);
     } catch (error) {
         console.error('❌ Modifiers hatası:', error);

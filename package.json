@@ -3,14 +3,28 @@
   "private": true,
   "scripts": {
     "dev": "turbo dev",
+    "dev:stack": "turbo run dev --filter=@nextpos/api --filter=pos",
+    "restart:dev": "node scripts/restart-dev.mjs",
+    "restart:all": "node scripts/restart-all.mjs",
+    "setup:local": "node scripts/setup-local.mjs",
+    "printer-agent": "node apps/printer-agent/server.mjs",
     "build": "turbo build",
     "lint": "turbo lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,css}\"",
     "dev:api": "turbo dev --filter=@nextpos/api",
-    "dev:pos": "turbo dev --filter=@nextpos/pos",
-    "dev:qrmenu": "turbo dev --filter=@nextpos/qrmenu",
+    "dev:pos": "turbo dev --filter=pos",
+    "dev:admin": "turbo dev --filter=admin",
+    "dev:reseller": "turbo dev --filter=reseller",
     "db:migrate": "cd apps/api && npx prisma migrate dev",
-    "db:seed": "cd apps/api && npx prisma db seed",
-    "db:studio": "cd apps/api && npx prisma studio"
+    "db:seed": "cd apps/api && npm run db:seed",
+    "db:setup": "npm run db:setup -w @nextpos/api",
+    "db:studio": "cd apps/api && npx prisma studio",
+    "billing:seed": "npm run billing:seed -w @nextpos/api",
+    "test:e2e": "npm run test:e2e:api && npm run test:e2e:pos",
+    "test:e2e:api": "cross-env PLAYWRIGHT_NO_WEBSERVER=1 playwright test --project=api",
+    "test:e2e:pos": "node scripts/e2e-reset-devices.mjs && playwright test --project=pos-ui",
+    "test:e2e:api:green": "node scripts/run-e2e-api-green.mjs"
   },
   "workspaces": [
     "apps/*",
@@ -19,5 +33,12 @@
   "packageManager": "npm@11.5.1",
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "cross-env": "^7.0.3",
+    "kill-port": "^2.0.1",
+    "prettier": "^3.5.3",
+    "turbo": "^2.8.20"
   }
 }

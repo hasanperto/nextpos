@@ -115,17 +115,21 @@ CREATE TABLE `subscription_plans` (
     `max_users` INT DEFAULT 10,
     `max_branches` INT DEFAULT 1,
     `max_products` INT DEFAULT 500,
+    `max_devices` INT DEFAULT 1,
+    `support_hours` VARCHAR(30) DEFAULT '09:00-17:00',
     `trial_days` INT DEFAULT 14,
     `is_active` BOOLEAN DEFAULT true,
     `sort_order` INT DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Varsayılan planları ekle
-INSERT IGNORE INTO `subscription_plans` (`name`, `code`, `monthly_fee`, `setup_fee`, `max_users`, `max_branches`, `max_products`, `features`, `sort_order`) VALUES
-('Basic', 'basic', 29.00, 299.00, 3, 1, 100, '{"pos": true, "kitchen_display": true, "reports": false, "delivery": false, "crm": false}', 1),
-('Pro', 'pro', 59.00, 499.00, 10, 3, 500, '{"pos": true, "kitchen_display": true, "reports": true, "delivery": true, "crm": false}', 2),
-('Enterprise', 'enterprise', 99.00, 799.00, 50, 10, 9999, '{"pos": true, "kitchen_display": true, "reports": true, "delivery": true, "crm": true}', 3);
+INSERT IGNORE INTO `subscription_plans` (`name`, `code`, `monthly_fee`, `setup_fee`, `max_users`, `max_branches`, `max_products`, `max_devices`, `support_hours`, `features`, `trial_days`, `sort_order`) VALUES
+('Başlangıç', 'basic', 29.00, 299.00, 3, 1, 200, 1, '08:00-17:00',
+ '["POS Terminal","Temel Raporlama","Menü Yönetimi","1 Şube","1 Cihaz","08-17 Destek"]', 14, 1),
+('Pro', 'pro', 59.00, 499.00, 10, 3, 1000, 3, '08:00-22:00',
+ '["Mutfak KDS","Garson Tablet","QR Menü","CRM","Stok","Rezervasyon","Çoklu Dil","3 Şube","3 Cihaz","08-22 Destek"]', 14, 2),
+('Kurumsal', 'enterprise', 99.00, 999.00, 50, 10, 9999, 10, '7/24',
+ '["Tüm Pro Özellikler","Kurye & Teslimat","WhatsApp","Online Sipariş","Web Sitesi","Gelişmiş Rapor","TSE/Fiskalizasyon","API Erişimi","7/24 Öncelikli Destek","10 Şube","10 Cihaz"]', 14, 3);
 
 -- ─────────────────────────────────────
 -- 7. ABONELİK: Plan Değişiklik Geçmişi

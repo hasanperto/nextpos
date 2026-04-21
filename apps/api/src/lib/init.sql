@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS public.tenants (
     contact_email VARCHAR(255),
     contact_phone VARCHAR(30),
     address TEXT,
+    tax_office VARCHAR(100),
+    tax_number VARCHAR(30),
+    authorized_person VARCHAR(150),
+    company_title VARCHAR(255),
     settings JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -69,12 +73,12 @@ CREATE TABLE IF NOT EXISTS public.ui_translations (
 
 CREATE INDEX IF NOT EXISTS idx_ui_translations_ns_lang ON public.ui_translations (namespace, lang);
 
--- Sync Queue (Offline senkronizasyon kuyruğu)
+-- Sync Queue (Offline senkronizasyon kuyruğu; tenant_id+entity_id benzersiz)
 CREATE TABLE IF NOT EXISTS public.sync_queue (
     id SERIAL PRIMARY KEY,
     tenant_id UUID NOT NULL,
     entity_type VARCHAR(50) NOT NULL,
-    entity_id VARCHAR(50),
+    entity_id VARCHAR(64) NOT NULL,
     action VARCHAR(20) NOT NULL,
     payload JSONB NOT NULL,
     status VARCHAR(20) DEFAULT 'pending',
@@ -84,6 +88,7 @@ CREATE TABLE IF NOT EXISTS public.sync_queue (
     synced_at TIMESTAMPTZ
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS sync_queue_tenant_id_entity_id_key ON public.sync_queue (tenant_id, entity_id);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON public.sync_queue (status);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_tenant ON public.sync_queue (tenant_id);
 
@@ -162,7 +167,7 @@ BEGIN
     EXECUTE format('
         DO $do$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE t.typname = ''order_source'' AND n.nspname = %L) THEN
-                CREATE TYPE %I.order_source AS ENUM (''cashier'', ''waiter'', ''customer_qr'', ''web'', ''phone'');
+                CREATE TYPE %I.order_source AS ENUM (''cashier'', ''waiter'', ''customer_qr'', ''web'', ''phone'', ''qr_portal'', ''whatsapp'');
             END IF;
         END $do$;
     ', s, s);
@@ -171,7 +176,7 @@ BEGIN
     EXECUTE format('
         DO $do$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE t.typname = ''order_status'' AND n.nspname = %L) THEN
-                CREATE TYPE %I.order_status AS ENUM (''pending'', ''confirmed'', ''preparing'', ''ready'', ''served'', ''completed'', ''cancelled'');
+                CREATE TYPE %I.order_status AS ENUM (''pending'', ''confirmed'', ''preparing'', ''ready'', ''served'', ''shipped'', ''completed'', ''cancelled'');
             END IF;
         END $do$;
     ', s, s);
@@ -295,10 +300,13 @@ BEGIN
             status VARCHAR(20) DEFAULT ''active'',
             last_login TIMESTAMPTZ,
             branch_id INT REFERENCES %I.branches(id),
+            waiter_all_sections BOOLEAN DEFAULT true,
+            waiter_section_id INT,
+            kitchen_station VARCHAR(20) DEFAULT ''all'',
             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         )
-    ', s, s, s);
+    ', s, s, s, s);
 
     -- categories (Kategoriler)
     EXECUTE format('
@@ -310,6 +318,7 @@ BEGIN
             image_url VARCHAR(255),
             sort_order INT DEFAULT 0,
             is_active BOOLEAN DEFAULT true,
+            kitchen_station VARCHAR(20) DEFAULT ''hot'',
             branch_id INT REFERENCES %I.branches(id),
             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         )
@@ -324,6 +333,8 @@ BEGIN
             translations JSONB DEFAULT ''{}'',
             description TEXT,
             base_price DECIMAL(10, 2) NOT NULL,
+            price_takeaway DECIMAL(10, 2) NOT NULL DEFAULT 0,
+            price_delivery DECIMAL(10, 2) NOT NULL DEFAULT 0,
             image_url VARCHAR(255),
             is_active BOOLEAN DEFAULT true,
             prep_time_min INT DEFAULT 15,
@@ -389,6 +400,7 @@ BEGIN
             id SERIAL PRIMARY KEY,
             section_id INT NOT NULL REFERENCES %I.sections(id),
             name VARCHAR(50) NOT NULL,
+            translations JSONB DEFAULT ''{}'',
             capacity INT DEFAULT 4,
             shape VARCHAR(20) DEFAULT ''square'',
             position_x INT,
@@ -446,6 +458,7 @@ BEGIN
             id SERIAL PRIMARY KEY,
             table_id INT NOT NULL REFERENCES %I.tables(id),
             customer_id INT REFERENCES %I.customers(id),
+            client_session_id VARCHAR(100),
             guest_name VARCHAR(100),
             guest_count INT DEFAULT 1,
             waiter_id INT REFERENCES %I.users(id),
@@ -463,6 +476,7 @@ BEGIN
             session_id INT REFERENCES %I.table_sessions(id),
             table_id INT REFERENCES %I.tables(id),
             customer_id INT REFERENCES %I.customers(id),
+            customer_name VARCHAR(100),
             waiter_id INT REFERENCES %I.users(id),
             cashier_id INT REFERENCES %I.users(id),
             order_type %I.order_type DEFAULT ''dine_in'',
@@ -485,15 +499,19 @@ BEGIN
             offline_id VARCHAR(50),
             synced BOOLEAN DEFAULT true,
             branch_id INT REFERENCES %I.branches(id),
+            deleted_at TIMESTAMPTZ,
+            deleted_by INT REFERENCES %I.users(id),
+            delete_reason TEXT,
             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         )
-    ', s, s, s, s, s, s, s, s, s, s, s, s);
+    ', s, s, s, s, s, s, s, s, s, s, s, s, s);
 
     EXECUTE format('CREATE INDEX IF NOT EXISTS idx_orders_status ON %I.orders (status)', s);
     EXECUTE format('CREATE INDEX IF NOT EXISTS idx_orders_created ON %I.orders (created_at)', s);
     EXECUTE format('CREATE INDEX IF NOT EXISTS idx_orders_table ON %I.orders (table_id)', s);
     EXECUTE format('CREATE INDEX IF NOT EXISTS idx_orders_branch ON %I.orders (branch_id)', s);
+    EXECUTE format('CREATE INDEX IF NOT EXISTS idx_orders_deleted_at ON %I.orders (deleted_at)', s);
 
     -- order_items (Sipariş Kalemleri)
     EXECUTE format('
@@ -522,6 +540,7 @@ BEGIN
             order_id INT NOT NULL REFERENCES %I.orders(id),
             table_name VARCHAR(50),
             waiter_name VARCHAR(100),
+            station VARCHAR(20) NOT NULL DEFAULT ''hot'',
             status %I.kitchen_status DEFAULT ''waiting'',
             is_urgent BOOLEAN DEFAULT false,
             ticket_number INT,
@@ -534,7 +553,11 @@ BEGIN
         )
     ', s, s, s);
 
+    -- Eski şemalarda station yoksa indeks öncesi ekle
+    EXECUTE format('ALTER TABLE %I.kitchen_tickets ADD COLUMN IF NOT EXISTS station VARCHAR(20) NOT NULL DEFAULT ''hot''', s);
+
     EXECUTE format('CREATE INDEX IF NOT EXISTS idx_kitchen_tickets_status ON %I.kitchen_tickets (status)', s);
+    EXECUTE format('CREATE INDEX IF NOT EXISTS idx_kitchen_tickets_station_status ON %I.kitchen_tickets (station, status)', s);
 
     -- payments (Ödemeler)
     EXECUTE format('
@@ -611,7 +634,7 @@ BEGIN
             delivered_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         )
-    ', s, s, s);
+    ', s, s, s, s);
 
     EXECUTE format('CREATE INDEX IF NOT EXISTS idx_deliveries_status ON %I.deliveries (status)', s);
 
@@ -645,11 +668,13 @@ BEGIN
             avg_order_value DECIMAL(10, 2) DEFAULT 0,
             cancelled_count INT DEFAULT 0,
             discount_total DECIMAL(12, 2) DEFAULT 0,
+            subtotal DECIMAL(12, 2) DEFAULT 0,
             tax_total DECIMAL(12, 2) DEFAULT 0,
             top_products JSONB,
             hourly_data JSONB,
             cashier_id INT,
             z_report_no VARCHAR(20),
+            tss_signature TEXT,
             opened_at TIMESTAMPTZ,
             closed_at TIMESTAMPTZ,
             opening_cash DECIMAL(10, 2),
@@ -666,6 +691,22 @@ BEGIN
             points INT NOT NULL,
             type %I.point_type NOT NULL,
             reference_id INT,
+            notes TEXT,
+            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        )
+    ', s, s, s);
+
+    -- staff_shifts (Personel Çalışma Saatleri & Performans)
+    EXECUTE format('
+        CREATE TABLE IF NOT EXISTS %I.staff_shifts (
+            id SERIAL PRIMARY KEY,
+            user_id INT NOT NULL REFERENCES %I.users(id) ON DELETE CASCADE,
+            branch_id INT REFERENCES %I.branches(id),
+            clock_in TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            clock_out TIMESTAMPTZ,
+            duration_mins INT,
+            total_sales DECIMAL(12, 2) DEFAULT 0,
+            total_orders INT DEFAULT 0,
             notes TEXT,
             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         )

@@ -1,0 +1,57 @@
+# NextPOS - Production Infrastructure (Faz 14)
+# Run: docker compose -f docker-compose.production.yml up -d
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://nextpos:nextpos@db:5432/nextpos
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=change_me_to_something_secure_in_prod
+      - DEPLOY_STATION=vps
+      - NODE_ENV=production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "3001:3001"
+
+  pos:
+    build:
+      context: .
+      dockerfile: Dockerfile.pos
+    restart: always
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: nextpos
+      POSTGRES_PASSWORD: nextpos
+      POSTGRES_DB: nextpos
+    volumes:
+      - nextpos_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nextpos -d nextpos"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    volumes:
+      - nextpos_redis_data:/data
+
+volumes:
+  nextpos_pg_data:
+  nextpos_redis_data:

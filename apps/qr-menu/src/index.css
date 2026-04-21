@@ -1,0 +1,221 @@
+@import "tailwindcss";
+
+/* nextpos_qrmenu_v2.html ile aynı palet */
+@theme {
+  --color-primary-50: #fff3ed;
+  --color-primary-100: #ffe4d4;
+  --color-primary-200: #ffc5a8;
+  --color-primary-300: #ff9f70;
+  --color-primary-400: #ff6b35;
+  --color-primary-500: #f04e1a;
+  --color-primary-600: #d43a10;
+  --color-primary-700: #a62c0e;
+  --color-primary-800: #852613;
+  --color-primary-900: #6e2213;
+
+  --color-teal-50: #effcf9;
+  --color-teal-100: #d0f7ee;
+  --color-teal-200: #a5eddd;
+  --color-teal-300: #6cdec8;
+  --color-teal-400: #4ecdc4;
+  --color-teal-500: #24b4ab;
+  --color-teal-600: #18918c;
+  --color-teal-700: #157571;
+  --color-teal-800: #145d5c;
+  --color-teal-900: #124d4c;
+
+  --color-dark-50: #f4f6f7;
+  --color-dark-100: #e2e7ea;
+  --color-dark-200: #c8d2d7;
+  --color-dark-300: #a1b1ba;
+  --color-dark-400: #738a96;
+  --color-dark-500: #576f7b;
+  --color-dark-600: #495d69;
+  --color-dark-700: #3e4f58;
+  --color-dark-800: #35434c;
+  --color-dark-900: #2c3e50;
+
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+:root {
+  --primary: #ff6b35;
+  --primary-dark: #f04e1a;
+  --secondary: #4ecdc4;
+  --secondary-dark: #24b4ab;
+  --dark: #2c3e50;
+  --light: #f8f9fa;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--light);
+  color: var(--dark);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: contain;
+}
+
+.pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Yükleme iskeleti (v2 shimmer) */
+@keyframes qr-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.qr-skeleton {
+  background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+  background-size: 200% 100%;
+  animation: qr-shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+/* Sepet CTA gölgesi (v2) */
+.qr-cart-glow {
+  box-shadow: 0 8px 30px rgba(255, 107, 53, 0.35);
+}
+
+/* nextpos_qrmenu_v2(1).html — kiosk / web idle */
+@keyframes qr-np-ring-pulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+@keyframes qr-np-glow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+  }
+}
+@keyframes qr-np-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes qr-np-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+.qr-idle-root {
+  font-family: "Inter", system-ui, sans-serif;
+  background: #0a1628;
+  color: #f0f6ff;
+}
+.qr-idle-ring-wrap {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.qr-idle-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  border: 1px solid rgba(16, 185, 129, 0.08);
+  transform: translate(-50%, -50%);
+  animation: qr-np-ring-pulse 3s ease-out infinite;
+}
+.qr-idle-ring:nth-child(1) {
+  width: min(300px, 88vw);
+  height: min(300px, 88vw);
+}
+.qr-idle-ring:nth-child(2) {
+  width: min(500px, 120vw);
+  height: min(500px, 120vw);
+  animation-delay: 0.8s;
+}
+.qr-idle-ring:nth-child(3) {
+  width: min(700px, 150vw);
+  height: min(700px, 150vw);
+  animation-delay: 1.6s;
+}
+.qr-idle-float {
+  animation: qr-np-float 4s ease-in-out infinite;
+  margin-bottom: 24px;
+}
+.qr-idle-logo {
+  position: relative;
+  display: flex;
+  width: 110px;
+  height: 110px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2.5px solid #10b981;
+  background: #112035;
+  font-size: 48px;
+  animation: qr-np-glow-pulse 2.5s ease-in-out infinite;
+}
+.qr-idle-logo-ring {
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  animation: qr-np-orbit 6s linear infinite;
+}
+.qr-web-svc-root {
+  font-family: "Inter", system-ui, sans-serif;
+  background: #0a1628;
+  color: #f0f6ff;
+}
+
+/* Menü gövdesi — üst header ile aynı aile, hafif derinlik */
+.qr-web-svc-root > main {
+  background: linear-gradient(180deg, #0a1628 0%, #0c1b30 100%);
+}

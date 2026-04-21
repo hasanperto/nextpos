@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  lint-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+        env:
+          # Build sırasında Prisma / env okuyan paketler için güvenli sahte değerler
+          DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/public
+          JWT_SECRET: ci-test-secret-min-32-characters-long!!
+          JWT_REFRESH_SECRET: ci-refresh-secret-min-32-chars-long!!
+
+  e2e-api-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nextpos
+          POSTGRES_PASSWORD: nextpos
+          POSTGRES_DB: nextpos
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U nextpos -d nextpos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    env:
+      DATABASE_URL: postgresql://nextpos:nextpos@127.0.0.1:5433/nextpos
+      REDIS_URL: redis://127.0.0.1:6379
+      PORT: 3001
+      API_BASE_URL: http://127.0.0.1:3001
+      PLAYWRIGHT_NO_WEBSERVER: '1'
+      JWT_SECRET: ci-test-secret-min-32-characters-long!!
+      JWT_REFRESH_SECRET: ci-refresh-secret-min-32-chars-long!!
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma DB push
+        run: npm run db:push -w @nextpos/api
+
+      - name: Seed DB
+        run: npm run db:setup
+
+      - name: Start API
+        run: npm run dev:api > /tmp/api.log 2>&1 &
+
+      - name: Wait API Health
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:3001/api/v1/health > /dev/null; then
+              echo "API ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API health timeout"
+          cat /tmp/api.log || true
+          exit 1
+
+      - name: Run API smoke tests
+        run: npm run test:e2e:api
+
+      - name: Print API log on failure
+        if: failure()
+        run: cat /tmp/api.log || true
+
+  android-callerid-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/mobile-android
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Ensure gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew --no-daemon clean :app:assembleDebug

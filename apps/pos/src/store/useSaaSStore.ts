@@ -5,7 +5,7 @@ import { persist } from 'zustand/middleware';
 // INTERFACES
 // ═══════════════════════════════════════════════════════════════
 
-interface Tenant {
+export interface Tenant {
     id: string;
     name: string;
     schema_name: string;
@@ -22,21 +22,118 @@ interface Tenant {
     master_password?: string;
     max_users: number;
     max_branches: number;
+    device_reset_quota_monthly?: number;
+    device_reset_quota_override?: number | null;
+    device_reset_used?: number;
+    device_reset_remaining?: number;
+    device_reset_month?: string;
     created_at: string;
 }
+
+export interface BillingModuleRow {
+    code: string;
+    name: string;
+    description?: string | null;
+    category: string;
+    setup_price: number;
+    monthly_price: number;
+    sort_order?: number;
+}
+
+/** Süper admin: faturalama modül kataloğu (pasif dahil, tam satır) */
+export interface BillingModuleAdminRow {
+    id: number;
+    code: string;
+    name: string;
+    description: string | null;
+    category: string;
+    setup_price: number;
+    monthly_price: number;
+    icon: string | null;
+    sort_order: number;
+    is_active: number;
+    created_at?: string;
+}
+
+export type BillingModuleCreateInput = {
+    code: string;
+    name: string;
+    description?: string | null;
+    category: 'core' | 'feature' | 'channel' | 'device' | 'service' | 'integration';
+    setup_price: number;
+    monthly_price: number;
+    icon?: string | null;
+    sort_order?: number;
+};
+
+export type BillingModulePatchInput = Partial<{
+    name: string;
+    description: string | null;
+    category: 'core' | 'feature' | 'channel' | 'device' | 'service' | 'integration';
+    setup_price: number;
+    monthly_price: number;
+    icon: string | null;
+    sort_order: number;
+    is_active: boolean;
+}>;
+
+export interface PlanModuleRow {
+    code: string;
+    name: string;
+    description?: string | null;
+    category: string;
+    setup_price: number;
+    monthly_price: number;
+    mode: 'included' | 'addon' | 'locked';
+}
+
+export type ResellerWalletTopupRow = {
+    id: number;
+    reseller_id: number;
+    amount: string | number;
+    currency?: string;
+    note?: string | null;
+    payment_method?: string | null;
+    transfer_reference?: string | null;
+    transfer_date?: string | null;
+    transfer_time?: string | null;
+    stripe_checkout_session_id?: string | null;
+    status: string;
+    created_at?: string;
+    username?: string | null;
+    company_name?: string | null;
+};
 
 export interface Reseller {
     id: number;
     username: string;
     email: string;
-    active: boolean;
+    active: boolean | number;
     role: string;
     company_name: string;
+    tax_number?: string | null;
+    tax_office?: string | null;
+    billing_address?: string | null;
+    city?: string | null;
+    district?: string | null;
+    postal_code?: string | null;
+    country?: string | null;
+    phone?: string | null;
+    mobile_phone?: string | null;
+    contact_person?: string | null;
+    admin_notes?: string | null;
     commission_rate: number;
     available_licenses: number;
     wallet_balance: number;
+    reseller_plan_id?: number | null;
+    reseller_plan_name?: string | null;
+    reseller_plan_price?: number | null;
+    reseller_plan_licenses?: number | null;
+    purchase_payment_method?: string | null;
     created_at: string;
     total_tenants?: number;
+    tenant_count?: number;
+    monthly_volume?: number;
 }
 
 interface SaaSStats {
@@ -75,6 +172,7 @@ interface SystemBackup {
 }
 
 interface SystemSettings {
+    id?: number;
     currency: string;
     base_subscription_fee: number;
     monthly_license_fee: number;
@@ -85,6 +183,31 @@ interface SystemSettings {
     system_monthly_rate?: number;
     reseller_addon_rate?: number;
     annual_discount_rate?: number;
+    audit_retention_days?: number;
+    // Compliance & Global (Faz 10/11)
+    tse_enabled?: boolean;
+    fiscal_provider?: 'fiskaly' | 'sign_de' | 'none';
+    digital_receipt_enabled?: boolean;
+    archive_retention_years?: number;
+    // Virtual POS (Phase 13)
+    iyzico_api_key?: string;
+    iyzico_secret_key?: string;
+    paytr_merchant_id?: string;
+    paytr_merchant_key?: string;
+    paytr_merchant_salt?: string;
+    stripe_public_key?: string;
+    stripe_secret_key?: string;
+    active_gateway?: 'iyzico' | 'paytr' | 'stripe' | 'none';
+    /** 1: sandbox/test (iyzico URI, PayTR test, Stripe sk_test_) */
+    virtual_pos_test_mode?: number;
+    /** SaaS: bayi havale ekranında gösterilecek banka hesapları */
+    reseller_bank_accounts?: Array<{
+        bank_name: string;
+        account_holder: string;
+        iban: string;
+        currency?: string;
+        note?: string;
+    }>;
 }
 
 interface PaymentRecord {
@@ -104,15 +227,29 @@ interface PaymentRecord {
 }
 
 interface FinancialSummary {
-    totalRevenue?: number; // System total
-    totalEarnings?: number; // Reseller earnings
+    totalRevenue?: number; // Süper admin: toplanan abonelik/lisans geliri
+    totalEarnings?: number; // Bayi komisyon geliri
     pendingRevenue: number;
     monthlyEarnings?: { month: string; total: number }[];
+    /** Süper admin: aylık gelir serisi */
     monthlyRevenue?: { month: string; total: number; count: number }[];
+    nextMonthEstimatedRevenue?: number;
     pendingPayments?: { total: number; count: number };
     overduePayments?: { total: number; count: number };
     planDistribution: { plan: string; count: number }[];
     revenueByType?: { type: string; total: number }[];
+    /** Süper admin: restoran / bayi / ek modül / komisyon */
+    breakdown?: {
+        restaurantTenantPaid: number;
+        resellerChannelPaid: number;
+        addonModulesPaid: number;
+        commissionPaidToResellers: number;
+        /** Onaylanan bayi cüzdan yüklemeleri (payment_history) */
+        resellerWalletTopupsPaid?: number;
+    };
+    pendingBreakdown?: { tenant: number; resellerChannel: number; other: number };
+    paidByPaymentType?: { payment_type: string; total: number; count: number }[];
+    lastUpdate?: string;
 }
 
 interface AuditLog {
@@ -124,6 +261,8 @@ interface AuditLog {
     old_value: any;
     new_value: any;
     ip_address: string;
+    user_agent?: string;
+    risk_level?: 'low' | 'medium' | 'high';
     created_at: string;
 }
 
@@ -154,7 +293,13 @@ interface GrowthReport {
     churnedCount: number;
     totalTenants: number;
     topTenants: any[];
-    planDistribution: { plan: string; count: number }[];
+    planDistribution: { plan: string; count: number; revenue?: number }[];
+    revenueForecast?: number;
+    churnRiskCount?: number;
+    aiInsights?: {
+        forecastMessage: string;
+        riskLevel: 'healthy' | 'warning' | 'critical';
+    };
 }
 
 interface SubscriptionPlan {
@@ -167,6 +312,9 @@ interface SubscriptionPlan {
     max_users: number;
     max_branches: number;
     max_products: number;
+    max_devices?: number;
+    max_printers?: number;
+    device_reset_quota_monthly?: number;
     trial_days: number;
     is_active: boolean;
 }
@@ -268,6 +416,16 @@ interface SaaSState {
     // New state
     payments: PaymentRecord[];
     financialSummary: FinancialSummary | null;
+    financeInbox: { pending: PaymentRecord[]; paidRecent: PaymentRecord[] } | null;
+    accountingUpcoming: PaymentRecord[];
+    accountingInstallments: PaymentRecord[];
+    accountingNotifications: any[];
+    accountingAllPayments: { rows: PaymentRecord[]; summary: any } | null;
+    invoices: any[];
+    posInvoices: any[];
+    posInvoiceEvents: any[];
+    selectedTenantId: string | null;
+    selectedPosInvoiceNo: string | null;
     auditLogs: AuditLog[];
     securitySummary: SecuritySummary | null;
     apiKeys: ApiKey[];
@@ -285,8 +443,27 @@ interface SaaSState {
     selectedTicket: SupportTicket | null;
     resellers: Reseller[];
     resellerPlans: any[];
+    resellerWalletTopups: ResellerWalletTopupRow[];
+    /** Süper admin: bekleyen bayi cüzdan talebi sayısı */
+    resellerTopupPendingCount: number | null;
+    /** Paket × modül matrisi (son yüklenen) */
+    planModuleMatrix: { planCode: string; modules: PlanModuleRow[] } | null;
+    billingModuleCatalog: BillingModuleRow[];
+    billingModulesAdmin: BillingModuleAdminRow[];
+    /** GET /modules/admin hata metni (token gecikmesi / 403 / ağ) */
+    billingModulesAdminError: string | null;
+    /** Gerçek zamanlı bayi/sistem akışı */
+    liveFeed: any[];
+    /** { [tenantId]: count } */
+    presence: Record<string, number>;
+    addLiveFeedItem: (item: any) => void;
+    clearLiveFeed: () => void;
+    /** Gerçek zamanlı istatistik yaması (sayfa yenilemeden MRR artışı vb.) */
+    updateStatsOnSale: (amount: number) => void;
 
     // Auth
+    /** Tüm kiracıların anlık online statusunu toplar */
+    fetchPresence: () => Promise<void>;
     login: (username: string, password: string) => Promise<boolean>;
     logout: () => void;
 
@@ -312,12 +489,31 @@ interface SaaSState {
     updateResellerPlan: (id: number, data: any) => Promise<boolean>;
     deleteResellerPlan: (id: number) => Promise<boolean>;
     purchaseResellerPlan: (planId: number) => Promise<boolean>;
+    fetchResellerWalletTopupsAdmin: () => Promise<void>;
+    fetchResellerTopupPendingCount: () => Promise<void>;
+    reviewResellerWalletTopup: (id: number, action: 'approve' | 'reject') => Promise<{ ok: boolean; error?: string }>;
 
     // Finance
     fetchPayments: (filters?: any) => Promise<void>;
     fetchFinancialSummary: () => Promise<void>;
+    fetchFinanceInbox: () => Promise<void>;
     addPayment: (data: any) => Promise<boolean>;
     updatePaymentStatus: (id: number, status: string) => Promise<boolean>;
+    recordSubscriptionPayment: (tenantId: string, amount?: number, billingCycle?: 'monthly' | 'yearly') => Promise<boolean>;
+    sendPaymentDueMail: (paymentId: number) => Promise<boolean>;
+    fetchAccountingUpcoming: () => Promise<void>;
+    fetchAccountingInstallments: (status?: string) => Promise<void>;
+    fetchAccountingNotifications: (limit?: number) => Promise<void>;
+    fetchAccountingAllPayments: (filters?: any) => Promise<void>;
+    fetchInvoices: (filters?: { status?: string; tenant?: string; from?: string; to?: string }) => Promise<void>;
+    fetchInvoiceDetail: (invoiceNumber: string) => Promise<any | null>;
+    fetchPosInvoices: (tenantId: string, filters?: { from?: string; to?: string; branchId?: number; cashierId?: number; status?: string; paymentStatus?: string; paymentMethod?: string; q?: string; limit?: number }) => Promise<any[]>;
+    fetchPosInvoiceDetail: (tenantId: string, posInvoiceNo: string) => Promise<any | null>;
+    fetchPosInvoicePdf: (tenantId: string, posInvoiceNo: string) => Promise<Blob>;
+    sendPosInvoiceEmail: (tenantId: string, posInvoiceNo: string, to?: string) => Promise<{ ok: boolean; error?: string }>;
+    fetchPosInvoiceEvents: (tenantId: string, filters?: { posInvoiceNo?: string; from?: string; to?: string; eventType?: string; limit?: number }) => Promise<any[]>;
+    setSelectedTenantId: (tenantId: string | null) => void;
+    setSelectedPosInvoiceNo: (posInvoiceNo: string | null) => void;
 
     // Security
     fetchAuditLogs: (filters?: any) => Promise<void>;
@@ -362,6 +558,57 @@ interface SaaSState {
     // Backup
     createTenantBackup: (tenant_id: string) => Promise<boolean>;
     fetchBackupStats: () => Promise<void>;
+
+    // Billing / modüller
+    fetchPlanModuleMatrix: (planCode: string) => Promise<void>;
+    savePlanModuleRules: (planCode: string, rules: Record<string, 'included' | 'addon' | 'locked'>) => Promise<boolean>;
+    fetchBillingCatalog: () => Promise<void>;
+    fetchBillingModulesAdmin: () => Promise<void>;
+    createBillingModule: (input: BillingModuleCreateInput) => Promise<boolean>;
+    updateBillingModule: (code: string, patch: BillingModulePatchInput) => Promise<boolean>;
+    deleteBillingModule: (code: string, hard?: boolean) => Promise<boolean>;
+    fetchTenantEntitlements: (
+        tenantId: string
+    ) => Promise<{
+        tenantId: string;
+        entitlements: any[];
+        billingSnapshot?: {
+            planCode: string;
+            billingCycle: 'monthly' | 'yearly';
+            monthlyRecurringTotal: number;
+            planBaseMonthly: number;
+            monthlyFromAddons: number;
+            nextPaymentDue: string | null;
+        } | null;
+    } | null>;
+    purchaseTenantAddons: (
+        tenantId: string,
+        module_codes: string[],
+        extra_device_qty?: number,
+        payment_method?: 'wallet_balance' | 'bank_transfer' | 'admin_card' | 'cash'
+    ) => Promise<{ ok: boolean; error?: string; added?: string[]; skipped?: string[]; totals?: { setup: number; monthly: number } }>;
+    
+    // Virtual POS (Phase 13)
+    generatePaymentLink: (data: {
+        tenantId: string;
+        amount: number;
+        currency: string;
+        description: string;
+        paymentType?: 'subscription' | 'addon' | 'license';
+    }) => Promise<{ 
+        ok: boolean; 
+        paymentUrl?: string; 
+        gateway?: string; 
+        error?: string;
+        token?: string;
+    }>;
+
+    // QR Web Menu Domain
+    fetchQrDomains: (tenantId: string) => Promise<any[]>;
+    addQrDomain: (tenantId: string, domain: string) => Promise<boolean>;
+    updateQrDomain: (tenantId: string, domainId: number, isActive: boolean) => Promise<boolean>;
+    deleteQrDomain: (tenantId: string, domainId: number) => Promise<boolean>;
+    checkQrDomainAvailability: (domain: string) => Promise<{ available: boolean; domain: string } | null>;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -380,6 +627,30 @@ const api = async (path: string, token: string | null, options?: RequestInit) =>
     return res;
 };
 
+const billingApi = async (path: string, token: string | null, options?: RequestInit) => {
+    const res = await fetch(`/api/v1/billing${path}`, {
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...(options?.headers || {}),
+        },
+    });
+    return res;
+};
+
+const saasPublicApi = async (path: string, token: string | null, options?: RequestInit) => {
+    const res = await fetch(`/api/v1/saas-public${path}`, {
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...(options?.headers || {}),
+        },
+    });
+    return res;
+};
+
 // ═══════════════════════════════════════════════════════════════
 // STORE
 // ═══════════════════════════════════════════════════════════════
@@ -390,13 +661,57 @@ export const useSaaSStore = create<SaaSState>()(
             token: null, admin: null, tenants: [], stats: null, backups: [], tickets: [],
             settings: null, isLoading: false, error: null,
             // New state defaults
-            payments: [], financialSummary: null, auditLogs: [], securitySummary: null,
+            payments: [], financialSummary: null, financeInbox: null,
+            accountingUpcoming: [], accountingInstallments: [], accountingNotifications: [], accountingAllPayments: null, invoices: [],
+            posInvoices: [],
+            posInvoiceEvents: [],
+            selectedTenantId: null,
+            selectedPosInvoiceNo: null,
+            auditLogs: [], securitySummary: null,
             apiKeys: [], growthReport: null, plans: [], promoCodes: [],
             customerNotes: [], contracts: [], systemHealth: null, alertRules: [],
             ticketMessages: [], supportStats: null, backupStats: null, knowledgeBase: [],
             selectedTicket: null,
             resellers: [],
             resellerPlans: [],
+            resellerWalletTopups: [],
+            resellerTopupPendingCount: null,
+            planModuleMatrix: null,
+            billingModuleCatalog: [],
+            billingModulesAdmin: [],
+            billingModulesAdminError: null,
+            liveFeed: [],
+            presence: {},
+            setSelectedTenantId: (tenantId) => set({ selectedTenantId: tenantId }),
+            setSelectedPosInvoiceNo: (posInvoiceNo) => set({ selectedPosInvoiceNo: posInvoiceNo }),
+
+            addLiveFeedItem: (item) => set((s) => ({
+                liveFeed: [item, ...s.liveFeed].slice(0, 50)
+            })),
+            clearLiveFeed: () => set({ liveFeed: [] }),
+            updateStatsOnSale: (amount) => set((s) => {
+                if (!s.stats) return {};
+                return {
+                    stats: {
+                        ...s.stats,
+                        monthlyRevenue: (Number(s.stats.monthlyRevenue) || 0) + amount
+                    }
+                };
+            }),
+
+            fetchPresence: async () => {
+                const { token } = get();
+                if (!token) return;
+                try {
+                    const res = await fetch('/api/v1/tenants/presence', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        set({ presence: data.byTenant || {} });
+                    }
+                } catch {}
+            },
 
             // ═══════════════════ AUTH ═══════════════════
             login: async (username, password) => {
@@ -416,9 +731,14 @@ export const useSaaSStore = create<SaaSState>()(
             logout: () => set({ 
                 token: null, admin: null, tenants: [], stats: null, backups: [], tickets: [],
                 settings: null, payments: [], financialSummary: null, auditLogs: [],
+                financeInbox: null, accountingUpcoming: [], accountingInstallments: [], accountingNotifications: [], accountingAllPayments: null, invoices: [], posInvoices: [], posInvoiceEvents: [],
+                selectedTenantId: null, selectedPosInvoiceNo: null,
                 securitySummary: null, apiKeys: [], growthReport: null, plans: [], promoCodes: [],
                 customerNotes: [], contracts: [], systemHealth: null, alertRules: [],
-                ticketMessages: [], supportStats: null, backupStats: null, knowledgeBase: [], selectedTicket: null, resellers: []
+                ticketMessages: [], supportStats: null, backupStats: null, knowledgeBase: [], selectedTicket: null, resellers: [],
+                resellerWalletTopups: [],
+                resellerTopupPendingCount: null,
+                planModuleMatrix: null, billingModuleCatalog: [], billingModulesAdmin: [], billingModulesAdminError: null,
             }),
 
             // ═══════════════════ RESELLER ═══════════════════
@@ -483,6 +803,48 @@ export const useSaaSStore = create<SaaSState>()(
                     if (res.ok) { get().fetchResellerPlans(); return true; }
                     return false;
                 } catch { return false; }
+            },
+            fetchResellerWalletTopupsAdmin: async () => {
+                const { token } = get();
+                if (!token) return;
+                try {
+                    const res = await api('/reseller/wallet/topup-admin', token);
+                    if (res.ok) {
+                        const raw = await res.json();
+                        set({ resellerWalletTopups: Array.isArray(raw) ? raw : [] });
+                    }
+                } catch {}
+            },
+            fetchResellerTopupPendingCount: async () => {
+                const { token } = get();
+                if (!token) return;
+                try {
+                    const res = await api('/reseller/wallet/topup-admin/pending-count', token);
+                    if (res.ok) {
+                        const data = (await res.json()) as { count?: number };
+                        set({ resellerTopupPendingCount: Number(data.count ?? 0) });
+                    }
+                } catch {}
+            },
+            reviewResellerWalletTopup: async (id, action) => {
+                const { token } = get();
+                if (!token) return { ok: false, error: 'no token' };
+                try {
+                    const res = await api(`/reseller/wallet/topup-requests/${id}`, token, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ action }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        return { ok: false, error: String((data as { error?: string }).error || 'İşlem başarısız') };
+                    }
+                    await get().fetchResellerWalletTopupsAdmin();
+                    await get().fetchResellerTopupPendingCount();
+                    await get().fetchResellers();
+                    return { ok: true };
+                } catch {
+                    return { ok: false, error: 'İşlem başarısız' };
+                }
             },
             purchaseResellerPlan: async (planId: number) => {
                 const { token } = get();
@@ -555,10 +917,17 @@ export const useSaaSStore = create<SaaSState>()(
                     });
                     if (res.ok) {
                         get().fetchSettings();
+                        set({ error: null });
                         return true;
                     }
+                    const err = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
+                    const msg = [err.error, err.detail].filter(Boolean).join(' — ') || 'Kayıt başarısız';
+                    set({ error: msg });
                     return false;
-                } catch { return false; }
+                } catch {
+                    set({ error: 'Ağ hatası' });
+                    return false;
+                }
             },
             createBackup: async () => {
                 const { token } = get(); set({ isLoading: true });
@@ -611,6 +980,13 @@ export const useSaaSStore = create<SaaSState>()(
                     if (res.ok) set({ financialSummary: await res.json() });
                 } catch {}
             },
+            fetchFinanceInbox: async () => {
+                const { token } = get(); if (!token) return;
+                try {
+                    const res = await api('/finance/inbox', token);
+                    if (res.ok) set({ financeInbox: await res.json() });
+                } catch {}
+            },
             addPayment: async (data) => {
                 const { token } = get();
                 try {
@@ -628,6 +1004,166 @@ export const useSaaSStore = create<SaaSState>()(
                     if (res.ok) { get().fetchPayments(); get().fetchFinancialSummary(); return true; }
                     return false;
                 } catch { return false; }
+            },
+            recordSubscriptionPayment: async (tenantId: string, amount?: number, billingCycle?: 'monthly' | 'yearly') => {
+                const { token } = get();
+                if (!token) return false;
+                try {
+                    const res = await billingApi(`/tenants/${encodeURIComponent(tenantId)}/record-payment`, token, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            ...(billingCycle ? { billingCycle } : {}),
+                            ...(amount != null ? { amount } : {}),
+                            description: `Abonelik yenileme bildirimi`,
+                        }),
+                    });
+                    if (res.ok) {
+                        await get().fetchPayments();
+                        await get().fetchFinancialSummary();
+                        await get().fetchFinanceInbox();
+                        return true;
+                    }
+                    return false;
+                } catch {
+                    return false;
+                }
+            },
+            sendPaymentDueMail: async (paymentId: number) => {
+                const { token } = get();
+                if (!token) return false;
+                try {
+                    const res = await api(`/finance/payments/${paymentId}/send-mail`, token, { method: 'POST' });
+                    if (res.ok) return true;
+                    return false;
+                } catch {
+                    return false;
+                }
+            },
+            fetchAccountingUpcoming: async () => {
+                const { token } = get(); if (!token) return;
+                try {
+                    const res = await api('/finance/accounting/upcoming', token);
+                    if (res.ok) set({ accountingUpcoming: await res.json() });
+                } catch {}
+            },
+            fetchAccountingInstallments: async (status?: string) => {
+                const { token } = get(); if (!token) return;
+                try {
+                    const qs = status ? `?status=${status}` : '';
+                    const res = await api(`/finance/accounting/installments${qs}`, token);
+                    if (res.ok) set({ accountingInstallments: await res.json() });
+                } catch {}
+            },
+            fetchAccountingNotifications: async (limit?: number) => {
+                const { token } = get(); if (!token) return;
+                try {
+                    const res = await api(`/finance/accounting/notifications?limit=${limit || 50}`, token);
+                    if (res.ok) set({ accountingNotifications: await res.json() });
+                } catch {}
+            },
+            fetchAccountingAllPayments: async (filters?: any) => {
+                const { token } = get(); if (!token) return;
+                try {
+                    const params = new URLSearchParams(filters || {}).toString();
+                    const res = await api(`/finance/accounting/all-payments?${params}`, token);
+                    if (res.ok) set({ accountingAllPayments: await res.json() });
+                } catch {}
+            },
+            fetchInvoices: async (filters?: { status?: string; tenant?: string; from?: string; to?: string }) => {
+                const { token } = get(); if (!token) return;
+                try {
+                    const qs = new URLSearchParams();
+                    if (filters?.status) qs.set('status', filters.status);
+                    if (filters?.tenant) qs.set('tenant', filters.tenant);
+                    if (filters?.from) qs.set('from', filters.from);
+                    if (filters?.to) qs.set('to', filters.to);
+                    const q = qs.toString();
+                    const res = await api(`/finance/invoices${q ? '?' + q : ''}`, token);
+                    if (res.ok) set({ invoices: await res.json() });
+                } catch {}
+            },
+            fetchInvoiceDetail: async (invoiceNumber: string) => {
+                const { token } = get(); if (!token) return null;
+                try {
+                    const res = await api(`/finance/invoices/${encodeURIComponent(invoiceNumber)}`, token);
+                    if (res.ok) return await res.json();
+                    return null;
+                } catch { return null; }
+            },
+            fetchPosInvoices: async (tenantId, filters) => {
+                const { token } = get();
+                if (!token) return [];
+                try {
+                    const qs = new URLSearchParams();
+                    if (filters?.from) qs.set('from', filters.from);
+                    if (filters?.to) qs.set('to', filters.to);
+                    if (filters?.branchId != null) qs.set('branchId', String(filters.branchId));
+                    if (filters?.cashierId != null) qs.set('cashierId', String(filters.cashierId));
+                    if (filters?.status) qs.set('status', filters.status);
+                    if (filters?.paymentStatus) qs.set('paymentStatus', filters.paymentStatus);
+                    if (filters?.paymentMethod) qs.set('paymentMethod', filters.paymentMethod);
+                    if (filters?.q) qs.set('q', filters.q);
+                    if (filters?.limit != null) qs.set('limit', String(filters.limit));
+                    const res = await api(`/${encodeURIComponent(tenantId)}/pos-invoices${qs.toString() ? `?${qs.toString()}` : ''}`, token);
+                    if (!res.ok) return [];
+                    const data = await res.json();
+                    set({ posInvoices: data });
+                    return data;
+                } catch {
+                    return [];
+                }
+            },
+            fetchPosInvoiceDetail: async (tenantId, posInvoiceNo) => {
+                const { token } = get();
+                if (!token) return null;
+                try {
+                    const res = await api(`/${encodeURIComponent(tenantId)}/pos-invoices/${encodeURIComponent(posInvoiceNo)}`, token);
+                    if (!res.ok) return null;
+                    return await res.json();
+                } catch {
+                    return null;
+                }
+            },
+            fetchPosInvoicePdf: async (tenantId, posInvoiceNo) => {
+                const { token } = get();
+                if (!token) throw new Error('No token');
+                const res = await api(`/${encodeURIComponent(tenantId)}/pos-invoices/${encodeURIComponent(posInvoiceNo)}/pdf`, token);
+                if (!res.ok) throw new Error('PDF alınamadı');
+                return await res.blob();
+            },
+            sendPosInvoiceEmail: async (tenantId, posInvoiceNo, to) => {
+                const { token } = get();
+                if (!token) return { ok: false, error: 'No token' };
+                try {
+                    const res = await api(`/${encodeURIComponent(tenantId)}/pos-invoices/${encodeURIComponent(posInvoiceNo)}/send-email`, token, {
+                        method: 'POST',
+                        body: JSON.stringify({ to }),
+                    });
+                    if (res.ok) return { ok: true };
+                    const err = await res.json().catch(() => ({}));
+                    return { ok: false, error: err?.error || 'Gönderim başarısız' };
+                } catch (e: any) {
+                    return { ok: false, error: e?.message || 'Gönderim başarısız' };
+                }
+            },
+            fetchPosInvoiceEvents: async (tenantId, filters) => {
+                const { token } = get();
+                if (!token) return [];
+                try {
+                    const qs = new URLSearchParams();
+                    if (filters?.posInvoiceNo) qs.set('posInvoiceNo', filters.posInvoiceNo);
+                    if (filters?.from) qs.set('from', filters.from);
+                    if (filters?.to) qs.set('to', filters.to);
+                    if (filters?.eventType) qs.set('eventType', filters.eventType);
+                    if (filters?.limit != null) qs.set('limit', String(filters.limit));
+                    const res = await api(`/${encodeURIComponent(tenantId)}/pos-invoices-events${qs.toString() ? `?${qs.toString()}` : ''}`, token);
+                    if (!res.ok) return [];
+                    const data = await res.json();
+                    set({ posInvoiceEvents: data });
+                    return data;
+                } catch {
+                    return [];
+                }
             },
 
             // ═══════════════════ SECURITY ═══════════════════
@@ -878,6 +1414,240 @@ export const useSaaSStore = create<SaaSState>()(
                     const res = await api('/backups/stats', token);
                     if (res.ok) set({ backupStats: await res.json() });
                 } catch {}
+            },
+
+            // ═══════════════════ BILLING / MODÜLLER ═══════════════════
+            fetchBillingCatalog: async () => {
+                try {
+                    const res = await billingApi('/modules', null);
+                    if (res.ok) set({ billingModuleCatalog: await res.json() });
+                } catch {}
+            },
+            fetchBillingModulesAdmin: async () => {
+                const { token } = get();
+                if (!token) {
+                    set({ billingModulesAdminError: 'Oturum yok — tekrar giriş yapın.' });
+                    return;
+                }
+                set({ billingModulesAdminError: null });
+                try {
+                    const res = await billingApi('/modules/admin', token);
+                    if (res.ok) {
+                        const rows = await res.json();
+                        set({ billingModulesAdmin: Array.isArray(rows) ? rows : [], billingModulesAdminError: null });
+                        return;
+                    }
+                    const errBody = await res.json().catch(() => ({} as { error?: string; detail?: string }));
+                    let msg =
+                        res.status === 403
+                            ? 'Bu liste için süper yönetici yetkisi gerekir.'
+                            : res.status === 401
+                              ? 'Oturum süresi doldu — tekrar giriş yapın.'
+                              : errBody.error || `Liste alınamadı (${res.status})`;
+                    if (errBody.detail) msg = `${msg} — ${errBody.detail}`;
+                    set({ billingModulesAdminError: msg });
+                } catch {
+                    set({ billingModulesAdminError: 'Ağ hatası — API çalışıyor mu?' });
+                }
+            },
+            createBillingModule: async (input) => {
+                const { token } = get();
+                if (!token) return false;
+                try {
+                    const res = await billingApi('/modules', token, {
+                        method: 'POST',
+                        body: JSON.stringify(input),
+                    });
+                    if (res.ok) {
+                        await get().fetchBillingCatalog();
+                        await get().fetchBillingModulesAdmin();
+                        return true;
+                    }
+                    return false;
+                } catch {
+                    return false;
+                }
+            },
+            updateBillingModule: async (code, patch) => {
+                const { token } = get();
+                if (!token) return false;
+                try {
+                    const res = await billingApi(`/modules/${encodeURIComponent(code)}`, token, {
+                        method: 'PATCH',
+                        body: JSON.stringify(patch),
+                    });
+                    if (res.ok) {
+                        await get().fetchBillingCatalog();
+                        await get().fetchBillingModulesAdmin();
+                        return true;
+                    }
+                    return false;
+                } catch {
+                    return false;
+                }
+            },
+            deleteBillingModule: async (code, hard) => {
+                const { token } = get();
+                if (!token) return false;
+                const q = hard ? '?hard=true' : '';
+                try {
+                    const res = await billingApi(`/modules/${encodeURIComponent(code)}${q}`, token, {
+                        method: 'DELETE',
+                    });
+                    if (res.ok) {
+                        await get().fetchBillingCatalog();
+                        await get().fetchBillingModulesAdmin();
+                        return true;
+                    }
+                    return false;
+                } catch {
+                    return false;
+                }
+            },
+            fetchPlanModuleMatrix: async (planCode: string) => {
+                const { token } = get();
+                if (!token) return;
+                try {
+                    const res = await billingApi(`/plan-modules/${encodeURIComponent(planCode)}`, token);
+                    if (res.ok) {
+                        const data = await res.json();
+                        set({ planModuleMatrix: { planCode: data.planCode, modules: data.modules || [] } });
+                    }
+                } catch {}
+            },
+            savePlanModuleRules: async (planCode: string, rules) => {
+                const { token } = get();
+                if (!token) return false;
+                try {
+                    const res = await billingApi(`/plan-modules/${encodeURIComponent(planCode)}`, token, {
+                        method: 'PUT',
+                        body: JSON.stringify({ rules }),
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        set({ planModuleMatrix: { planCode: data.planCode, modules: data.modules || [] } });
+                        return true;
+                    }
+                    return false;
+                } catch {
+                    return false;
+                }
+            },
+            fetchTenantEntitlements: async (tenantId: string) => {
+                const { token } = get();
+                if (!token) return null;
+                try {
+                    const res = await billingApi(`/tenants/${encodeURIComponent(tenantId)}/entitlements`, token);
+                    if (res.ok) return await res.json();
+                    return null;
+                } catch {
+                    return null;
+                }
+            },
+            purchaseTenantAddons: async (
+                tenantId,
+                module_codes,
+                extra_device_qty,
+                payment_method?: 'wallet_balance' | 'bank_transfer' | 'admin_card' | 'cash'
+            ) => {
+                const { token } = get();
+                if (!token) return { ok: false, error: 'Oturum yok' };
+                try {
+                    const res = await billingApi(`/tenants/${encodeURIComponent(tenantId)}/addons`, token, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            module_codes,
+                            extra_device_qty,
+                            ...(payment_method ? { payment_method } : {}),
+                        }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok) {
+                        return {
+                            ok: true,
+                            added: data.added,
+                            skipped: data.skipped,
+                            totals: data.totals,
+                        };
+                    }
+                    return { ok: false, error: data.error || 'İşlem başarısız' };
+                } catch (e: any) {
+                    return { ok: false, error: e?.message || 'Ağ hatası' };
+                }
+            },
+
+            generatePaymentLink: async (data: {
+                tenantId: string;
+                amount: number;
+                currency: string;
+                description: string;
+                paymentType?: 'subscription' | 'addon' | 'license';
+            }) => {
+                const { token } = get();
+                if (!token) return { ok: false, error: 'Authorization required' };
+                try {
+                    const res = await saasPublicApi('/checkout', token, {
+                        method: 'POST',
+                        body: JSON.stringify(data)
+                    });
+                    const d = await res.json();
+                    if (res.ok) {
+                        return { ok: true, paymentUrl: d.paymentUrl, gateway: d.gateway, token: d.token || d.sessionId };
+                    }
+                    return { ok: false, error: d.error || 'Ödeme linki oluşturulamadı' };
+                } catch (e: any) {
+                    return { ok: false, error: e.message };
+                }
+            },
+
+            fetchQrDomains: async (tenantId: string) => {
+                const { token } = get();
+                try {
+                    const res = await api(`/${tenantId}/qr-domains`, token);
+                    if (res.ok) return await res.json();
+                } catch { /* silent */ }
+                return [];
+            },
+
+            addQrDomain: async (tenantId: string, domain: string) => {
+                const { token } = get();
+                try {
+                    const res = await api(`/${tenantId}/qr-domains`, token, {
+                        method: 'POST',
+                        body: JSON.stringify({ domain }),
+                    });
+                    return res.ok;
+                } catch { return false; }
+            },
+
+            updateQrDomain: async (tenantId: string, domainId: number, isActive: boolean) => {
+                const { token } = get();
+                try {
+                    const res = await api(`/${tenantId}/qr-domains/${domainId}`, token, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ isActive }),
+                    });
+                    return res.ok;
+                } catch { return false; }
+            },
+
+            deleteQrDomain: async (tenantId: string, domainId: number) => {
+                const { token } = get();
+                try {
+                    const res = await api(`/${tenantId}/qr-domains/${domainId}`, token, {
+                        method: 'DELETE',
+                    });
+                    return res.ok;
+                } catch { return false; }
+            },
+
+            checkQrDomainAvailability: async (domain: string) => {
+                const { token } = get();
+                try {
+                    const res = await api(`/qr-domains/check?domain=${encodeURIComponent(domain)}`, token);
+                    if (res.ok) return await res.json();
+                } catch { /* silent */ }
+                return null;
             },
         }),
         { name: 'nextpos-saas-storage' }

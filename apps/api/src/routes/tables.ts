@@ -9,7 +9,11 @@ import {
     getTablesHandler,
     getSectionsHandler,
     getTableStatusHandler,
-    openTableHandler
+    openTableHandler,
+    transferTableHandler,
+    mergeTablesHandler,
+    transferItemHandler,
+    cancelTableSessionHandler
 } from '../controllers/tables.controller.js';
 
 export const tablesRouter = Router();
@@ -20,5 +24,9 @@ tablesRouter.get('/', getTablesHandler);
 tablesRouter.get('/sections', getSectionsHandler);
 tablesRouter.get('/:id/status', getTableStatusHandler);
 tablesRouter.post('/:id/open', openTableHandler);
+tablesRouter.post('/:id/transfer', transferTableHandler);
+tablesRouter.post('/:id/merge', mergeTablesHandler);
+tablesRouter.post('/:id/cancel', cancelTableSessionHandler);
+tablesRouter.post('/transfer-item', transferItemHandler);
 
 export default tablesRouter;

@@ -1,121 +1,69 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { PosLocaleProvider } from '@pos/contexts/PosLocaleContext';
+import { useAuthStore } from '@pos/store/useAuthStore';
+import { AdminMenu } from '@pos/pages/AdminMenu';
+import { AdminShell } from '@pos/pages/AdminShell';
+import { AdminDashboard } from '@pos/pages/AdminDashboard';
+import { AdminFloor } from '@pos/pages/AdminFloor';
+import { AdminStaff } from '@pos/pages/AdminStaff';
+import { AdminReports } from '@pos/pages/AdminReports';
+import { AdminStock } from '@pos/pages/AdminStock';
+import { AdminRecipes } from '@pos/pages/AdminRecipes';
+import { AdminDeliveryZones } from '@pos/pages/AdminDeliveryZones';
+import { AdminCustomers } from '@pos/pages/AdminCustomers';
+import { AdminSettings } from '@pos/pages/AdminSettings';
+import { AdminReservations } from '@pos/pages/AdminReservations';
+import { AdminCampaigns } from '@pos/pages/AdminCampaigns';
+import { AdminCouriers } from '@pos/pages/AdminCouriers';
+import { AdminAccounting } from '@pos/pages/AdminAccounting';
+import { AdminStaffPerformance } from '@pos/pages/AdminStaffPerformance';
+import { SaaSAdmin } from '@pos/pages/SaaSAdmin';
 
-function App() {
-  const [count, setCount] = useState(0)
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const { isAuthenticated, user } = useAuthStore();
+    if (!isAuthenticated) return <Navigate to="/login" replace />;
+    const role = String(user?.role || '').toLowerCase();
+    const allowed = new Set(['admin', 'owner', 'manager', 'super_admin']);
+    if (!allowed.has(role)) return <Navigate to="/login" replace />;
+    return <>{children}</>;
+};
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
+export default function App() {
+    return (
+        <BrowserRouter>
+            <PosLocaleProvider>
+            <Routes>
+                <Route path="/login" element={<SaaSAdmin />} />
+                <Route path="/saas-admin" element={<SaaSAdmin />} />
+                <Route path="/" element={<Navigate to="/admin" replace />} />
+                <Route
+                    path="/admin"
+                    element={
+                        <ProtectedRoute>
+                            <AdminShell />
+                        </ProtectedRoute>
+                    }
                 >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+                    <Route index element={<AdminDashboard />} />
+                    <Route path="menu" element={<AdminMenu />} />
+                    <Route path="floor" element={<AdminFloor />} />
+                    <Route path="staff" element={<AdminStaff />} />
+                    <Route path="staff-performance" element={<AdminStaffPerformance />} />
+                    <Route path="customers" element={<AdminCustomers />} />
+                    <Route path="reports" element={<AdminReports />} />
+                    <Route path="stock" element={<AdminStock />} />
+                    <Route path="recipes" element={<AdminRecipes />} />
+                    <Route path="delivery" element={<AdminDeliveryZones />} />
+                    <Route path="settings" element={<AdminSettings />} />
+                    <Route path="reservations" element={<AdminReservations />} />
+                    <Route path="campaigns" element={<AdminCampaigns />} />
+                    <Route path="couriers" element={<AdminCouriers />} />
+                    <Route path="accounting" element={<AdminAccounting />} />
+                </Route>
+                <Route path="*" element={<Navigate to="/admin" replace />} />
+            </Routes>
+            </PosLocaleProvider>
+        </BrowserRouter>
+    );
 }
-
-export default App

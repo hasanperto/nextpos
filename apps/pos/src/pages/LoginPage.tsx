@@ -1,37 +1,121 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { FiLock, FiUser, FiHash, FiDatabase, FiArrowRight, FiDelete, FiShield } from 'react-icons/fi';
+import React, { useState, useEffect, useCallback, useLayoutEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { FiLock, FiUser, FiHash, FiDatabase, FiArrowRight, FiDelete, FiShield, FiExternalLink, FiMail } from 'react-icons/fi';
 import { useAuthStore } from '../store/useAuthStore';
+
+const PWA_PREFERRED_PATH_KEY = 'nextpos_pwa_preferred_path';
+
+function defaultPathForRole(role?: string): string {
+    switch (role) {
+        case 'admin':
+            return '/admin';
+        case 'cashier':
+            return '/cashier';
+        case 'waiter':
+            return '/waiter';
+        case 'kitchen':
+            return '/kitchen/hot';
+        case 'courier':
+            return '/courier';
+        default:
+            return '/';
+    }
+}
+
+function allowedPathForRole(path: string, role?: string): boolean {
+    const p = path.replace(/\/$/, '') || '/';
+    if (!role) return false;
+    if (role === 'admin') {
+        return ['/admin', '/cashier', '/waiter', '/kitchen', '/courier', '/handover', '/queue'].some(
+            (x) => p === x || p.startsWith(`${x}/`),
+        );
+    }
+    if (role === 'cashier') {
+        return ['/cashier', '/handover', '/kitchen', '/queue'].some((x) => p === x || p.startsWith(`${x}/`));
+    }
+    if (role === 'waiter') return p === '/waiter' || p.startsWith('/waiter/');
+    if (role === 'kitchen') return p === '/kitchen' || p.startsWith('/kitchen/');
+    if (role === 'courier') return p === '/courier' || p.startsWith('/courier/');
+    return false;
+}
+
+/** PWA “girişten sonra” tercihi; role uygun değilse varsayılan panele düşer. */
+export function resolvePostLoginPath(role?: string): string {
+    const fallback = defaultPathForRole(role);
+    if (typeof localStorage === 'undefined') return fallback;
+    const raw = localStorage.getItem(PWA_PREFERRED_PATH_KEY);
+    if (!raw || raw === 'auto') return fallback;
+    const pref = raw.trim();
+    if (!pref) return fallback;
+    const norm = pref.replace(/\/$/, '') || '/';
+    if (!allowedPathForRole(norm, role)) return fallback;
+    return pref.startsWith('/') ? pref : `/${pref}`;
+}
 
 const LoginPage: React.FC = () => {
     const navigate = useNavigate();
-    const { login, loginWithPin, tenantId, setTenantId, isAuthenticated } = useAuthStore();
+    const [searchParams] = useSearchParams();
+    const { login, loginWithPin, tenantId, setTenantId, logout, isAuthenticated, tenantName, clearTenant } = useAuthStore();
     const [mode, setMode] = useState<'credentials' | 'pin'>('credentials');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [pin, setPin] = useState('');
     const [localTenantId, setLocalTenantId] = useState(tenantId || '');
+    const [linkedName, setLinkedName] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    useLayoutEffect(() => {
+        if (typeof localStorage === 'undefined') return;
+        const raw = localStorage.getItem(PWA_PREFERRED_PATH_KEY) ?? 'auto';
+        if (raw === 'auto') localStorage.removeItem(PWA_PREFERRED_PATH_KEY);
+        else localStorage.setItem(PWA_PREFERRED_PATH_KEY, raw);
+    }, []);
 
-    const getRedirectPath = (role?: string) => {
-        switch (role) {
-            case 'admin': return '/admin';
-            case 'cashier': return '/cashier';
-            case 'waiter': return '/waiter';
-            case 'kitchen': return '/kitchen';
-            case 'courier': return '/courier';
-            default: return '/';
+    useLayoutEffect(() => {
+        const deviceHint = searchParams.get('device')?.trim() || searchParams.get('deviceId')?.trim();
+        if (!deviceHint) return;
+        try {
+            localStorage.setItem('nextpos_device_id_v1', deviceHint);
+        } catch {
         }
-    };
+    }, [searchParams]);
 
-    // Zaten giriş yapılmışsa, role göre yönlendir
+    /** SaaS / derin bağlantı: ?tenant=UUID&name=...&user=admin — önceki POS oturumunu kapatıp hedef kiracıya kilitlenir */
+    useLayoutEffect(() => {
+        const tid = searchParams.get('tenant')?.trim();
+        if (!tid) return;
+        const nameRaw = searchParams.get('name');
+        const userHint = searchParams.get('user')?.trim();
+        logout();
+        setTenantId(tid);
+        setLocalTenantId(tid);
+        setLinkedName(nameRaw ? decodeURIComponent(nameRaw) : null);
+        if (userHint) setUsername(userHint);
+        else setUsername('admin');
+        setPassword('');
+        setPin('');
+        setError('');
+    }, [searchParams, logout, setTenantId]);
+
+    // Zaten giriş yapılmışsa, role göre yönlendir (URL'de tenant= yoksa — derin bağlantıda önce logout ile temizlenir)
     useEffect(() => {
-        if (isAuthenticated) {
+        if (isAuthenticated && !searchParams.get('tenant')?.trim()) {
             const currentRole = useAuthStore.getState().user?.role;
-            navigate(getRedirectPath(currentRole), { replace: true });
+            navigate(resolvePostLoginPath(currentRole), { replace: true });
         }
-    }, [isAuthenticated, navigate]);
+    }, [isAuthenticated, navigate, searchParams]);
+
+    /** Kurumsal/Kurye Cihazı Hafızası: Uygulama açılışında son restoran kimliğini yükle */
+    useEffect(() => {
+        if (!tenantId) {
+            const lastId = localStorage.getItem('last_tenant_id');
+            if (lastId) setLocalTenantId(lastId);
+        }
+    }, [tenantId]);
+
+    const saveTenantId = (tid: string) => {
+        localStorage.setItem('last_tenant_id', tid);
+    };
 
     const handleCredentialLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -45,15 +129,21 @@ const LoginPage: React.FC = () => {
         setTenantId(tid);
 
         try {
-            const ok = await login(username.trim(), password, tid);
-            if (ok) {
-                const currentUserRole = useAuthStore.getState().user?.role;
-                navigate(getRedirectPath(currentUserRole), { replace: true });
-            } else {
-                setError('Kullanıcı adı veya şifre hatalı');
+            await login(username.trim(), password, tid);
+            saveTenantId(tid);
+            const currentUserRole = useAuthStore.getState().user?.role;
+            navigate(resolvePostLoginPath(currentUserRole), { replace: true });
+        } catch (err: any) {
+            console.error('Login error:', err);
+            let msg = err.message || 'Kullanıcı adı veya şifre hatalı';
+            if (msg.includes('pasif')) {
+                msg = 'Restoran hesabı pasif. Lütfen destek ile iletişime geçin.';
+            } else if (msg.includes('bulunamadı')) {
+                msg = 'Restoran hesabı bulunamadı. Lütfen kimliği kontrol edin.';
+            } else if (msg.includes('Invalid credentials') || msg.includes('Giriş başarısız')) {
+                msg = 'Kullanıcı adı veya şifre hatalı';
             }
-        } catch (err) {
-            setError('Sunucu hatası');
+            setError(msg);
         }
         setIsLoading(false);
     };
@@ -68,16 +158,21 @@ const LoginPage: React.FC = () => {
         setTenantId(tid);
 
         try {
-            const ok = await loginWithPin(pinCode, tid);
-            if (ok) {
-                const currentUserRole = useAuthStore.getState().user?.role;
-                navigate(getRedirectPath(currentUserRole), { replace: true });
-            } else {
-                setError('Geçersiz PIN kodu');
-                setPin('');
+            await loginWithPin(pinCode, tid);
+            saveTenantId(tid);
+            const currentUserRole = useAuthStore.getState().user?.role;
+            navigate(resolvePostLoginPath(currentUserRole), { replace: true });
+        } catch (err: any) {
+            console.error('PIN error:', err);
+            let msg = err.message || 'PIN kodu hatalı';
+            if (msg.includes('pasif')) {
+                msg = 'Restoran hesabı pasif. Lütfen destek ile iletişime geçin.';
+            } else if (msg.includes('bulunamadı')) {
+                msg = 'Restoran hesabı bulunamadı. Lütfen kimliği kontrol edin.';
+            } else if (msg.includes('PIN geçersiz') || msg.includes('Invalid credentials')) {
+                msg = 'Geçersiz PIN kodu';
             }
-        } catch (err) {
-            setError('Sunucu hatası');
+            setError(msg);
             setPin('');
         }
         setIsLoading(false);
@@ -128,19 +223,47 @@ const LoginPage: React.FC = () => {
                 {/* Main Card */}
                 <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-3xl overflow-hidden shadow-2xl">
 
+                    {linkedName && (
+                        <div className="mx-8 mt-6 mb-0 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-300/95 text-xs font-semibold flex items-start gap-2">
+                            <FiExternalLink className="shrink-0 mt-0.5 opacity-80" size={14} />
+                            <span>
+                                <span className="text-[10px] uppercase tracking-wider text-emerald-500/80 block mb-0.5">Şemaya bağlantı</span>
+                                Bu oturum <span className="text-white font-bold">{linkedName}</span> kiracısı için açıldı. Master şifre ile <code className="text-emerald-200">admin</code> hesabına giriş yapabilirsiniz.
+                            </span>
+                        </div>
+                    )}
+
                     {/* Tenant ID Section */}
                     <div className="px-8 pt-8 pb-4">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[2px] mb-2 block flex items-center gap-1.5">
-                            <FiDatabase size={10} /> Restoran Kimliği (Tenant ID)
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[2px] mb-2 flex items-center justify-between gap-1.5">
+                            <span className="flex items-center gap-1.5"><FiDatabase size={10} /> Restoran Kimliği</span>
+                            {tenantName && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        clearTenant();
+                                        setLocalTenantId('');
+                                    }}
+                                    className="text-[9px] text-emerald-500 hover:text-emerald-400 font-bold underline cursor-pointer bg-transparent border-none p-0"
+                                >
+                                    Değiştir
+                                </button>
+                            )}
                         </label>
-                        <input
-                            id="tenant-id-input"
-                            type="text"
-                            value={localTenantId}
-                            onChange={(e) => setLocalTenantId(e.target.value)}
-                            placeholder="Tenant UUID yapıştır..."
-                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-white/90 text-xs font-mono outline-none focus:border-emerald-500/40 focus:bg-white/[0.06] transition-all placeholder:text-white/20"
-                        />
+                        {tenantName ? (
+                            <div className="w-full bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3 text-emerald-400 font-bold text-sm flex items-center shadow-inner">
+                                🍕 {tenantName}
+                            </div>
+                        ) : (
+                            <input
+                                id="tenant-id-input"
+                                type="text"
+                                value={localTenantId}
+                                onChange={(e) => setLocalTenantId(e.target.value)}
+                                placeholder="Tenant UUID yapıştır..."
+                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-white/90 text-xs font-mono outline-none focus:border-emerald-500/40 focus:bg-white/[0.06] transition-all placeholder:text-white/20"
+                            />
+                        )}
                     </div>
 
                     {/* Mode Tabs */}
@@ -161,8 +284,16 @@ const LoginPage: React.FC = () => {
 
                     {/* Error Display */}
                     {error && (
-                        <div className="mx-8 mb-4 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-bold text-center">
-                            {error}
+                        <div className="mx-8 mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-bold flex flex-col items-center gap-2 text-center shadow-inner">
+                            <span className="leading-relaxed">{error}</span>
+                            {(error.includes('pasif') || error.includes('yönetimle') || error.includes('Sistem kaydı bulunamadı')) && (
+                                <a 
+                                    href={`mailto:destek@nextpos.com?subject=NextPOS%20Giriş%20Desteği%20Talebi&body=Merhaba,%20giriş%20yaparken%20sorun%20yaşıyorum.%0A%0ATenant%20ID:%20${localTenantId}%0AHata:%20${error}`}
+                                    className="mt-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+                                >
+                                    <FiMail size={14} /> Destek Merkezi İle İletişime Geç
+                                </a>
+                            )}
                         </div>
                     )}
 

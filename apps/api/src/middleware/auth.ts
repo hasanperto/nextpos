@@ -19,6 +19,7 @@ export interface JwtPayload {
     role: string;
     tenantId?: string;   // UUID — public.tenants.id (Tenant adminleri için zorunlu)
     branchId?: number;  // Şube ID (tenant_X.branches.id)
+    resellerId?: number; // Bayi ID (public.tenants.reseller_id'ye karşılık gelir)
     isSaaSAdmin?: boolean; // SaaS Super Admin mi?
     iat?: number;
     exp?: number;
@@ -48,6 +49,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
         const authHeader = req.headers.authorization;
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            console.warn(`[Auth] 401 Unauthorized: Header eksik veya geçersiz. URL: ${req.originalUrl}`);
             return res.status(401).json({
                 error: 'Yetkilendirme gerekli',
                 code: 'AUTH_REQUIRED',
@@ -57,35 +59,39 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
         const token = authHeader.split(' ')[1];
         const secret = process.env.JWT_SECRET || 'secret';
 
-        const decoded = jwt.verify(token, secret) as JwtPayload;
+        try {
+            const decoded = jwt.verify(token, secret) as JwtPayload;
 
-        // Token'dan tenant bilgisi zorunlu (SaaS admin hariç)
-        if (!decoded.isSaaSAdmin && !decoded.tenantId) {
-            return res.status(401).json({
-                error: 'Geçersiz token: Tenant bilgisi eksik',
-                code: 'TENANT_MISSING',
-            });
-        }
+            // Token'dan tenant bilgisi zorunlu (SaaS admin hariç)
+            if (!decoded.isSaaSAdmin && !decoded.tenantId) {
+                console.warn(`[Auth] 401 Unauthorized: Tenant ID eksik. URL: ${req.originalUrl}`);
+                return res.status(401).json({
+                    error: 'Geçersiz token: Tenant bilgisi eksik',
+                    code: 'TENANT_MISSING',
+                });
+            }
 
-        // Request'e kullanıcı ve tenant bilgilerini ekle
-        req.user = decoded;
-        req.tenantId = decoded.tenantId;
-        req.branchId = decoded.branchId;
+            // Request'e kullanıcı ve tenant bilgilerini ekle
+            req.user = decoded;
+            req.tenantId = decoded.tenantId;
+            req.branchId = decoded.branchId;
 
-        next();
-    } catch (error: any) {
-        if (error.name === 'TokenExpiredError') {
-            return res.status(401).json({
-                error: 'Token süresi dolmuş',
-                code: 'TOKEN_EXPIRED',
-            });
-        }
-        if (error.name === 'JsonWebTokenError') {
+            next();
+        } catch (jwtErr: any) {
+            console.warn(`[Auth] 401 Unauthorized: JWT Hatası (${jwtErr.name}). URL: ${req.originalUrl}`);
+            if (jwtErr.name === 'TokenExpiredError') {
+                return res.status(401).json({
+                    error: 'Token süresi dolmuş',
+                    code: 'TOKEN_EXPIRED',
+                });
+            }
             return res.status(401).json({
                 error: 'Geçersiz token',
                 code: 'INVALID_TOKEN',
             });
         }
+    } catch (error: any) {
+        console.error('❌ Auth Middleware Error:', error.message);
         return res.status(500).json({ error: 'Yetkilendirme hatası' });
     }
 }

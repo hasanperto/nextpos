@@ -1,11 +1,12 @@
-import mysql from 'mysql2/promise';
-import dotenv from 'dotenv';
-dotenv.config();
+import { PrismaClient } from '@prisma/client';
 
-async function check() {
-    const pool = mysql.createPool({ uri: process.env.DATABASE_URL });
-    const [rows]: any = await pool.query("SHOW COLUMNS FROM `public`.saas_admins");
-    console.log(JSON.stringify(rows, null, 2));
-    await pool.end();
+const prisma = new PrismaClient();
+
+async function main() {
+  const admins = await prisma.saasAdmin.findMany({
+    select: { username: true, role: true, isActive: true }
+  });
+  console.log('SaaS Admins:', admins);
 }
-check();
+
+main().catch(console.error).finally(() => prisma.$disconnect());

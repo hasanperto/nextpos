@@ -5,12 +5,50 @@ pizzapos/
 node_modules/
 .env
 .env.*
+!.env.example
+!**/.env.example
 *.log
 .DS_Store
 Thumbs.db
+
+# Turbo
+.turbo/
 
 # Hassas / gerekmedikçe repoda tutulmayanlar
 apps/api/backups/
 apps/api/public/uploads/
 apps/api/seed_output.txt
 tmp/
+
+# Build çıktıları
+apps/*/dist/
+apps/*/build/
+apps/*/.vite/
+apps/*/.next/
+packages/*/dist/
+packages/*/build/
+
+# Playwright
+playwright-report/
+test-results/
+
+# Yerel yedekler / dump'lar
+backups/
+backups_manual/
+
+# Android (Gradle)
+apps/mobile-android/.gradle/
+apps/mobile-android/**/build/
+apps/mobile-android/local.properties
+
+# Yerel debug/çıktı dosyaları
+apps/api/enum_debug*.txt
+apps/api/scripts/*.txt
+apps/pos/ts_errors*.txt
+
+# TestSprite (tokens / tmp çıktılar)
+testsprite_tests/tmp/
+.testsprite/
+
+# Paylaşılan paket derlemesi
+packages/shared-types/dist/

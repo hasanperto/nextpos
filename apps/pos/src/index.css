@@ -1,81 +1,176 @@
 @import "tailwindcss";
 
 @theme {
-  /* ═══ RENKLER ═══ */
-  --color-pos-bg-primary: #0F1923;
-  --color-pos-bg-secondary: #1A2634;
-  --color-pos-bg-tertiary: #243447;
-  --color-pos-bg-elevated: #2A3F55;
-  --color-pos-accent-primary: #10B981;
-  --color-pos-accent-hover: #059669;
-  --color-pos-accent-glow: rgba(16,185,129,0.15);
-  --color-pos-text-primary: #F1F5F9;
-  --color-pos-text-secondary: #94A3B8;
-  --color-pos-text-muted: #64748B;
-  --color-pos-border-default: #1E3A50;
-  --color-pos-border-active: #10B981;
-  --color-pos-danger: #EF4444;
-  --color-pos-warning: #F59E0B;
-  --color-pos-info: #3B82F6;
+  /* ═══ PREMIUM PALETTE ═══ */
+  --color-pos-bg-ultra: #020617;      /* Deep Slate/Black */
+  --color-pos-bg-primary: #0F172A;    /* Slate-900 */
+  --color-pos-bg-card: rgba(30, 41, 59, 0.4); /* Slate-800 Glass */
+  --color-pos-bg-active: #2563EB;     /* Royal Blue */
+  
+  --color-pos-accent: #E91E63;        /* NextPOS Signature Pink */
+  --color-pos-accent-glow: rgba(233, 30, 99, 0.2);
   --color-pos-success: #10B981;
+  --color-pos-warning: #F59E0B;
+  --color-pos-danger: #EF4444;
 
-  /* ═══ TİPOGRAFİ ═══ */
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  /* ═══ TYPOGRAPHY ═══ */
+  --font-sans: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Outfit', sans-serif;
 
-  /* ═══ BOYUTLAR ═══ */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --spacing-touch-min: 44px;
-  --spacing-touch-lg: 56px;
+  /* ═══ MODERN BORDERS ═══ */
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 20px;
+  --radius-lg: 32px;
+  --radius-xl: 48px;
 
-  /* ═══ GÖLGELER ═══ */
-  --shadow-card: 0 2px 8px rgba(0,0,0,0.3);
-  --shadow-elevated: 0 8px 24px rgba(0,0,0,0.4);
-  --shadow-glow: 0 0 20px rgba(16,185,129,0.2);
+  /* ═══ ELEVATION ═══ */
+  --shadow-premium: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
+  --shadow-glow-pink: 0 0 30px rgba(233, 30, 99, 0.3);
+  --shadow-glow-emerald: 0 0 30px rgba(16, 185, 129, 0.3);
 }
 
 @layer base {
+  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+
   body {
-    background-color: var(--color-pos-bg-primary);
-    color: var(--color-pos-text-primary);
+    background-color: var(--color-pos-bg-ultra);
+    color: #F1F5F9;
     font-family: var(--font-sans);
-    /* Seçimi engelle (Touch ekranlar için daha iyi his verir) */
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
     user-select: none;
-    -webkit-user-select: none;
-    overflow: hidden; /* Tam ekran uygulama hissi için genel scroll'u kapat */
+  }
+
+  /* Focus rings for accessibility but kept clean */
+  :focus-visible {
+    outline: 2px solid var(--color-pos-accent);
+    outline-offset: 2px;
   }
 }
 
-/* Custom Utilities for POS */
 @layer utilities {
-  .flex-center {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .glass {
+    @apply bg-white/[0.03] backdrop-blur-xl border border-white/10;
   }
   
-  .touch-target {
-    min-width: 44px;
-    min-height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .glass-dark {
+    @apply bg-black/40 backdrop-blur-2xl border border-white/5;
   }
 
-  .pos-scrollbar::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+  .premium-gradient-pink {
+    background: linear-gradient(135deg, #E91E63 0%, #FF4081 100%);
   }
-  .pos-scrollbar::-webkit-scrollbar-track {
+
+  .premium-gradient-dark {
+    background: linear-gradient(180deg, rgba(30, 41, 59, 0.4) 0%, rgba(15, 23, 42, 0.8) 100%);
+  }
+
+  .glass-emerald {
+    @apply bg-emerald-500/10 backdrop-blur-xl border border-emerald-500/20 shadow-[0_0_40px_-10px_rgba(16,185,129,0.2)];
+  }
+
+  .glass-rose {
+    @apply bg-rose-500/10 backdrop-blur-xl border border-rose-500/20 shadow-[0_0_40px_-10px_rgba(233,30,99,0.2)];
+  }
+
+  .glass-blue {
+    @apply bg-blue-600/10 backdrop-blur-xl border border-blue-500/20 shadow-[0_0_40px_-10px_rgba(37,99,235,0.2)];
+  }
+
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .animate-pulse-subtle {
+    animation: pulse-subtle 3s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-20px) scale(1.05); }
+  }
+
+  @keyframes pulse-subtle {
+    0%, 100% { opacity: 0.4; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(1.02); }
+  }
+
+  .text-shadow-glow {
+    text-shadow: 0 0 10px rgba(233, 30, 99, 0.4);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
-  .pos-scrollbar::-webkit-scrollbar-thumb {
-    background: var(--color-pos-border-default);
-    border-radius: 4px;
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
   }
-  .pos-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: var(--color-pos-text-muted);
+
+  /* ═══ PULSE ANIMATIONS ═══ */
+  @keyframes pulse-fast {
+    0%, 100% { opacity: 0.6; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.05); }
+  }
+
+  @keyframes ping-slow {
+    0% { transform: scale(0.9); opacity: 0.8; }
+    70%, 100% { transform: scale(1.15); opacity: 0; }
+  }
+
+  .animate-pulse-fast {
+    animation: pulse-fast 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .animate-ping-slow {
+    animation: ping-slow 2.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+
+  .animate-flash-highlight {
+    animation: flash-highlight 1s ease-out;
+  }
+
+  /** Mutfak butonu: hazır paket hattına yeni sipariş düştüğünde rozet uyarısı */
+  @keyframes kitchen-package-line-blink {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+      box-shadow: 0 0 0 2px rgba(251, 113, 133, 0.85), 0 0 18px rgba(244, 63, 94, 0.65);
+    }
+    50% {
+      opacity: 0.25;
+      transform: scale(1.12);
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.95), 0 0 28px rgba(255, 255, 255, 0.55);
+    }
+  }
+
+  .animate-kitchen-package-line-blink {
+    animation: kitchen-package-line-blink 0.45s ease-in-out infinite;
+  }
+
+  @keyframes flash-highlight {
+    0% { background-color: rgba(233, 30, 99, 0.4); box-shadow: 0 0 50px rgba(233, 30, 99, 0.6); }
+    100% { background-color: transparent; box-shadow: none; }
   }
 }

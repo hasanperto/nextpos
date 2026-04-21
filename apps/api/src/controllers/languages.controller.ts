@@ -18,7 +18,8 @@ export const getTranslationsHandler = async (req: Request, res: Response) => {
         const { lang } = req.params;
         const { namespace } = req.query;
 
-        let queryStr = 'SELECT namespace, `key`, value FROM ui_translations WHERE lang = ?';
+        /* PostgreSQL: key rezerve kelime — tırnaklı sütun adı */
+        let queryStr = 'SELECT namespace, "key", value FROM ui_translations WHERE lang = ?';
         const params: any[] = [lang];
 
         if (namespace) {

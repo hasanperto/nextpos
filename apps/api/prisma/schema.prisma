@@ -1,69 +1,114 @@
-// NextPOS — Prisma Schema (PostgreSQL — Multi-Tenant SaaS)
-// public schema: Merkezi SaaS verileri (tenants, languages, sync_queue)
-// Tenant-spesifik veriler: pg pool + SET search_path ile yönetilir
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// ═══════════════════════════════════════
-// MERKEZI SaaS TABLOSU (public schema)
-// ═══════════════════════════════════════
-
-/// Her restoran/kiracı için merkezi kayıt.
-/// Tenant-specific tablolar pg pool ile dinamik olarak yönetilir.
 model Tenant {
-  id               String    @id @default(uuid()) @db.VarChar(36)
-  name             String    @db.VarChar(255)
-  schemaName       String    @unique @map("schema_name") @db.VarChar(255)
-  status           String    @default("active") @db.VarChar(50)
-  subscriptionPlan String    @default("basic") @map("subscription_plan") @db.VarChar(50)
-  licenseExpiresAt DateTime? @map("license_expires_at") @db.Timestamp(0)
-  maxUsers         Int       @default(10) @map("max_users")
-  maxBranches      Int       @default(1) @map("max_branches")
+  id                String    @id @default(uuid()) @db.Uuid
+  name              String    @db.VarChar(255)
+  schemaName        String    @unique @map("schema_name") @db.VarChar(255)
+  status            String    @default("active") @db.VarChar(50)
+  subscriptionPlan  String    @default("basic") @map("subscription_plan") @db.VarChar(50)
+  licenseExpiresAt  DateTime? @map("license_expires_at") @db.Timestamptz(6)
+  maxUsers          Int       @default(10) @map("max_users")
+  maxBranches       Int       @default(1) @map("max_branches")
   contactEmail      String?   @map("contact_email") @db.VarChar(255)
   contactPhone      String?   @map("contact_phone") @db.VarChar(30)
   authorizedPerson  String?   @map("authorized_person") @db.VarChar(100)
   taxOffice         String?   @map("tax_office") @db.VarChar(100)
   taxNumber         String?   @map("tax_number") @db.VarChar(50)
   specialLicenseKey String?   @unique @map("special_license_key") @db.VarChar(100)
-  address           String?   @db.Text
+  address           String?
   settings          Json?     @default("{}")
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamp(0)
-  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamp(0)
+  resellerId        Int?      @map("reseller_id")
+  masterPassword    String?   @map("master_password") @db.VarChar(255)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("tenants")
 }
 
+model ResellerPlan {
+  id           Int         @id @default(autoincrement())
+  name         String      @db.VarChar(255)
+  code         String      @unique @db.VarChar(100)
+  price        Decimal     @db.Decimal(12, 2)
+  licenseCount Int         @map("license_count")
+  description  String?
+  isActive     Boolean     @default(true) @map("is_active")
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  saasAdmins   SaasAdmin[]
+
+  @@map("reseller_plans")
+}
+
+model PaymentHistory {
+  id             Int       @id @default(autoincrement())
+  tenantId       String?   @map("tenant_id") @db.Uuid
+  saasAdminId    Int?      @map("saas_admin_id")
+  amount         Decimal   @db.Decimal(12, 2)
+  currency       String    @default("EUR") @db.VarChar(10)
+  paymentType    String    @map("payment_type") @db.VarChar(50)
+  paymentMethod  String?   @map("payment_method") @db.VarChar(50)
+  status         String    @default("pending") @db.VarChar(20)
+  description    String?
+  paidAt         DateTime? @map("paid_at") @db.Timestamptz(6)
+  createdBy      String?   @map("created_by") @db.VarChar(255)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  due_date       DateTime? @db.Date
+  invoice_number String?   @db.VarChar(50)
+
+  @@index([tenantId])
+  @@index([saasAdminId])
+  @@map("payment_history")
+}
+
 model SaasAdmin {
-  id           Int       @id @default(autoincrement())
-  username     String    @unique @db.VarChar(50)
-  passwordHash String    @map("password_hash") @db.VarChar(255)
-  fullName     String    @map("full_name") @db.VarChar(100)
-  lastLogin    DateTime? @map("last_login") @db.Timestamp(0)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(0)
+  id                    Int           @id @default(autoincrement())
+  username              String        @unique @db.VarChar(50)
+  passwordHash          String        @map("password_hash") @db.VarChar(255)
+  fullName              String        @map("full_name") @db.VarChar(100)
+  lastLogin             DateTime?     @map("last_login") @db.Timestamptz(6)
+  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  isActive              Boolean       @default(true) @map("is_active")
+  role                  String        @default("super_admin") @db.VarChar(50)
+  availableLicenses     Int           @default(0) @map("available_licenses")
+  commissionRate        Decimal?      @map("commission_rate") @db.Decimal(5, 2)
+  companyName           String?       @map("company_name") @db.VarChar(255)
+  email                 String?       @db.VarChar(255)
+  walletBalance         Decimal       @default(0) @map("wallet_balance") @db.Decimal(12, 2)
+  resellerPlanId        Int?          @map("reseller_plan_id")
+  /// * Bayi oluşturulurken seçilen satış ödeme şekli (finans / payment_history ile uyumlu)
+  purchasePaymentMethod String?       @map("purchase_payment_method") @db.VarChar(40)
+  adminNotes            String?       @map("admin_notes")
+  billingAddress        String?       @map("billing_address")
+  city                  String?       @db.VarChar(100)
+  contactPerson         String?       @map("contact_person") @db.VarChar(150)
+  country               String?       @default("Türkiye") @db.VarChar(60)
+  district              String?       @db.VarChar(100)
+  mobilePhone           String?       @map("mobile_phone") @db.VarChar(30)
+  phone                 String?       @db.VarChar(30)
+  postalCode            String?       @map("postal_code") @db.VarChar(10)
+  taxNumber             String?       @map("tax_number") @db.VarChar(30)
+  taxOffice             String?       @map("tax_office") @db.VarChar(100)
+  resellerPlan          ResellerPlan? @relation(fields: [resellerPlanId], references: [id])
 
   @@map("saas_admins")
 }
 
-// ═══════════════════════════════════════
-// ÇOKLU DİL (i18n) — Merkezi (public schema)
-// ═══════════════════════════════════════
-
 model Language {
-  code       String  @id @db.VarChar(5)
-  name       String  @db.VarChar(50)
-  nativeName String  @map("native_name") @db.VarChar(50)
-  flagEmoji  String? @map("flag_emoji") @db.VarChar(10)
-  direction  String  @default("ltr") @db.VarChar(3)
-  isActive   Boolean @default(true) @map("is_active")
-  sortOrder  Int     @default(0) @map("sort_order")
-
+  code           String          @id @db.VarChar(5)
+  name           String          @db.VarChar(50)
+  nativeName     String          @map("native_name") @db.VarChar(50)
+  flagEmoji      String?         @map("flag_emoji") @db.VarChar(10)
+  direction      String          @default("ltr") @db.VarChar(3)
+  isActive       Boolean         @default(true) @map("is_active")
+  sortOrder      Int             @default(0) @map("sort_order")
   uiTranslations UiTranslation[]
 
   @@map("languages")
@@ -74,62 +119,220 @@ model UiTranslation {
   namespace String   @db.VarChar(50)
   key       String   @db.VarChar(200)
   lang      String   @db.VarChar(5)
-  value     String   @db.Text
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  language Language @relation(fields: [lang], references: [code])
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  language  Language @relation(fields: [lang], references: [code])
 
   @@unique([namespace, key, lang])
   @@index([namespace, lang])
   @@map("ui_translations")
 }
 
-// ═══════════════════════════════════════
-// OFFLİNE SENKRONIZASYON — Merkezi (public schema)
-// ═══════════════════════════════════════
-
 model SyncQueue {
   id           Int       @id @default(autoincrement())
-  tenantId     String    @map("tenant_id") @db.VarChar(36)
+  tenantId     String    @map("tenant_id") @db.Uuid
   entityType   String    @map("entity_type") @db.VarChar(50)
-  entityId     String?   @map("entity_id") @db.VarChar(50)
+  entityId     String    @map("entity_id") @db.VarChar(64)
   action       String    @db.VarChar(20)
   payload      Json
   status       String    @default("pending") @db.VarChar(20)
   retryCount   Int       @default(0) @map("retry_count")
-  errorMessage String?   @map("error_message") @db.Text
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(0)
-  syncedAt     DateTime? @map("synced_at") @db.Timestamp(0)
+  errorMessage String?   @map("error_message")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  syncedAt     DateTime? @map("synced_at") @db.Timestamptz(6)
 
+  @@unique([tenantId, entityId])
   @@index([status])
   @@index([tenantId])
   @@map("sync_queue")
 }
 
-// ═══════════════════════════════════════
-// DESTEK VE SİSTEM — Merkezi (public schema)
-// ═══════════════════════════════════════
-
 model SupportTicket {
-  id          Int      @id @default(autoincrement())
-  tenantId    String   @map("tenant_id") @db.VarChar(36)
-  subject     String   @db.VarChar(255)
-  message     String   @db.Text
-  status      String   @default("open") @db.VarChar(20) // open, in_progress, closed
-  priority    String   @default("medium") @db.VarChar(20)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(0)
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  id                  Int      @id @default(autoincrement())
+  tenantId            String?  @map("tenant_id") @db.VarChar(36)
+  subject             String   @db.VarChar(255)
+  message             String
+  status              String   @default("open") @db.VarChar(20)
+  priority            String   @default("medium") @db.VarChar(20)
+  category            String?  @default("general") @db.VarChar(50)
+  createdByResellerId Int?     @map("created_by_reseller_id")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  @@index([createdByResellerId])
   @@map("support_tickets")
 }
 
 model SystemBackup {
-  id          Int      @id @default(autoincrement())
-  filename    String   @db.VarChar(255)
-  size        BigInt
-  status      String   @default("success") @db.VarChar(20)
-  createdBy   String   @map("created_by") @db.VarChar(255) // SaaS Admin username
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(0)
+  id         Int      @id @default(autoincrement())
+  filename   String   @db.VarChar(255)
+  size       BigInt
+  status     String   @default("success") @db.VarChar(20)
+  createdBy  String   @map("created_by") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenantId   String?  @map("tenant_id") @db.Uuid
+  backupType String   @default("full") @map("backup_type") @db.VarChar(20)
 
+  @@index([tenantId])
   @@map("system_backups")
+}
+
+model BillingModule {
+  id           Int                   @id @default(autoincrement())
+  code         String                @unique @db.VarChar(50)
+  name         String                @db.VarChar(120)
+  description  String?               @db.VarChar(500)
+  category     BillingModuleCategory @default(feature)
+  setupPrice   Decimal               @default(0.00) @map("setup_price") @db.Decimal(10, 2)
+  monthlyPrice Decimal               @default(0.00) @map("monthly_price") @db.Decimal(10, 2)
+  isActive     Boolean               @default(true) @map("is_active")
+  icon         String?               @db.VarChar(50)
+  sortOrder    Int                   @default(0) @map("sort_order")
+  createdAt    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("billing_modules")
+}
+
+model TenantModule {
+  id               Int      @id @default(autoincrement())
+  tenantId         String   @map("tenant_id") @db.VarChar(36)
+  moduleCode       String   @map("module_code") @db.VarChar(50)
+  quantity         Int      @default(1)
+  setupLineTotal   Decimal  @default(0) @map("setup_line_total") @db.Decimal(10, 2)
+  monthlyLineTotal Decimal  @default(0) @map("monthly_line_total") @db.Decimal(10, 2)
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, moduleCode], name: "uq_tenant_module")
+  @@index([tenantId])
+  @@map("tenant_modules")
+}
+
+model TenantBilling {
+  tenantId               String       @id @map("tenant_id") @db.Char(36)
+  planCode               String       @default("starter") @map("plan_code") @db.VarChar(30)
+  setupFeeTotal          Decimal      @default(0) @map("setup_fee_total") @db.Decimal(10, 2)
+  monthlyRecurringTotal  Decimal      @default(0) @map("monthly_recurring_total") @db.Decimal(10, 2)
+  yearlyPrepayTotal      Decimal?     @map("yearly_prepay_total") @db.Decimal(10, 2)
+  annualDiscountPercent  Decimal      @default(15) @map("annual_discount_percent") @db.Decimal(5, 2)
+  reactivationFeePercent Decimal      @default(10) @map("reactivation_fee_percent") @db.Decimal(5, 2)
+  nextPaymentDue         DateTime?    @map("next_payment_due") @db.Date
+  graceDaysAfterDue      Int          @default(1) @map("grace_days_after_due")
+  lastPaymentAt          DateTime?    @map("last_payment_at") @db.Timestamptz(6)
+  paymentCurrent         Boolean      @default(true) @map("payment_current")
+  suspendedAt            DateTime?    @map("suspended_at") @db.Timestamptz(6)
+  suspensionReason       String?      @map("suspension_reason") @db.VarChar(255)
+  createdAt              DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  billingCycle           BillingCycle @default(monthly) @map("billing_cycle")
+
+  @@map("tenant_billing")
+}
+
+model BillingReminderLog {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  String   @map("tenant_id") @db.Char(36)
+  kind      String   @db.VarChar(40)
+  message   String?  @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId])
+  @@map("billing_reminder_log")
+}
+
+model PlanModuleRule {
+  planCode   String         @map("plan_code") @db.VarChar(30)
+  moduleCode String         @map("module_code") @db.VarChar(50)
+  updatedAt  DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  mode       PlanModuleMode @default(addon)
+
+  @@id([planCode, moduleCode])
+  @@index([planCode])
+  @@index([moduleCode])
+  @@map("plan_module_rules")
+}
+
+model SystemSetting {
+  id                  Int      @id @default(autoincrement())
+  currency            String   @default("EUR") @db.VarChar(5)
+  baseSubscriptionFee Decimal  @default(500.00) @map("base_subscription_fee") @db.Decimal(10, 2)
+  monthlyLicenseFee   Decimal  @default(50.00) @map("monthly_license_fee") @db.Decimal(10, 2)
+  trialDays           Int      @default(14) @map("trial_days")
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  resellerSetupRate   Decimal  @default(75) @map("reseller_setup_rate") @db.Decimal(5, 2)
+  systemSetupRate     Decimal  @default(25) @map("system_setup_rate") @db.Decimal(5, 2)
+  resellerMonthlyRate Decimal  @default(50) @map("reseller_monthly_rate") @db.Decimal(5, 2)
+  systemMonthlyRate   Decimal  @default(50) @map("system_monthly_rate") @db.Decimal(5, 2)
+  annualDiscountRate  Decimal  @default(15) @map("annual_discount_rate") @db.Decimal(5, 2)
+  active_gateway      String?  @default("iyzico") @db.VarChar(50)
+
+  @@map("system_settings")
+}
+
+model SubscriptionPlan {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(100)
+  code         String   @unique @db.VarChar(30)
+  monthlyFee   Decimal  @default(50.00) @map("monthly_fee") @db.Decimal(10, 2)
+  setupFee     Decimal  @default(500.00) @map("setup_fee") @db.Decimal(10, 2)
+  features     Json?
+  maxUsers     Int      @default(10) @map("max_users")
+  maxBranches  Int      @default(1) @map("max_branches")
+  maxProducts  Int      @default(500) @map("max_products")
+  maxDevices   Int      @default(1) @map("max_devices")
+  /** Pakette dahil yazıcı istasyonu üst sınırı; ek satırlar `extra_printer` modülü ile */
+  maxPrinters  Int      @default(2) @map("max_printers")
+  supportHours String?  @default("09:00-17:00") @map("support_hours") @db.VarChar(30)
+  trialDays    Int      @default(14) @map("trial_days")
+  isActive     Boolean  @default(true) @map("is_active")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("subscription_plans")
+}
+
+model TenantCreationDraft {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  resellerId Int      @map("reseller_id")
+  payload    Json
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@index([resellerId])
+  @@index([resellerId], map: "tenant_creation_drafts_reseller_idx")
+  @@map("tenant_creation_drafts")
+}
+
+model TenantQrDomain {
+  id         Int      @id @default(autoincrement())
+  tenantId   String   @map("tenant_id") @db.Uuid
+  domain     String   @unique @db.VarChar(255)
+  isVerified Boolean  @default(false) @map("is_verified")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId])
+  @@index([domain])
+  @@map("tenant_qr_domains")
+}
+
+enum BillingModuleCategory {
+  core
+  feature
+  channel
+  device
+  service
+  integration
+}
+
+enum BillingCycle {
+  monthly
+  yearly
+}
+
+enum PlanModuleMode {
+  included
+  addon
+  locked
 }

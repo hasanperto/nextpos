@@ -50,6 +50,7 @@ import {
     getSettingsHandler,
     updateSettingsHandler,
     seedDemoContentHandler,
+    revokeKioskHandler,
 } from '../controllers/admin.settings.controller.js';
 import {
     listAccountingTransactions,
@@ -90,6 +91,7 @@ adminRouter.use(requireRole('admin'));
 
 adminRouter.get('/settings', getSettingsHandler);
 adminRouter.put('/settings', updateSettingsHandler);
+adminRouter.delete('/settings/kiosk/revoke/:deviceCode', revokeKioskHandler);
 adminRouter.post('/settings/demo-seed', seedDemoContentHandler);
 
 import {
@@ -138,9 +140,9 @@ adminRouter.delete('/reservations/:id', requireTenantModule('table_reservation')
 // Accounting / Muhasebe
 adminRouter.get('/accounting', listAccountingTransactions);
 adminRouter.put('/accounting/:id', updateTransaction);
-adminRouter.delete('/accounting/:id', deleteTransaction);
-adminRouter.post('/accounting/:id/delete', deleteTransaction);
-adminRouter.post('/accounting/:id/restore', restoreTransaction);
+// adminRouter.delete('/accounting/:id', deleteTransaction); // Sadece storno (iptal/iade) izni var, sert silme yasak.
+// adminRouter.post('/accounting/:id/delete', deleteTransaction);
+// adminRouter.post('/accounting/:id/restore', restoreTransaction);
 
 adminRouter.get('/stock/consumption', getStockConsumptionReportHandler);
 adminRouter.get('/stock/consumption', requireTenantModule('inventory'), getStockConsumptionReportHandler);

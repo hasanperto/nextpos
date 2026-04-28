@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FiAlertTriangle, FiCheckCircle, FiClock, FiRefreshCcw } from 'react-icons/fi';
 import { HandoverCenterContent } from '../features/handover/HandoverCenterContent';
 import { usePosStore } from '../store/usePosStore';
@@ -14,12 +15,24 @@ type HandoverOrderRow = {
 /** Tam ekran teslim merkezi — gel-al için «Adisyona ekle» yok; kasa mutfak modalında. */
 const HandoverPanel: React.FC = () => {
     const fetchSettings = usePosStore((s) => s.fetchSettings);
-    const getAuthHeaders = useAuthStore(s => s.getAuthHeaders);
-    const logout = useAuthStore(s => s.logout);
+    const { getAuthHeaders, logout, user, isAuthenticated } = useAuthStore();
+    const userRole = user?.role;
+    const navigate = useNavigate();
     const { t } = usePosLocale();
     const [loading, setLoading] = useState(false);
     const [readyOrders, setReadyOrders] = useState<HandoverOrderRow[]>([]);
     const [preparingOrders, setPreparingOrders] = useState<HandoverOrderRow[]>([]);
+
+    // Role guard - only admin and cashier can access
+    useEffect(() => {
+        if (!isAuthenticated) {
+            navigate('/login');
+            return;
+        }
+        if (userRole && !['admin', 'cashier'].includes(userRole)) {
+            navigate('/');
+        }
+    }, [userRole, navigate, isAuthenticated]);
 
     const loadStats = useCallback(async () => {
         setLoading(true);
@@ -46,11 +59,42 @@ const HandoverPanel: React.FC = () => {
         void fetchSettings();
     }, [fetchSettings]);
 
+    const tenantId = useAuthStore(s => s.tenantId);
+    const [refreshSignal, setRefreshSignal] = useState(0);
+
     useEffect(() => {
         void loadStats();
+        // Still keep interval as a fallback
         const timer = setInterval(() => void loadStats(), 15_000);
         return () => clearInterval(timer);
     }, [loadStats]);
+
+    useEffect(() => {
+        if (!tenantId) return;
+        import('socket.io-client').then(({ io }) => {
+            const socket = io({ path: '/socket.io', transports: ['websocket', 'polling'] });
+            
+            socket.on('connect', () => {
+                socket.emit('join:tenant', tenantId);
+            });
+
+            const handleUpdate = () => {
+                void loadStats();
+                setRefreshSignal(n => n + 1);
+            };
+
+            socket.on('order:new', handleUpdate);
+            socket.on('order:status_changed', handleUpdate);
+            socket.on('order:ready', handleUpdate);
+            socket.on('kitchen:item_ready', handleUpdate);
+            socket.on('payment:received', handleUpdate);
+            socket.on('tables:updated', handleUpdate);
+
+            return () => {
+                socket.disconnect();
+            };
+        });
+    }, [tenantId, loadStats]);
 
     const lateReadyCount = useMemo(() => {
         const now = Date.now();
@@ -113,7 +157,7 @@ const HandoverPanel: React.FC = () => {
                 </div>
             </header>
             <div className="min-h-0 flex-1">
-                <HandoverCenterContent variant="standalone_page" />
+                <HandoverCenterContent variant="standalone_page" refreshSignal={refreshSignal} />
             </div>
         </div>
     );

@@ -25,10 +25,13 @@ import { AdminAccounting } from './pages/AdminAccounting';
 import { AdminCampaigns } from './pages/AdminCampaigns';
 import { AdminReservations } from './pages/AdminReservations';
 import FloorPlanDesigner from './pages/FloorPlanDesigner';
+import SaaSAdmin from './pages/SaaSAdmin';
 
 import QueueDisplay from './pages/QueueDisplay';
 import HandoverPanel from './pages/HandoverPanel';
 import { Toaster } from 'react-hot-toast';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { OfflineBanner } from './components/OfflineBanner';
 
 // Auth-protected route wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -62,7 +65,8 @@ const CourierRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     return <>{children}</>;
 };
 
-const KITCHEN_ROLES = new Set(['kitchen', 'admin', 'cashier']);
+// KDS (Kitchen Display System) erişimi: cashier rolünün yetkisi güvenlik gereği kaldırıldı. (Sadece kitchen ve admin)
+const KITCHEN_ROLES = new Set(['kitchen', 'admin']);
 const KitchenRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { isAuthenticated, user, billingWorkspace } = useAuthStore();
     if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -88,6 +92,39 @@ const WaiterRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     return <>{children}</>;
 };
 
+// Handover (Teslim Merkezi) erişimi: Sadece admin ve cashier erişebilir.
+const HANDOVER_ROLES = new Set(['admin', 'cashier']);
+const HandoverRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const { isAuthenticated, user } = useAuthStore();
+    if (!isAuthenticated) return <Navigate to="/login" replace />;
+    if (!user?.role || !HANDOVER_ROLES.has(user.role)) {
+        return <Navigate to="/" replace />;
+    }
+    return <>{children}</>;
+};
+
+const CASHIER_ROLES = new Set(['admin', 'cashier']);
+const CashierRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const { isAuthenticated, user } = useAuthStore();
+    if (!isAuthenticated) return <Navigate to="/login" replace />;
+    if (!user?.role || !CASHIER_ROLES.has(user.role)) {
+        // Redirect to their default path if they try to access cashier
+        const fallback = user?.role === 'waiter' ? '/waiter' : 
+                         user?.role === 'kitchen' ? '/kitchen' : 
+                         user?.role === 'courier' ? '/courier' : '/login';
+        return <Navigate to={fallback} replace />;
+    }
+    return <>{children}</>;
+};
+
+const EntitlementRoute: React.FC<{ code: string; children: React.ReactNode }> = ({ code, children }) => {
+    const { billingWorkspace } = useAuthStore();
+    if (!getEntitlementEnabled(billingWorkspace, code)) {
+        return <Navigate to="/admin" replace />;
+    }
+    return <>{children}</>;
+};
+
 const KitchenRedirect: React.FC = () => {
     const { user } = useAuthStore();
     let st = 'all';
@@ -107,85 +144,79 @@ function OfflineSyncHost() {
     return null;
 }
 
-function SaaSAdminRedirect() {
-    React.useEffect(() => {
-        const target = (import.meta.env.VITE_SAAS_ADMIN_URL as string) || 'http://localhost:5176/saas-admin';
-        window.location.replace(target);
-    }, []);
-    return null;
-}
-
 function App() {
     return (
         <Router>
-            <PosLocaleProvider>
-                <OfflineSyncHost />
-                <Routes>
-                    {/* Public Routes */}
-                    <Route path="/login" element={<LoginPage />} />
-                    <Route path="/saas-admin" element={<SaaSAdminRedirect />} />
+            <ErrorBoundary>
+                <PosLocaleProvider>
+                    <OfflineSyncHost />
+                    <OfflineBanner />
+                    <Routes>
+                        {/* Public Routes */}
+                        <Route path="/login" element={<LoginPage />} />
+                        <Route path="/saas-admin" element={<SaaSAdmin />} />
 
-                    {/* Protected Routes */}
-                    <Route path="/" element={
-                        <ProtectedRoute><Navigate to="/cashier" replace /></ProtectedRoute>
-                    } />
-                    <Route path="/cashier" element={
-                        <ProtectedRoute><PosTerminal /></ProtectedRoute>
-                    } />
-                    <Route path="/kitchen" element={<KitchenRoute><KitchenRedirect /></KitchenRoute>} />
-                    <Route
-                        path="/kitchen/:station"
-                        element={
-                            <KitchenRoute>
-                                <KitchenMonitor />
-                            </KitchenRoute>
-                        }
-                    />
-                    <Route
-                        path="/admin"
-                        element={
-                            <ProtectedRoute>
-                                <AdminShell />
-                            </ProtectedRoute>
-                        }
-                    >
-                        <Route index element={<AdminDashboard />} />
-                        <Route path="menu" element={<AdminMenu />} />
-                        <Route path="floor" element={<AdminFloor />} />
-                        <Route path="staff" element={<AdminStaff />} />
-                        <Route path="staff-performance" element={<AdminStaffPerformance />} />
-                        <Route path="customers" element={<AdminCustomers />} />
-                        <Route path="campaigns" element={<AdminCampaigns />} />
-                        <Route path="reservations" element={<AdminReservations />} />
-                        <Route path="reports" element={<AdminReports />} />
-                        <Route path="stock" element={<AdminStock />} />
-                        <Route path="recipes" element={<AdminRecipes />} />
-                        <Route path="delivery" element={<AdminDeliveryZones />} />
-                        <Route path="couriers" element={<AdminCouriers />} />
-                        <Route path="designer" element={<FloorPlanDesigner />} />
-                        <Route path="settings" element={<AdminSettings />} />
-                        <Route path="accounting" element={<AdminAccounting />} />
-                    </Route>
-                    <Route path="/waiter" element={<WaiterRoute><WaiterPanel /></WaiterRoute>} />
-                    <Route path="/courier" element={
-                        <CourierRoute><CourierPanel /></CourierRoute>
-                    } />
+                        {/* Protected Routes */}
+                        <Route path="/" element={
+                            <CashierRoute><Navigate to="/cashier" replace /></CashierRoute>
+                        } />
+                        <Route path="/cashier" element={
+                            <CashierRoute><PosTerminal /></CashierRoute>
+                        } />
+                        <Route path="/kitchen" element={<KitchenRoute><KitchenRedirect /></KitchenRoute>} />
+                        <Route
+                            path="/kitchen/:station"
+                            element={
+                                <KitchenRoute>
+                                    <KitchenMonitor />
+                                </KitchenRoute>
+                            }
+                        />
+                        <Route
+                            path="/admin"
+                            element={
+                                <ProtectedRoute>
+                                    <AdminShell />
+                                </ProtectedRoute>
+                            }
+                        >
+                            <Route index element={<AdminDashboard />} />
+                            <Route path="menu" element={<AdminMenu />} />
+                            <Route path="floor" element={<AdminFloor />} />
+                            <Route path="staff" element={<AdminStaff />} />
+                            <Route path="staff-performance" element={<AdminStaffPerformance />} />
+                            <Route path="customers" element={<EntitlementRoute code="customer_crm"><AdminCustomers /></EntitlementRoute>} />
+                            <Route path="campaigns" element={<AdminCampaigns />} />
+                            <Route path="reservations" element={<EntitlementRoute code="table_reservation"><AdminReservations /></EntitlementRoute>} />
+                            <Route path="reports" element={<AdminReports />} />
+                            <Route path="stock" element={<EntitlementRoute code="inventory"><AdminStock /></EntitlementRoute>} />
+                            <Route path="recipes" element={<EntitlementRoute code="inventory"><AdminRecipes /></EntitlementRoute>} />
+                            <Route path="delivery" element={<EntitlementRoute code="courier_module"><AdminDeliveryZones /></EntitlementRoute>} />
+                            <Route path="couriers" element={<EntitlementRoute code="courier_module"><AdminCouriers /></EntitlementRoute>} />
+                            <Route path="designer" element={<FloorPlanDesigner />} />
+                            <Route path="settings" element={<AdminSettings />} />
+                            <Route path="accounting" element={<AdminAccounting />} />
+                        </Route>
+                        <Route path="/waiter" element={<WaiterRoute><WaiterPanel /></WaiterRoute>} />
+                        <Route path="/courier" element={
+                            <CourierRoute><CourierPanel /></CourierRoute>
+                        } />
 
-                    <Route path="/queue" element={<QueueDisplay />} />
-                    <Route path="/handover" element={<ProtectedRoute><HandoverPanel /></ProtectedRoute>} />
+                        <Route path="/queue" element={<QueueDisplay />} />
+                        {/* Handover paneline HandoverRoute koruması eklendi */}
+                        <Route path="/handover" element={<HandoverRoute><HandoverPanel /></HandoverRoute>} />
 
-                    {/* Customer Menu / QR */}
-                    <Route path="/qr/:tableId" element={<CustomerMenu />} />
-                    <Route path="/qr" element={<CustomerMenu />} />
-                    {/* Masa tableti — kiosk dijital menü */}
-                    <Route path="/kiosk/:tableId" element={<KioskCustomerMenu />} />
-                    <Route path="/kiosk" element={<KioskCustomerMenu />} />
+                        {/* Customer Menu / QR */}
+                        <Route path="/qr/:tableId" element={<CustomerMenu />} />
+                        <Route path="/qr" element={<CustomerMenu />} />
+                        <Route path="/kiosk/:tableId" element={<KioskCustomerMenu />} />
+                        <Route path="/kiosk" element={<KioskCustomerMenu />} />
 
-                    {/* Fallback */}
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-                <Toaster position="top-right" />
-            </PosLocaleProvider>
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                    <Toaster position="top-right" />
+                </PosLocaleProvider>
+            </ErrorBoundary>
         </Router>
     );
 }

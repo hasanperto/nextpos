@@ -12,6 +12,7 @@ import { TenantModulesModal } from './saas/TenantModulesModal';
 import { SaaSLocaleProvider } from '../contexts/SaaSLocaleContext';
 import { BranchesTab } from './admin-settings/BranchesTab';
 import { usePosLocale } from '../contexts/PosLocaleContext';
+import { printTestReceipt } from '../lib/posPrint';
 
 interface PosSettings {
     /** GET /admin/settings — abonelik yazıcı kotası */
@@ -537,7 +538,7 @@ export const AdminSettings: React.FC = () => {
                                             </label>
                                             <input
                                                 type="text"
-                                                value={settings.registration.name}
+                                                value={settings.registration.name || ""}
                                                 onChange={(e) => setSettings({ ...settings, registration: { ...settings.registration, name: e.target.value } })}
                                                 className="w-full bg-slate-900/50 border border-slate-800 text-white px-4 py-2.5 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all"
                                                 placeholder={t('settings.placeholder.companyName')}
@@ -548,7 +549,7 @@ export const AdminSettings: React.FC = () => {
                                                 {t('settings.labels.legalAddress')}
                                             </label>
                                             <textarea
-                                                value={settings.registration.address}
+                                                value={settings.registration.address || ""}
                                                 onChange={(e) => setSettings({ ...settings, registration: { ...settings.registration, address: e.target.value } })}
                                                 className="w-full bg-slate-900/50 border border-slate-800 text-white px-4 py-2.5 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all h-20 resize-none"
                                                 placeholder={t('settings.placeholder.address')}
@@ -561,7 +562,7 @@ export const AdminSettings: React.FC = () => {
                                                 </label>
                                                 <input
                                                     type="text"
-                                                    value={settings.registration.phone}
+                                                    value={settings.registration.phone || ""}
                                                     onChange={(e) => setSettings({ ...settings, registration: { ...settings.registration, phone: e.target.value } })}
                                                     className="w-full bg-slate-900/50 border border-slate-800 text-white px-4 py-2.5 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all"
                                                     placeholder={t('settings.placeholder.phone')}
@@ -573,7 +574,7 @@ export const AdminSettings: React.FC = () => {
                                                 </label>
                                                 <input
                                                     type="text"
-                                                    value={settings.registration.taxNumber}
+                                                    value={settings.registration.taxNumber || ""}
                                                     onChange={(e) => setSettings({ ...settings, registration: { ...settings.registration, taxNumber: e.target.value } })}
                                                     className="w-full bg-slate-900/50 border border-slate-800 text-white px-4 py-2.5 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all"
                                                     placeholder={t('settings.placeholder.taxNo')}
@@ -591,14 +592,21 @@ export const AdminSettings: React.FC = () => {
                                     <p className="text-[11px] font-bold text-slate-400 leading-relaxed mb-6">
                                         {t('settings.desc.demoSeeding')}
                                     </p>
-                                    <button
-                                        type="button"
-                                        onClick={() => setActiveTab('demo')}
-                                        className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-600/20 px-6 py-3 text-[11px] font-black uppercase tracking-wider text-amber-100 hover:bg-amber-600/40 transition-all active:scale-95"
-                                    >
-                                        <FiRefreshCw size={14} />
-                                        {t('settings.btn.goToDemo')}
-                                    </button>
+                                    {import.meta.env.PROD ? (
+                                        <div className="px-4 py-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-bold text-rose-400 flex items-center gap-2">
+                                            <FiAlertCircle size={16} />
+                                            Production ortamında demo verisi yüklenemez.
+                                        </div>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => setActiveTab('demo')}
+                                            className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-600/20 px-6 py-3 text-[11px] font-black uppercase tracking-wider text-amber-100 hover:bg-amber-600/40 transition-all active:scale-95"
+                                        >
+                                            <FiRefreshCw size={14} />
+                                            {t('settings.btn.goToDemo')}
+                                        </button>
+                                    )}
                                 </section>
 
                                 <section className="bg-white/5 rounded-3xl border border-white/5 p-8 shadow-sm">
@@ -1095,17 +1103,56 @@ export const AdminSettings: React.FC = () => {
                                                                     ) : null}
                                                                 </div>
                                                                 {d.deviceCode ? (
-                                                                    <button
-                                                                        type="button"
-                                                                        className="shrink-0 rounded-lg border border-white/15 p-2 text-slate-400 hover:bg-white/10 hover:text-white"
-                                                                        title={t('settings.btn.copy')}
-                                                                        onClick={() => {
-                                                                            void navigator.clipboard.writeText(d.deviceCode!);
-                                                                            toast.success(t('settings.toast.deviceCodeCopied'));
-                                                                        }}
-                                                                    >
-                                                                        <FiCopy size={14} />
-                                                                    </button>
+                                                                    <div className="flex items-center gap-1">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="shrink-0 rounded-lg border border-white/15 p-2 text-slate-400 hover:bg-white/10 hover:text-white"
+                                                                            title={t('settings.btn.copy')}
+                                                                            onClick={() => {
+                                                                                void navigator.clipboard.writeText(d.deviceCode!);
+                                                                                toast.success(t('settings.toast.deviceCodeCopied'));
+                                                                            }}
+                                                                        >
+                                                                            <FiCopy size={14} />
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="shrink-0 rounded-lg border border-rose-500/15 p-2 text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
+                                                                            title="İptal Et (Revoke)"
+                                                                            onClick={async () => {
+                                                                                if (!confirm('Bu cihazın erişimini iptal etmek istiyor musunuz? Cihaz anında kilitlenecektir.')) return;
+                                                                                try {
+                                                                                    const res = await fetch(`/api/v1/admin/settings/kiosk/revoke/${encodeURIComponent(d.deviceCode!)}`, {
+                                                                                        method: 'DELETE',
+                                                                                        headers: getAuthHeaders()
+                                                                                    });
+                                                                                    if (res.ok) {
+                                                                                        toast.success('Cihaz yetkisi iptal edildi.');
+                                                                                        // Optimistically remove from state
+                                                                                        setSettings(s => {
+                                                                                            const k = s.integrations.kiosk || { enabled: true, allowSelfRegistration: true, pairingSecret: '', deviceNotes: '', linkedDevices: [] };
+                                                                                            return {
+                                                                                                ...s,
+                                                                                                integrations: {
+                                                                                                    ...s.integrations,
+                                                                                                    kiosk: {
+                                                                                                        ...k,
+                                                                                                        linkedDevices: k.linkedDevices.filter(x => x.deviceCode !== d.deviceCode)
+                                                                                                    }
+                                                                                                }
+                                                                                            };
+                                                                                        });
+                                                                                    } else {
+                                                                                        toast.error('İptal işlemi başarısız.');
+                                                                                    }
+                                                                                } catch (e) {
+                                                                                    toast.error('Bağlantı hatası.');
+                                                                                }
+                                                                            }}
+                                                                        >
+                                                                            <FiTrash2 size={14} />
+                                                                        </button>
+                                                                    </div>
                                                                 ) : null}
                                                             </div>
                                                         ))
@@ -1142,6 +1189,14 @@ export const AdminSettings: React.FC = () => {
                                         >
                                             <FiRefreshCw size={14} className={agentLoading ? 'animate-spin' : ''} />
                                             {t('settings.btn.refreshPrinters')}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => printTestReceipt(settings)}
+                                            className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-600/30 px-4 py-2.5 text-[11px] font-black uppercase tracking-wider text-emerald-100 hover:bg-emerald-600/50"
+                                        >
+                                            <FiPrinter size={14} />
+                                            TEST ÇIKTISI AL
                                         </button>
                                         <span className="text-[10px] font-bold text-slate-500">
                                             {agentPrinters.length > 0 ? tpl(t, 'settings.status.printersFound', { count: agentPrinters.length }) : t('settings.status.noPrinters')}
@@ -1594,15 +1649,22 @@ export const AdminSettings: React.FC = () => {
                                             onChange={setDemoConfirmText}
                                             placeholder={t('settings.placeholder.demoConfirm')}
                                         />
-                                        <button
-                                            type="button"
-                                            onClick={handleSeedDemo}
-                                            disabled={seedingDemo}
-                                            className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-600/30 px-6 py-3 text-[11px] font-black uppercase tracking-wider text-amber-100 hover:bg-amber-600/50 disabled:opacity-50"
-                                        >
-                                            <FiRefreshCw size={14} className={seedingDemo ? 'animate-spin' : ''} />
-                                            {seedingDemo ? t('settings.status.demoLoading') : t('settings.btn.loadDemoNow')}
-                                        </button>
+                                        {import.meta.env.PROD ? (
+                                            <div className="px-4 py-3 mt-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-bold text-rose-400 flex items-center gap-2">
+                                                <FiAlertCircle size={16} />
+                                                Production ortamında demo verisi yüklenemez.
+                                            </div>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={handleSeedDemo}
+                                                disabled={seedingDemo}
+                                                className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-600/30 px-6 py-3 text-[11px] font-black uppercase tracking-wider text-amber-100 hover:bg-amber-600/50 disabled:opacity-50"
+                                            >
+                                                <FiRefreshCw size={14} className={seedingDemo ? 'animate-spin' : ''} />
+                                                {seedingDemo ? t('settings.status.demoLoading') : t('settings.btn.loadDemoNow')}
+                                            </button>
+                                        )}
                                     </div>
                                 </section>
                             </div>
@@ -1746,11 +1808,11 @@ const InputField: React.FC<{ label: string, value: string | number, placeholder?
     <div className="group">
         <label className="block text-[9px] font-black text-slate-500 mb-2 uppercase tracking-widest group-focus-within:text-blue-400 transition-colors">{label}</label>
         {type === 'select' ? (
-            <select value={String(value)} onChange={e => onChange(e.target.value)} className="w-full rounded-2xl border-2 border-white/10 bg-white/5 px-5 py-4 text-sm font-bold text-black outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all">
+            <select value={value === null || value === undefined ? "" : String(value)} onChange={e => onChange(e.target.value)} className="w-full rounded-2xl border-2 border-white/10 bg-white/5 px-5 py-4 text-sm font-bold text-black outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all">
                 {options?.map(o => <option key={o.v} value={o.v} className="bg-[#0f172a] text-black">{o.l}</option>)}
             </select>
         ) : (
-            <input type={type} value={String(value)} placeholder={placeholder} onChange={e => onChange(e.target.value)} className="w-full rounded-2xl border-2 border-white/10 bg-white/5 px-5 py-4 text-sm font-bold text-black outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all placeholder:text-slate-600" />
+            <input type={type} value={value === null || value === undefined ? "" : String(value)} placeholder={placeholder} onChange={e => onChange(e.target.value)} className="w-full rounded-2xl border-2 border-white/10 bg-white/5 px-5 py-4 text-sm font-bold text-black outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all placeholder:text-slate-600" />
         )}
     </div>
 );

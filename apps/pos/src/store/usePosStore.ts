@@ -139,7 +139,7 @@ function mapApiItemsToCart(raw: unknown): CartItem[] {
             id: Number(oi.product_id) || 0,
             categoryId: 0,
             name: '',
-            displayName: String(oi.product_name ?? 'Ürün'),
+            displayName: String(oi.product_name ?? oi.name ?? 'Ürün'),
             basePrice: '0',
             variants: [],
         },
@@ -154,7 +154,7 @@ function mapApiItemsToCart(raw: unknown): CartItem[] {
             : null,
         modifiers: [] as PosModifier[],
         qty: Number(oi.quantity) || 1,
-        price: Number(oi.unit_price) || 0,
+        price: Number(oi.unit_price ?? oi.price) || 0,
         notes: String(oi.notes ?? ''),
     }));
 }
@@ -304,7 +304,7 @@ interface PosState {
         pinCode?: string
     ) => Promise<{ ok: boolean; error?: string; needsPin?: boolean }>;
     /** Mevcut siparişi sepete yükler; gel-al ödemesi için checkoutTargetRemoteId set eder */
-    loadOrderToCart: (orderId: string) => Promise<boolean>;
+    loadOrderToCart: (orderId: string, externalOrder?: any) => Promise<boolean>;
     /** Gel-al kasada ödeme: yeni POST /checkout yerine mevcut siparişe ödeme */
     checkoutTargetRemoteId: number | null;
     addFakeReadyOrder: () => void;
@@ -451,7 +451,16 @@ export const usePosStore = create<PosState>()(
                     const sid = data?.id;
                     if (sid == null) return null;
                     await get().fetchTables();
-                    return { sessionId: Number(sid), clientSessionId };
+                    const sessionId = Number(sid);
+                    get().setSelectedTable({
+                        id: tableId,
+                        name: get().tables.find(t => t.id === tableId)?.name || '',
+                        translations: get().tables.find(t => t.id === tableId)?.translations || {},
+                        sectionName: get().tables.find(t => t.id === tableId)?.section_name || '',
+                        sessionId,
+                        clientSessionId,
+                    });
+                    return { sessionId, clientSessionId };
                 } catch (e) {
                     console.error('Masa açma (offline fallback?):', e);
                     if (shouldQueueOfflineError(e)) {
@@ -781,7 +790,8 @@ export const usePosStore = create<PosState>()(
                 }
 
                 if (orderType === 'dine_in' && !selectedTable) {
-                    return { ok: false, error: 'Masada sipariş için masa seçin' };
+                    // Masada değilse ve masa seçili değilse otomatik Gel-Al (Hızlı Satış) moduna geç
+                    set({ orderType: 'takeaway' });
                 }
 
                 if (orderType === 'takeaway') {
@@ -1024,7 +1034,8 @@ export const usePosStore = create<PosState>()(
                 }
 
                 if (orderType === 'dine_in' && !selectedTable) {
-                    return { ok: false, error: 'Masada sipariş için masa seçin' };
+                    // Masada değilse ve masa seçili değilse otomatik Gel-Al (Hızlı Satış) moduna geç
+                    set({ orderType: 'takeaway' });
                 }
 
                 if (orderType === 'takeaway') {
@@ -1307,11 +1318,31 @@ export const usePosStore = create<PosState>()(
                 }
             },
 
-            loadOrderToCart: async (orderId) => {
+            loadOrderToCart: async (orderId, externalOrder) => {
                 await get().fetchOrders();
                 const { orders, tables, products } = get();
-                const numericId = Number(String(orderId).replace('ORD-', ''));
-                const order = orders.find((o) => o.id === orderId || o.remoteId === numericId);
+
+                let order = orders.find((o) => o.id === orderId || o.remoteId === Number(orderId));
+
+                if (!order && externalOrder) {
+                    const numericId = Number(String(externalOrder.id || '').replace('ORD-', '').replace(/[^0-9]/g, ''));
+                    order = orders.find((o) => o.id === `ORD-${numericId}` || o.remoteId === numericId);
+                }
+
+                if (!order && externalOrder) {
+                    order = {
+                        id: String(externalOrder.id || ''),
+                        remoteId: Number(externalOrder.id) || undefined,
+                        sessionId: undefined,
+                        items: mapApiItemsToCart(externalOrder.items || []),
+                        total: Number(externalOrder.total_amount || externalOrder.total || 0),
+                        orderType: (externalOrder.order_type === 'delivery' ? 'delivery' : 'takeaway') as Order['orderType'],
+                        status: mapApiOrderStatus(String(externalOrder.status || 'pending')),
+                        customerName: String(externalOrder.customer_name || externalOrder.customerName || 'Müşteri'),
+                        tableNumber: undefined,
+                        createdAt: new Date(String(externalOrder.created_at || Date.now())),
+                    };
+                }
 
                 if (!order) {
                     set({ checkoutTargetRemoteId: null });
@@ -1426,7 +1457,12 @@ export const usePosStore = create<PosState>()(
                     const res = await fetch('/api/v1/orders/split-checkout', {
                         method: 'POST',
                         headers,
-                        body: JSON.stringify({ sessionId, items, payment }),
+                        body: JSON.stringify({ 
+                            sessionId, 
+                            items, 
+                            payment,
+                            loyaltyPointsToRedeem: get().loyaltyRedeemPoints > 0 ? get().loyaltyRedeemPoints : undefined
+                        }),
                     });
                     if (res.status === 401) {
                         useAuthStore.getState().logout();
@@ -1476,7 +1512,11 @@ export const usePosStore = create<PosState>()(
                     const res = await fetch('/api/v1/orders/checkout-session', {
                         method: 'POST',
                         headers,
-                        body: JSON.stringify({ sessionId, payment }),
+                        body: JSON.stringify({ 
+                            sessionId, 
+                            payment,
+                            loyaltyPointsToRedeem: get().loyaltyRedeemPoints > 0 ? get().loyaltyRedeemPoints : undefined
+                        }),
                     });
                     if (res.status === 401) {
                         useAuthStore.getState().logout();

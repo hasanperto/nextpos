@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-    FiDollarSign, FiSearch, FiRefreshCcw, FiEdit, FiTrash2, 
+    FiDollarSign, FiSearch, FiRefreshCcw, FiEdit, 
     FiCheckCircle, FiXCircle, FiCalendar, FiFileText, FiGift, FiTrendingUp
 } from 'react-icons/fi';
 import { motion } from 'framer-motion';
@@ -40,8 +40,8 @@ export const AdminAccounting: React.FC = () => {
     const [search, setSearch] = useState('');
     const [editing, setEditing] = useState<Transaction | null>(null);
     const [editForm, setEditForm] = useState({ total_amount: 0, status: '', notes: '' });
-    const [deletingId, setDeletingId] = useState<number | null>(null);
-    const [deleteReason, setDeleteReason] = useState('');
+    // Muhasebe silme işlevi (deletingId, deleteReason) planda belirtildiği gibi tamamen kaldırıldı.
+    // Muhasebede sadece storno (iptal/iade) işlemi yapılmalıdır.
     const [visibility, setVisibility] = useState<{ hideCancelled: boolean; hideDeleted: boolean }>({
         hideCancelled: false,
         hideDeleted: false,
@@ -157,51 +157,7 @@ export const AdminAccounting: React.FC = () => {
         } catch { toast.error('İşlem kaydedilemedi. İnternet bağlantısını kontrol edip tekrar deneyin.'); }
     };
 
-    const confirmDelete = async () => {
-        if (!deletingId || !token || !tenantId) return;
-        try {
-            const res = await fetch(`/api/v1/admin/accounting/${deletingId}/delete`, {
-                method: 'POST',
-                headers: { 
-                    'Authorization': `Bearer ${token}`,
-                    'x-tenant-id': tenantId,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ reason: deleteReason.trim() || null }),
-            });
-            
-            if (res.ok) {
-                setDeletingId(null);
-                setDeleteReason('');
-                fetchTransactions();
-            } else if (res.status === 401) {
-                const refreshed = await refreshTokenAction();
-                if (refreshed) confirmDelete();
-            }
-        } catch { toast.error('Silme işlemi tamamlanamadı. İnternet bağlantısını kontrol edip tekrar deneyin.'); }
-    };
-
-    const restoreTransaction = async (id: number) => {
-        if (!token || !tenantId) return;
-        try {
-            const res = await fetch(`/api/v1/admin/accounting/${id}/restore`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'x-tenant-id': tenantId,
-                },
-            });
-            if (res.ok) {
-                toast.success('Kayıt geri alındı');
-                fetchTransactions();
-            } else if (res.status === 401) {
-                const refreshed = await refreshTokenAction();
-                if (refreshed) restoreTransaction(id);
-            }
-        } catch {
-            toast.error('Geri alma başarısız. İnternet bağlantısını kontrol edip tekrar deneyin.');
-        }
-    };
+    // Silme (confirmDelete) ve Geri Alma (restoreTransaction) fonksiyonları güvenlik gereği tamamen kaldırıldı.
 
     const filtered = transactions.filter(t => {
         const textMatch = t.id.toString().includes(search) || 
@@ -331,9 +287,7 @@ export const AdminAccounting: React.FC = () => {
                     {!visibility.hideCancelled && (
                         <TabBtn id="cancelled" active={type} onClick={() => setType('cancelled')} label="VOID & CANCELLED LOGS" icon={<FiXCircle/>}/>
                     )}
-                    {!visibility.hideDeleted && (
-                        <TabBtn id="deleted" active={type} onClick={() => setType('deleted')} label="DELETED (HIDDEN)" icon={<FiTrash2/>}/>
-                    )}
+                    {/* Silinenler sekmesi de güvenlik gereği (sadece storno kuralı) arayüzden gizlendi. */}
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-10 space-y-6 custom-scrollbar">
@@ -387,22 +341,7 @@ export const AdminAccounting: React.FC = () => {
                                             <FiEdit size={20}/>
                                         </button>
                                     )}
-                                    {type === 'sales' && (
-                                        <button 
-                                            onClick={() => setDeletingId(t.id)}
-                                            className="w-14 h-14 rounded-[1.2rem] bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all active:scale-90"
-                                        >
-                                            <FiTrash2 size={20}/>
-                                        </button>
-                                    )}
-                                    {type === 'deleted' && (
-                                        <button
-                                            onClick={() => restoreTransaction(t.id)}
-                                            className="w-14 h-14 rounded-[1.2rem] bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all active:scale-90"
-                                        >
-                                            <FiRefreshCcw size={20}/>
-                                        </button>
-                                    )}
+                                    {/* Silme (FiTrash2) ve Geri Alma (FiRefreshCcw) butonları kaldırıldı */}
                                 </div>
                             </div>
                         </div>
@@ -470,42 +409,7 @@ export const AdminAccounting: React.FC = () => {
                 </div>
             )}
 
-            {deletingId && (
-                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-rose-950/40 backdrop-blur-xl p-8 animate-in fade-in duration-300">
-                    <div className="w-full max-w-md rounded-[3.5rem] bg-slate-900 border border-white/5 p-12 shadow-2xl animate-in zoom-in-95 duration-500 text-center relative overflow-hidden">
-                        <div className="w-24 h-24 rounded-[2.5rem] bg-rose-500/20 text-rose-500 flex items-center justify-center mx-auto mb-10 border border-rose-500/30">
-                            <FiTrash2 size={40} />
-                        </div>
-                        <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter mb-4">Muhasebeden Gizle</h3>
-                        <p className="text-sm font-medium text-slate-400 mb-8 leading-relaxed px-4">
-                            <span className="text-white font-black">#{deletingId}</span> kaydı muhasebe listesinde görünmez olacak. Geri almak için “DELETED (HIDDEN)” sekmesinden geri alabilirsiniz.
-                        </p>
-                        <div className="mb-10">
-                            <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mb-3">
-                                Gizleme Nedeni (Opsiyonel)
-                            </label>
-                            <textarea
-                                value={deleteReason}
-                                onChange={(e) => setDeleteReason(e.target.value)}
-                                placeholder="Örn: yanlış kayıt, müşteri şikayeti, tekrar basım…"
-                                className="w-full rounded-2xl border border-white/5 bg-black/40 px-5 py-4 text-[12px] font-bold text-white focus:border-rose-500/50 outline-none transition-all min-h-[96px]"
-                            />
-                        </div>
-                        <div className="flex flex-col gap-4">
-                             <button 
-                                onClick={confirmDelete}
-                                className="w-full rounded-[1.8rem] bg-rose-600 py-6 text-[11px] font-black text-white hover:bg-rose-500 active:scale-95 transition-all uppercase tracking-[0.3em]"
-                             > Gizle
-                             </button>
-                             <button 
-                                onClick={() => { setDeletingId(null); setDeleteReason(''); }}
-                                className="w-full rounded-[1.8rem] py-6 text-[11px] font-black text-slate-500 hover:text-white transition-all uppercase tracking-widest"
-                             > Vazgeç
-                             </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Silme doğrulama modalı (deletingId) sistemden çıkarıldı */}
         </main>
     );
 };

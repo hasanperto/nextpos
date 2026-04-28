@@ -159,8 +159,11 @@ export const KioskCustomerMenu: React.FC = () => {
     const [settingsPinBusy, setSettingsPinBusy] = useState(false);
     const [settingsPinErr, setSettingsPinErr] = useState<string | null>(null);
 
+    const [orderReadyLabel, setOrderReadyLabel] = useState<string | null>(null);
+
     const socketRef = useRef<Socket | null>(null);
     const menuSyncRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     /** Sayfa yeniden açıldığında (kayıtlı cihaz) menüye doğrudan geç */
     const openMenuAfterRestoreRef = useRef(false);
 
@@ -217,6 +220,46 @@ export const KioskCustomerMenu: React.FC = () => {
     useEffect(() => {
         if (view !== 'menu') setHeaderMenuOpen(false);
     }, [view]);
+
+    const goIdle = useCallback(() => {
+        if (view === 'idle') return;
+        setView('idle');
+        setCart([]);
+        setDetailProduct(null);
+        setConfirmOpen(false);
+        setCartOpen(false);
+        setHeaderMenuOpen(false);
+        setSuccessOpen(false);
+        setSettingsOpen(false);
+        setGuestName('');
+        setGuestCount(2);
+        setNote('');
+        toast(km.idleTimeout || 'Oturum zaman aşımına uğradı.', { icon: '⏳', style: { background: '#0f172a', color: '#fff' } });
+    }, [view, km.idleTimeout]);
+
+    const resetIdleTimer = useCallback(() => {
+        if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+        if (view === 'idle') return;
+        // Reset after 120 seconds of inactivity
+        idleTimerRef.current = setTimeout(() => {
+            goIdle();
+        }, 120000); 
+    }, [view, goIdle]);
+
+    useEffect(() => {
+        if (view === 'idle') {
+            if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+            return;
+        }
+        const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+        const handler = () => resetIdleTimer();
+        events.forEach(e => document.addEventListener(e, handler, { passive: true }));
+        resetIdleTimer();
+        return () => {
+            events.forEach(e => document.removeEventListener(e, handler));
+            if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+        };
+    }, [view, resetIdleTimer]);
 
     /** Dışarı tıklanınca dil/ayarlar panelini kapat */
     useEffect(() => {
@@ -439,6 +482,42 @@ export const KioskCustomerMenu: React.FC = () => {
 
         socket.on('sync:menu_revision', scheduleMenuReload);
         socket.on('sync:tables_changed', scheduleMenuReload);
+        socket.on('kiosk:revoked', () => {
+            localStorage.removeItem(KIOSK_STORAGE_KEY);
+            window.location.reload();
+        });
+        
+        socket.on('order:ready', (data: any) => {
+            if (data?.tableId === tableInfo.tableId) {
+                setOrderReadyLabel(`Sipariş #${data.orderId} Hazır!`);
+                setTimeout(() => setOrderReadyLabel(null), 15000);
+            }
+        });
+        socket.on('kitchen:item_ready', (data: any) => {
+            if (data?.tableId === tableInfo.tableId) {
+                setOrderReadyLabel(`Sipariş #${data.orderId} Hazır!`);
+                setTimeout(() => setOrderReadyLabel(null), 15000);
+            }
+        });
+
+        const verifyInterval = setInterval(async () => {
+            const raw = localStorage.getItem(KIOSK_STORAGE_KEY);
+            if (!raw) return;
+            try {
+                const b = JSON.parse(raw) as KioskStoredBinding;
+                if (b.deviceCode && b.tenantId) {
+                    const res = await fetch('/api/v1/public/kiosk/session', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tenantId: b.tenantId, deviceCode: b.deviceCode }),
+                    });
+                    if (res.status === 404 || res.status === 403) {
+                        localStorage.removeItem(KIOSK_STORAGE_KEY);
+                        window.location.reload();
+                    }
+                }
+            } catch { /* ignore */ }
+        }, 120000); // verify every 2 minutes
 
         const onServiceCallAccepted = () => {
             const m = getKioskT(lang);
@@ -453,6 +532,10 @@ export const KioskCustomerMenu: React.FC = () => {
         return () => {
             socketRef.current = null;
             if (menuSyncRef.current) clearTimeout(menuSyncRef.current);
+            clearInterval(verifyInterval);
+            socket.off('kiosk:revoked');
+            socket.off('order:ready');
+            socket.off('kitchen:item_ready');
             socket.off('customer:service_call_accepted', onServiceCallAccepted);
             socket.disconnect();
         };
@@ -686,17 +769,6 @@ export const KioskCustomerMenu: React.FC = () => {
         } finally {
             setWizBusy(false);
         }
-    };
-
-    const goIdle = () => {
-        setView('idle');
-        setCart([]);
-        setGuestName('');
-        setNote('');
-        setIdentifiedCustomer(null);
-        setConfirmOpen(false);
-        setCartOpen(false);
-        setHeaderMenuOpen(false);
     };
 
     const demoPhoneLogin = () => {
@@ -1696,6 +1768,29 @@ export const KioskCustomerMenu: React.FC = () => {
                             <h3 className="text-lg font-bold text-emerald-400">{km.succTitle}</h3>
                             <p className="mt-1.5 text-[11px] text-white/40">{km.succSub}</p>
                         </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Order Ready Animation */}
+            <AnimatePresence>
+                {orderReadyLabel && (
+                    <motion.div
+                        className="fixed top-10 left-1/2 -translate-x-1/2 z-[400] flex items-center justify-center pointer-events-none"
+                        initial={{ y: -50, opacity: 0, scale: 0.9 }}
+                        animate={{ y: 0, opacity: 1, scale: 1 }}
+                        exit={{ y: -50, opacity: 0, scale: 0.9 }}
+                        transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+                    >
+                        <div className="flex items-center gap-4 bg-emerald-500 rounded-full px-8 py-4 shadow-[0_10px_40px_rgba(16,185,129,0.4)] ring-4 ring-emerald-500/30 text-white">
+                            <div className="flex items-center justify-center w-10 h-10 bg-white/20 rounded-full">
+                                <FiCheck className="text-2xl" />
+                            </div>
+                            <div>
+                                <div className="text-sm font-black uppercase tracking-widest text-emerald-100">{km.orderReadyLabel || 'HAZIR'}</div>
+                                <div className="text-xl font-bold">{orderReadyLabel}</div>
+                            </div>
+                        </div>
                     </motion.div>
                 )}
             </AnimatePresence>

@@ -106,6 +106,10 @@ export type KioskMessages = {
     settingsPinWrong: string;
     settingsPinBusy: string;
     settingsResetOk: string;
+    /** Idle timeout mesajı */
+    idleTimeout: string;
+    /** Sipariş hazır etiketi */
+    orderReadyLabel: string;
 };
 
 const tr: KioskMessages = {
@@ -203,6 +207,8 @@ const tr: KioskMessages = {
     settingsPinWrong: 'PIN hatalı',
     settingsPinBusy: 'Kontrol ediliyor…',
     settingsResetOk: 'Bağlantı kaldırıldı',
+    idleTimeout: 'Oturum zaman aşımına uğradı',
+    orderReadyLabel: 'HAZIR',
 };
 
 const en: KioskMessages = {
@@ -300,6 +306,8 @@ const en: KioskMessages = {
     settingsPinWrong: 'Wrong PIN',
     settingsPinBusy: 'Checking…',
     settingsResetOk: 'Link removed',
+    idleTimeout: 'Session timed out',
+    orderReadyLabel: 'READY',
 };
 
 const de: KioskMessages = {
@@ -397,6 +405,8 @@ const de: KioskMessages = {
     settingsPinWrong: 'Falsche PIN',
     settingsPinBusy: 'Wird geprüft…',
     settingsResetOk: 'Verknüpfung entfernt',
+    idleTimeout: 'Sitzung abgelaufen',
+    orderReadyLabel: 'FERTIG',
 };
 
 export const kioskMenuMessages: Record<KioskLang, KioskMessages> = { tr, en, de };

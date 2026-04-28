@@ -217,3 +217,24 @@ export function reprintKitchenTicket(settings: unknown, snap: KitchenTicketSnaps
 export function reprintReceiptTicket(settings: unknown, snap: ReceiptTicketSnapshot): void {
     printReceiptTicket({ settings, ...snap });
 }
+
+export function printTestReceipt(_settings: unknown): void {
+    const html = `
+      <div class="ticket">
+        <h1>SİSTEM TESTİ</h1>
+        <div class="sub">YAZICI BAĞLANTISI BAŞARILI</div>
+        <div class="divider"></div>
+        <div class="meta">
+          <span class="muted">${new Date().toLocaleString()}</span>
+        </div>
+        <div class="divider"></div>
+        <div style="text-align:center; padding: 20px 0; font-weight: bold;">
+          Bu bir test çıktısıdır.<br/>
+          Cihazınız başarıyla yapılandırıldı.
+        </div>
+        <div class="divider"></div>
+        <div class="foot">NextPOS Sistemi</div>
+      </div>
+    `;
+    openPrintWindow('Test-Print', html);
+}

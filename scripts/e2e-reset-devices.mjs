@@ -1,5 +1,5 @@
 const TENANT_ID = process.env.E2E_TENANT_ID || 'a1111111-1111-4111-8111-111111111111';
-const API_BASE = process.env.E2E_API_BASE || 'http://127.0.0.1:5000';
+const API_BASE = process.env.E2E_API_BASE || 'http://127.0.0.1:3101';
 
 async function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));

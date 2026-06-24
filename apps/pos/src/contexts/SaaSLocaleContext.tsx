@@ -6,7 +6,7 @@ const STORAGE_KEY = 'nextpos-saas-locale';
 type SaaSLocaleContextValue = {
     lang: SaaSLang;
     setLang: (l: SaaSLang) => void;
-    t: (key: string, fallback?: string) => string;
+    t: (key: string, variables?: Record<string, any> | string, fallback?: string) => string;
     languages: { code: string; name: string; nativeName?: string; flagEmoji?: string }[];
 };
 
@@ -106,15 +106,25 @@ export const SaaSLocaleProvider: React.FC<{ children: React.ReactNode; initialLa
     const tr = saasMessages.tr;
 
     const t = useCallback(
-        (key: string, fallback?: string) => {
-            if (overrides[key] != null && overrides[key] !== '') return overrides[key];
-            if (base[key] != null) return base[key];
-            // Çeviri temizliği: aktif dilde yoksa de -> en -> tr zinciriyle dön.
-            if (de[key] != null) return de[key];
-            if (en[key] != null) return en[key];
-            if (tr[key] != null) return tr[key];
-            const fb = fallback ?? key;
-            return fb;
+        (key: string, variables?: Record<string, any> | string, fallback?: string) => {
+            const vars = typeof variables === 'object' ? variables : undefined;
+            const actualFallback = typeof variables === 'string' ? variables : fallback;
+
+            let result = '';
+            if (overrides[key] != null && overrides[key] !== '') result = overrides[key];
+            else if (base[key] != null) result = base[key];
+            else if (de[key] != null) result = de[key];
+            else if (en[key] != null) result = en[key];
+            else if (tr[key] != null) result = tr[key];
+            else result = actualFallback ?? key;
+
+            if (vars) {
+                Object.entries(vars).forEach(([k, v]) => {
+                    result = result.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+                });
+            }
+
+            return result;
         },
         [base, overrides, de, en, tr],
     );

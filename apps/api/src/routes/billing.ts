@@ -15,6 +15,18 @@ import {
     getTenantBillingStatusHandler,
     getTenantQrWebDomainHandler,
     postTenantQrWebDomainProvisionHandler,
+    postCheckoutLinkHandler,
+    getCheckoutCallbackHandler,
+    postPayWithResellerWalletHandler,
+    postPayWithTenantWalletHandler,
+    getTenantWalletTransactionsHandler,
+    postDepositTenantWalletHandler,
+    postTenantWalletChargeHandler,
+    postTransferResellerWalletToTenantHandler,
+    postPurchaseModuleHandler,
+    postPurchaseBulkPlanHandler,
+    getTenantPaymentHistoryHandler,
+    getBillingPlansHandler,
 } from '../controllers/billing.controller.js';
 import { authMiddleware, optionalAuth, requireRole } from '../middleware/auth.js';
 
@@ -55,5 +67,22 @@ billingRouter.post(
  */
 billingRouter.get('/status', authMiddleware, getTenantBillingStatusHandler);
 billingRouter.get('/tenants/:tenantId/status', authMiddleware, requireSuperAdmin, getTenantBillingStatusHandler);
+
+billingRouter.get('/payments', authMiddleware, requireRole('admin', 'super_admin'), getTenantPaymentHistoryHandler);
+billingRouter.get('/plans', authMiddleware, getBillingPlansHandler);
+
+/** Çevrimiçi Ödeme Rotaları */
+billingRouter.post('/payments/:paymentHistoryId/checkout-link', authMiddleware, postCheckoutLinkHandler);
+billingRouter.get('/checkout/callback', getCheckoutCallbackHandler);
+billingRouter.post('/payments/:paymentHistoryId/pay-with-wallet', authMiddleware, requireRole('reseller'), postPayWithResellerWalletHandler);
+billingRouter.post('/payments/:paymentHistoryId/pay-with-tenant-wallet', authMiddleware, requireRole('admin'), postPayWithTenantWalletHandler);
+
+/** 💳 B2B FinTech & Prepaid Tenant Wallet Rotaları */
+billingRouter.get('/tenants/:tenantId/wallet/transactions', authMiddleware, getTenantWalletTransactionsHandler);
+billingRouter.post('/tenants/:tenantId/wallet/deposit', authMiddleware, postDepositTenantWalletHandler);
+billingRouter.post('/tenants/:tenantId/wallet/charge', authMiddleware, requireSuperAdmin, postTenantWalletChargeHandler);
+billingRouter.post('/reseller/wallet/transfer', authMiddleware, requireRole('reseller'), postTransferResellerWalletToTenantHandler);
+billingRouter.post('/tenants/:tenantId/modules/:moduleCode/purchase', authMiddleware, postPurchaseModuleHandler);
+billingRouter.post('/tenants/:tenantId/plans/purchase-bulk', authMiddleware, postPurchaseBulkPlanHandler);
 
 export default billingRouter;

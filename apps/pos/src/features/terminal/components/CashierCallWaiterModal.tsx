@@ -27,7 +27,7 @@ export const CashierCallWaiterModal: React.FC<Props> = ({ open, onClose, onAfter
     const [waiters, setWaiters] = useState<WaiterRow[]>([]);
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
-    const [waiterId, setWaiterId] = useState<number | ''>('');
+    const [waiterId, setWaiterId] = useState<number | 'all' | ''>('');
     const [note, setNote] = useState('');
     const [panelPos, setPanelPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
@@ -85,8 +85,9 @@ export const CashierCallWaiterModal: React.FC<Props> = ({ open, onClose, onAfter
     }, [open, getAuthHeaders]);
 
     const handleSubmit = async () => {
-        const wid = waiterId === '' ? NaN : Number(waiterId);
-        if (!Number.isFinite(wid) || wid <= 0) {
+        const isAll = waiterId === 'all';
+        const wid = waiterId === '' || waiterId === 'all' ? NaN : Number(waiterId);
+        if (!isAll && (!Number.isFinite(wid) || wid <= 0)) {
             toast.error('Garson seçin');
             return;
         }
@@ -96,7 +97,7 @@ export const CashierCallWaiterModal: React.FC<Props> = ({ open, onClose, onAfter
                 method: 'POST',
                 headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    targetWaiterId: wid,
+                    targetWaiterId: isAll ? null : wid,
                     message: note.trim() || undefined,
                 }),
             });
@@ -105,7 +106,7 @@ export const CashierCallWaiterModal: React.FC<Props> = ({ open, onClose, onAfter
                 toast.error((err as { error?: string }).error || 'Çağrı gönderilemedi');
                 return;
             }
-            toast.success('Garson çağrısı gönderildi');
+            toast.success(isAll ? 'Tum garsonlara cagri gonderildi' : 'Garson çağrısı gönderildi');
             onAfterSubmit?.();
             onClose();
         } catch {
@@ -180,10 +181,20 @@ export const CashierCallWaiterModal: React.FC<Props> = ({ open, onClose, onAfter
                                 ) : (
                                     <select
                                         value={waiterId === '' ? '' : String(waiterId)}
-                                        onChange={(e) => setWaiterId(e.target.value ? Number(e.target.value) : '')}
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-500/40"
+                                        onChange={(e) => {
+                                            const v = e.target.value;
+                                            if (!v) {
+                                                setWaiterId('');
+                                            } else if (v === 'all') {
+                                                setWaiterId('all');
+                                            } else {
+                                                setWaiterId(Number(v));
+                                            }
+                                        }}
+                                        className="w-full bg-slate-900 border border-white/15 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-500/50"
                                     >
                                         <option value="">Garson seçin…</option>
+                                        <option value="all">Tum garsonlar</option>
                                         {waiters.map((w) => (
                                             <option key={w.id} value={w.id}>
                                                 {w.name}
@@ -202,7 +213,7 @@ export const CashierCallWaiterModal: React.FC<Props> = ({ open, onClose, onAfter
                                     onChange={(e) => setNote(e.target.value)}
                                     rows={3}
                                     placeholder="Örn: Kasiyere gel / şef masası"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm font-medium text-white placeholder:text-slate-600 outline-none focus:border-amber-500/40 resize-none"
+                                    className="w-full bg-slate-900 border border-white/15 rounded-xl px-4 py-3 text-sm font-medium text-white placeholder:text-slate-500 outline-none focus:border-amber-500/50 resize-none"
                                 />
                             </div>
                         </div>

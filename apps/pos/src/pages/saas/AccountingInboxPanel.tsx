@@ -30,8 +30,8 @@ export const AccountingInboxPanel: React.FC<AccountingInboxPanelProps> = ({ pend
     const paidList = paidMax != null ? paidRecent.slice(0, paidMax) : paidRecent;
 
     return (
-        <div className="bg-slate-900/50 border border-white/5 p-8 rounded-[32px]">
-            <h4 className="text-xs font-black text-white uppercase tracking-widest mb-6 flex items-center gap-2">
+        <div className="bg-slate-900/50 border border-slate-200 dark:border-slate-800 p-8 rounded-2xl">
+            <h4 className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-widest mb-6 flex items-center gap-2">
                 <FiAlertCircle className="text-indigo-300" /> {t('finance.accountingInboxTitle')}
             </h4>
 
@@ -49,10 +49,10 @@ export const AccountingInboxPanel: React.FC<AccountingInboxPanelProps> = ({ pend
                         const statusLabel = p.status === 'pending' ? t('finance.statusPending') : t('finance.statusOverdue');
                         const isBusy = inboxBusyId === p.id;
                         return (
-                            <div key={p.id} className="p-4 bg-white/5 rounded-2xl border border-white/5 hover:border-indigo-500/30 transition-all">
+                            <div key={p.id} className="p-4 bg-white/5 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-indigo-500/30 transition-all">
                                 <div className="flex items-start justify-between gap-2 mb-2">
                                     <div className="min-w-0">
-                                        <div className="text-xs font-black text-white truncate">{p.tenant_name || p.tenant_id}</div>
+                                        <div className="text-xs font-black text-slate-800 dark:text-white truncate">{p.tenant_name || p.tenant_id}</div>
                                         <div className="text-[10px] text-slate-500 font-bold italic mt-1 flex items-center gap-2">
                                             <FiCalendar size={12} /> {dueStr}
                                         </div>
@@ -69,7 +69,7 @@ export const AccountingInboxPanel: React.FC<AccountingInboxPanelProps> = ({ pend
                                 </div>
 
                                 <div className="flex items-center justify-between">
-                                    <div className="text-xs font-black text-white">{currency}{Number(p.amount || 0).toFixed(2)}</div>
+                                    <div className="text-xs font-black text-slate-800 dark:text-white">{currency}{Number(p.amount || 0).toFixed(2)}</div>
                                     <div className="flex gap-2">
                                         <button
                                             type="button"
@@ -104,8 +104,8 @@ export const AccountingInboxPanel: React.FC<AccountingInboxPanelProps> = ({ pend
                         );
                     })
                 )}
-                <div className="pt-4 border-t border-white/10">
-                    <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-3">
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+                    <div className="text-[10px] font-black text-slate-600 dark:text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3">
                         {t('finance.accountingPaidRecent')}
                     </div>
                     {paidList.length === 0 ? (
@@ -116,7 +116,7 @@ export const AccountingInboxPanel: React.FC<AccountingInboxPanelProps> = ({ pend
                             return (
                                 <div key={p.id} className="flex items-center justify-between gap-2 mb-2">
                                     <div className="min-w-0">
-                                        <div className="text-[11px] text-white font-bold truncate">{p.tenant_name || p.tenant_id}</div>
+                                        <div className="text-[11px] text-slate-800 dark:text-white font-bold truncate">{p.tenant_name || p.tenant_id}</div>
                                         <div className="text-[10px] text-slate-500 font-bold">{paidStr}</div>
                                     </div>
                                     <div className="text-[11px] text-emerald-300 font-black tabular-nums">{currency}{Number(p.amount || 0).toFixed(2)}</div>

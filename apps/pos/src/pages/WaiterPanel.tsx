@@ -7,17 +7,23 @@ import {
     FiSearch, FiGrid, FiClock, FiPlus, FiMinus, 
     FiPieChart, FiLayout,
     FiCheckCircle, FiBell, FiChevronLeft, FiCreditCard,
-    FiLayers, FiActivity, FiUser, FiBriefcase, FiMoreVertical, FiTrendingUp, FiArrowRight, FiTrash2
+    FiLayers, FiActivity, FiUser, FiBriefcase, FiMoreVertical, FiTrendingUp, FiArrowRight, FiTrash2,
+    FiPauseCircle, FiDollarSign, FiEye
 } from 'react-icons/fi';
 import { useAuthStore } from '../store/useAuthStore';
 import { usePosStore } from '../store/usePosStore';
+import { useUIStore } from '../store/useUIStore';
 import { usePosLocale } from '../contexts/PosLocaleContext';
-import { playNotification } from '../lib/notifications';
+import { playNotification, primeNotificationAudio } from '../lib/notifications';
+import { getSocketOrigin } from '../lib/socketOrigin';
 import { CustomerIdentify } from '../components/pos/CustomerIdentify';
 import { OrderProductModal, productHasConfigurableOptions } from '../components/pos/OrderProductModal';
 import type { PosModifier, PosProduct } from '../store/usePosStore';
 import { getLongOccupiedThresholdMinutes } from '../lib/floorSettings';
 import { ModernConfirmModal } from '../features/terminal/components/ModernConfirmModal';
+import { OfflineBanner } from '../components/OfflineBanner';
+import { isOfflineNow, loadTablesCache, saveTablesCache } from '../lib/menuCache';
+import { isOfflineLocked } from '../lib/offlinePolicy';
 
 // Types
 type TableRow = {
@@ -39,6 +45,11 @@ type TableRow = {
     total_amount?: number;
     session_opened_at?: string;
     capacity?: number;
+    position_x?: number | null;
+    position_y?: number | null;
+    shape?: string | null;
+    active_staff_id?: number | null;
+    active_staff_name?: string | null;
 };
 
 type QrRequest = {
@@ -105,13 +116,33 @@ type ServiceCallMeta = {
     serviceCallId: number;
     assignedWaiterId: number | null;
     createdAtMs: number;
+    callType?: string;
+    message?: string | null;
 };
 
 /** Kasiyerden masasız hedef garson çağrısı (API `table_id` NULL) */
 type CashierNoTableCall = {
     serviceCallId: number;
     created_at: string;
+    message?: string | null;
 };
+
+function serviceCallText(callType?: string, message?: string | null): string {
+    const ct = String(callType || '').toLowerCase();
+    if (ct === 'clear_table') return 'TEMIZLIK / MASA TOPLAMA';
+    if (ct === 'water') return 'SU TALEBI';
+    if (ct === 'request_bill' || ct === 'request_bill_cash' || ct === 'request_bill_card') return 'HESAP ISTEGI';
+    if (ct === 'call_waiter') return 'SERVIS / YARDIM';
+    const msg = message != null ? String(message).trim() : '';
+    if (msg) {
+        if (msg.startsWith('{') && msg.includes('"from"') && msg.includes('cashier')) {
+            return 'KASIYER YONLENDIRMESI';
+        }
+        if (ct === 'custom') return msg.toUpperCase();
+        if (!msg.startsWith('{')) return msg.toUpperCase();
+    }
+    return 'SERVIS / YARDIM';
+}
 
 /** Hazır sipariş kalemi: varyant + modifikasyon satırları (API `variant_name`, JSON `modifiers`) */
 function formatReadyOrderItemExtras(
@@ -164,6 +195,7 @@ const TableCard = ({
     onServe,
     serviceCallMeta,
     currentUserId,
+    currentlyViewingText,
 }: {
     table: TableRow;
     status: TableRow['status'];
@@ -173,9 +205,13 @@ const TableCard = ({
     onServe?: (e: React.MouseEvent) => void;
     serviceCallMeta?: ServiceCallMeta | null;
     currentUserId?: number;
+    currentlyViewingText?: string | null;
 }) => {
     const { settings } = usePosStore();
     const { t } = usePosLocale();
+    const isOwner = table.active_staff_id != null && Number(currentUserId) === Number(table.active_staff_id);
+    const hasOwner = table.active_staff_id != null;
+    const ownerName = table.active_staff_name || table.waiter_name || "Diğer Garson";
     const currency = settings?.currency || '₺';
     const [nowMs, setNowMs] = useState(() => Date.now());
     useEffect(() => {
@@ -289,6 +325,23 @@ const TableCard = ({
                 <div className={`inline-flex px-2 py-1 sm:px-2.5 sm:py-1 rounded-lg sm:rounded-xl bg-black/35 backdrop-blur-md border border-white/15 text-[8px] sm:text-[9px] font-black tracking-[0.12em] sm:tracking-[0.18em] uppercase leading-tight text-white ${config.pulse}`}>
                     {config.text}
                 </div>
+                {hasOwner && (
+                    <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/45 border text-[7px] font-bold uppercase tracking-wider ${
+                        isOwner ? 'border-emerald-500/30 text-emerald-400' : 'border-rose-500/30 text-rose-400'
+                    }`}>
+                        {isOwner ? (
+                            <>
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                <span>MASAM</span>
+                            </>
+                        ) : (
+                            <>
+                                <FiEye size={8} className="shrink-0 animate-pulse text-rose-400" />
+                                <span className="truncate max-w-[80px]">{ownerName}</span>
+                            </>
+                        )}
+                    </div>
+                )}
                 {(status === 'waiting' || status === 'billing') &&
                     takeoverSecondsLeft > 0 &&
                     assigneeId != null &&
@@ -330,6 +383,12 @@ const TableCard = ({
                                     ))}
                                 </div>
                             )}
+                        </div>
+                    )}
+                    {currentlyViewingText && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-xl animate-pulse mt-1 max-w-full truncate">
+                            <FiEye size={10} className="shrink-0 animate-bounce text-amber-400" />
+                            <span className="text-[9px] font-black tracking-tight">{currentlyViewingText}</span>
                         </div>
                     )}
                 </div>
@@ -476,6 +535,21 @@ export const WaiterPanel: React.FC = () => {
         return () => clearInterval(interval);
     }, []);
 
+    useEffect(() => {
+        const unlockAudio = async () => {
+            const ok = await primeNotificationAudio();
+            if (ok) setIsAudioEnabled(true);
+            window.removeEventListener('pointerdown', unlockAudio);
+            window.removeEventListener('keydown', unlockAudio);
+        };
+        window.addEventListener('pointerdown', unlockAudio, { once: true });
+        window.addEventListener('keydown', unlockAudio, { once: true });
+        return () => {
+            window.removeEventListener('pointerdown', unlockAudio);
+            window.removeEventListener('keydown', unlockAudio);
+        };
+    }, []);
+
     const formatElapsedTime = useCallback((date: string) => {
         if (!date) return 0;
         const start = new Date(date).getTime();
@@ -486,10 +560,15 @@ export const WaiterPanel: React.FC = () => {
         categories, products, modifiers, fetchCategories, fetchProducts, fetchModifiers, 
         setSelectedTable, setOrderType, selectedTable,
         cart, addToCart, removeFromCart, updateQty, clearCart,
-        submitRemoteOrder, getCartTotal,
-        settings, fetchSettings
+        submitRemoteOrder, getCartTotal, openTableSession,
+        settings, fetchSettings, checkoutSession, fetchTables,
+        orders, fetchOrders, submitOrderAndPay,
+        loyaltyRedeemPoints, setLoyaltyRedeemPoints
     } = usePosStore();
     const currency = settings?.currency || '₺';
+    const { preferredFloorView } = useUIStore();
+    const [dbSections, setDbSections] = useState<any[]>([]);
+    const [viewingStaff, setViewingStaff] = useState<Record<number, { waiterId: number; waiterName: string }>>({});
 
     // Local UI State
     const [view, setView] = useState<'floor' | 'order' | 'stats' | 'messages' | 'kitchen'>('floor');
@@ -523,26 +602,159 @@ export const WaiterPanel: React.FC = () => {
     const [qrAdisyonGuestName, setQrAdisyonGuestName] = useState('');
     const [qrAdisyonAllergy, setQrAdisyonAllergy] = useState('');
     const [qrAdisyonBusy, setQrAdisyonBusy] = useState(false);
+    const [qrModalItems, setQrModalItems] = useState<any[] | null>(null);
+    const [qrModalLoading, setQrModalLoading] = useState(false);
+
+    useEffect(() => {
+        if (!qrAdisyonModal?.orderId) {
+            setQrModalItems(null);
+            setQrModalLoading(false);
+            return;
+        }
+        let active = true;
+        setQrModalItems(null);
+        setQrModalLoading(true);
+        fetch(`/api/v1/orders/${qrAdisyonModal.orderId}`, { headers: getAuthHeaders() })
+            .then((res) => {
+                if (!res.ok) throw new Error('Failed to fetch order detail');
+                return res.json();
+            })
+            .then((data) => {
+                if (active) {
+                    setQrModalItems(data.items || []);
+                }
+            })
+            .catch((err) => {
+                console.error('Error loading QR order items:', err);
+            })
+            .finally(() => {
+                if (active) {
+                    setQrModalLoading(false);
+                }
+            });
+        return () => {
+            active = false;
+        };
+    }, [qrAdisyonModal?.orderId]);
+
     const [qrImportBusy, setQrImportBusy] = useState(false);
     const [readyOrders, setReadyOrders] = useState<any[]>([]);
     /** Hazır sipariş detay (teslim ekranı — kart tıklanınca) */
     const [readyOrderDetail, setReadyOrderDetail] = useState<any | null>(null);
-    const [statsData] = useState<any>(null);
+    /** Mola: çağrılar otomatik başka müsait garsona yönlenir */
+    const [waiterOnBreak, setWaiterOnBreak] = useState(false);
+    const [breakBusy, setBreakBusy] = useState(false);
+    const [statsData, setStatsData] = useState<any>(null);
+    const [tipInput, setTipInput] = useState<number>(0);
+    const [checkoutCustomer, setCheckoutCustomer] = useState<any>(null);
     const [isAudioEnabled, setIsAudioEnabled] = useState(false);
     const [pinModal, setPinModal] = useState<{ open: boolean; tableId?: number | null; orderId?: number | null } | null>(null);
     const [identifiedCustomer, setIdentifiedCustomer] = useState<any>(null);
     const [customizeProduct, setCustomizeProduct] = useState<PosProduct | null>(null);
+    const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+    const [isCheckoutBusy, setIsCheckoutBusy] = useState(false);
+
+    useEffect(() => {
+        if (!isCheckoutOpen) {
+            setTipInput(0);
+            setCheckoutCustomer(null);
+            setLoyaltyRedeemPoints(0);
+        }
+    }, [isCheckoutOpen, setLoyaltyRedeemPoints]);
 
     const socketRef = useRef<Socket | null>(null);
     /** Hazır sipariş ses hatırlatıcısı: son uyarı zamanı (order id → epoch ms) */
     const readyOrderAlertRef = useRef<Record<number, number>>({});
 
+    useEffect(() => {
+        if (selectedTable?.sessionId) {
+            void fetchOrders();
+        }
+    }, [selectedTable?.sessionId, fetchOrders]);
+
+    const activeSessionOrders = useMemo(() => {
+        if (!selectedTable?.sessionId) return [];
+        return orders.filter(
+            (o) =>
+                Number(o.sessionId) === Number(selectedTable.sessionId) &&
+                o.status !== 'cancelled' &&
+                o.paymentStatus !== 'paid'
+        );
+    }, [orders, selectedTable?.sessionId]);
+
+    const activeTableObj = useMemo(() => {
+        if (!selectedTable?.id) return null;
+        return tables.find(t => t.id === selectedTable.id);
+    }, [tables, selectedTable?.id]);
+
+    const sessionTotal = useMemo(() => {
+        if (!activeTableObj) return 0;
+        if (activeTableObj.total_amount != null && Number(activeTableObj.total_amount) > 0) {
+            return Number(activeTableObj.total_amount);
+        }
+        return activeSessionOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+    }, [activeTableObj, activeSessionOrders]);
+
+    const isReadOnlyMode = useMemo(() => {
+        if (!activeTableObj) return false;
+        if (activeTableObj.active_staff_id == null) return false;
+        return Number(activeTableObj.active_staff_id) !== Number(user?.id);
+    }, [activeTableObj, user?.id]);
+
     const onProductTap = (p: PosProduct) => {
+        if (isReadOnlyMode) {
+            toast.error("İzleme Modu: Bu masa başka bir garsona aittir. Sipariş eklemek için sahipliği üzerinize almalısınız.");
+            return;
+        }
         if (productHasConfigurableOptions(p, modifiers)) {
             setCustomizeProduct(p);
             return;
         }
         addToCart(p, null, []);
+    };
+
+    const checkoutBillTotal = useMemo(() => {
+        const cartTotal = getCartTotal().final_total;
+        return sessionTotal + cartTotal;
+    }, [sessionTotal, getCartTotal]);
+
+    const checkoutBillDetails = useMemo(() => {
+        const total = checkoutBillTotal;
+        const defaultVatRate = Number(import.meta.env.VITE_DEFAULT_VAT_RATE) || 19;
+        const vatRate = (settings?.taxRate ?? defaultVatRate) / 100;
+        const subtotal = total / (1 + vatRate);
+        const tax = total - subtotal;
+        return { total, tax, subtotal };
+    }, [checkoutBillTotal, settings?.taxRate]);
+
+    const handleCheckoutTable = async (method: 'cash' | 'card') => {
+        setIsCheckoutBusy(true);
+        try {
+            let res;
+            if (cart.length > 0) {
+                res = await submitOrderAndPay(method, { skipPrint: true, tipAmount: tipInput });
+            } else {
+                if (!activeTableObj || !activeTableObj.active_session_id) {
+                    toast.error("Aktif masa oturumu bulunamadı.");
+                    return;
+                }
+                res = await checkoutSession(Number(activeTableObj.active_session_id), { method, skipPrint: true, tipAmount: tipInput });
+            }
+            if (res.ok) {
+                toast.success(method === 'cash' ? 'Hesap Nakit olarak tahsil edildi ve masa kapatıldı.' : 'Hesap Kredi Kartı ile tahsil edildi ve masa kapatıldı.');
+                setIsCheckoutOpen(false);
+                setSelectedTable(null);
+                setView('floor');
+                void fetchTables();
+                void loadTables(true);
+            } else {
+                toast.error(res.error || 'Ödeme alınamadı. Lütfen tekrar deneyin.');
+            }
+        } catch (error) {
+            toast.error(t('waiter.toast_connection_error'));
+        } finally {
+            setIsCheckoutBusy(false);
+        }
     };
 
     const handleServe = async (tableId: number, pinCode?: string) => {
@@ -567,7 +779,7 @@ export const WaiterPanel: React.FC = () => {
                 const resp = await fetch(`/api/v1/orders/${order.id}/status`, {
                     method: 'PATCH',
                     headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: 'served', pinCode })
+                    body: JSON.stringify({ status: 'completed', pinCode })
                 });
 
                 if (!resp.ok) {
@@ -654,6 +866,55 @@ export const WaiterPanel: React.FC = () => {
         void fetchReadyOrders();
     }, [view]);
 
+    const fetchStats = useCallback(async () => {
+        try {
+            const res = await fetch('/api/v1/users/my-stats', { headers: getAuthHeaders() });
+            if (res.ok) {
+                const d = await res.json();
+                setWaiterOnBreak(Boolean(d.waiterOnBreak));
+                setStatsData(d);
+            }
+        } catch (e) {
+            console.error('fetchStats error:', e);
+        }
+    }, [getAuthHeaders]);
+
+    useEffect(() => {
+        if (user?.role !== 'waiter') return;
+        void fetchStats();
+    }, [user?.role, fetchStats]);
+
+    useEffect(() => {
+        if (view === 'stats') {
+            void fetchStats();
+        }
+    }, [view, fetchStats]);
+
+    const toggleWaiterBreak = useCallback(async () => {
+        if (user?.role !== 'waiter' || breakBusy) return;
+        setBreakBusy(true);
+        try {
+            const res = await fetch('/api/v1/users/waiter-break', {
+                method: 'PATCH',
+                headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ onBreak: !waiterOnBreak }),
+            });
+                if (res.ok) {
+                const d = await res.json().catch(() => ({}));
+                const nextBreak = Boolean(d.waiterOnBreak);
+                setWaiterOnBreak(nextBreak);
+                toast.success(nextBreak ? t('waiter.break_enabled_toast') : t('waiter.break_disabled_toast'));
+            } else {
+                const err = await res.json().catch(() => ({}));
+                toast.error(err.error || t('waiter.break_error_toast'));
+            }
+        } catch {
+            toast.error(t('waiter.toast_connection_error'));
+        } finally {
+            setBreakBusy(false);
+        }
+    }, [user?.role, breakBusy, waiterOnBreak, getAuthHeaders, t]);
+
     const readySalonOrders = useMemo(
         () => readyOrders.filter((o) => String(o.order_type) === 'dine_in'),
         [readyOrders]
@@ -692,6 +953,15 @@ export const WaiterPanel: React.FC = () => {
 
     const loadTables = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
+        if (isOfflineNow()) {
+            try {
+                const cached = await loadTablesCache();
+                if (cached) setTables(cached as TableRow[]);
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
         try {
             const res = await fetch('/api/v1/tables', { headers: getAuthHeaders() });
             if (res.status === 401) {
@@ -702,12 +972,26 @@ export const WaiterPanel: React.FC = () => {
                 const data = await res.json();
                 const fetchedTables = Array.isArray(data) ? data : [];
                 setTables(fetchedTables);
+                void saveTablesCache(fetchedTables);
+
+                // Fetch sections for visual layout
+                try {
+                    const secRes = await fetch('/api/v1/tables/sections', { headers: getAuthHeaders() });
+                    if (secRes.ok) {
+                        const secData = await secRes.json();
+                        setDbSections(Array.isArray(secData) ? secData : []);
+                    }
+                } catch (secErr) {
+                    console.error('Failed to load sections:', secErr);
+                }
 
                 let scRows: {
                     id: number | string;
                     table_id: number | null;
                     call_type: string;
+                    message?: string | null;
                     created_at: string;
+                    assignee_set_at?: string | null;
                     target_user_id?: number | null;
                 }[] = [];
                 try {
@@ -737,24 +1021,31 @@ export const WaiterPanel: React.FC = () => {
                 if (user?.role === 'waiter') {
                     for (const c of scRows) {
                         if (c.table_id != null) continue;
-                        if (c.target_user_id == null) continue;
-                        if (Number(c.target_user_id) !== Number(user?.id)) continue;
+                        const targetAny = c.target_user_id == null;
+                        if (!targetAny && Number(c.target_user_id) !== Number(user?.id)) continue;
                         const scid = Number(c.id);
                         if (!Number.isFinite(scid)) continue;
                         noTableCashierCalls.push({
                             serviceCallId: scid,
                             created_at: c.created_at,
+                            message: c.message ?? null,
                         });
                     }
                 }
                 setCashierNoTableCalls(noTableCashierCalls);
+                if (noTableCashierCalls.length > 1) {
+                    noTableCashierCalls.sort(
+                        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    );
+                    setCashierNoTableCalls([noTableCashierCalls[0]]);
+                }
 
                 for (const c of scRows) {
                     if (c.table_id == null) continue;
                     const tid = Number(c.table_id);
                     if (!Number.isFinite(tid) || tid <= 0) continue;
                     const tbl = fetchedTables.find((x: TableRow) => x.id === tid);
-                    if (!tbl?.active_session_id) continue;
+                    if (!tbl) continue;
                     const ct = String(c.call_type ?? '');
                     if (
                         user?.role === 'waiter' &&
@@ -763,12 +1054,28 @@ export const WaiterPanel: React.FC = () => {
                     ) {
                         continue;
                     }
-                    if (!waiterShouldApplyServiceCallOverlay(user, tbl, ct)) continue;
+                    const explicitlyAssignedCallWaiter =
+                        user?.role === 'waiter' &&
+                        ct === 'call_waiter' &&
+                        c.target_user_id != null &&
+                        Number(c.target_user_id) === Number(user?.id);
+                    if (!explicitlyAssignedCallWaiter && !waiterShouldApplyServiceCallOverlay(user, tbl, ct)) {
+                        continue;
+                    }
                     callOverlay[tid] = callTableStatus(ct);
+                    const assigneeId =
+                        c.target_user_id != null && Number.isFinite(Number(c.target_user_id))
+                            ? Number(c.target_user_id)
+                            : tbl.waiter_id != null
+                              ? Number(tbl.waiter_id)
+                              : null;
+                    const gateAt = c.assignee_set_at || c.created_at;
                     nextPending[tid] = {
                         serviceCallId: Number(c.id),
-                        assignedWaiterId: tbl.waiter_id != null ? Number(tbl.waiter_id) : null,
-                        createdAtMs: new Date(c.created_at).getTime(),
+                        assignedWaiterId: assigneeId,
+                        createdAtMs: new Date(gateAt).getTime(),
+                        callType: ct,
+                        message: c.message ?? null,
                     };
                 }
                 setPendingServiceCalls(nextPending);
@@ -793,10 +1100,15 @@ export const WaiterPanel: React.FC = () => {
             }
         } catch (e) {
             console.error(e);
+            const cached = await loadTablesCache();
+            if (cached) setTables(cached as TableRow[]);
         } finally {
             setLoading(false);
         }
     }, [getAuthHeaders, logout, user]);
+
+    const loadTablesRef = useRef(loadTables);
+    loadTablesRef.current = loadTables;
 
     const completeCashierNoTableCall = useCallback(
         async (rawId: number | string) => {
@@ -841,10 +1153,13 @@ export const WaiterPanel: React.FC = () => {
     );
 
     // WebSocket Integration
+    const tablesRef = useRef(tables);
+    tablesRef.current = tables;
+
     useEffect(() => {
         if (!tenantId || !user?.id) return;
         
-        socketRef.current = io({
+        socketRef.current = io(getSocketOrigin(), {
             path: '/socket.io',
             transports: ['websocket', 'polling'],
             auth: token ? { token } : {},
@@ -859,7 +1174,7 @@ export const WaiterPanel: React.FC = () => {
 
         socket.on('order:ready', (d: any) => {
             if (d.orderType === 'dine_in') {
-                const table = tables.find(t => t.name === d.tableName || String(t.id) === String(d.tableId));
+                const table = tablesRef.current.find(t => t.name === d.tableName || String(t.id) === String(d.tableId));
                 if (table) {
                     setTableStatuses(prev => ({ ...prev, [table.id]: 'ready' }));
                     setTableReadyTimes(prev => ({ ...prev, [table.id]: Date.now() }));
@@ -872,7 +1187,7 @@ export const WaiterPanel: React.FC = () => {
         });
 
         socket.on('kitchen:item_partial_ready', (d: any) => {
-            const table = tables.find(t => t.name === d.tableName || String(t.id) === String(d.tableId));
+            const table = tablesRef.current.find(t => t.name === d.tableName || String(t.id) === String(d.tableId));
             if (!table) return;
             const readyProducts = d.items?.filter((i: any) => i.is_ready).map((i: any) => i.quantity + 'x ' + i.product_name) || [];
             if (readyProducts.length > 0) {
@@ -883,7 +1198,7 @@ export const WaiterPanel: React.FC = () => {
         });
 
         socket.on('customer:service_call', (d: any) => {
-            const table = tables.find(
+            const table = tablesRef.current.find(
                 (t) => t.name === d.tableName || String(t.id) === String(d.tableId)
             );
             const ct = String(d.callType ?? '');
@@ -907,20 +1222,26 @@ export const WaiterPanel: React.FC = () => {
             ) {
                 setCashierNoTableCalls((prev) => {
                     const sid = Number(d.serviceCallId);
-                    if (!Number.isFinite(sid) || prev.some((x) => Number(x.serviceCallId) === sid)) return prev;
+                    if (!Number.isFinite(sid)) return prev;
+                    // Kasiyerden aynı garsona yeni çağrı geldiğinde eski kart bununla yer değiştirir.
                     return [
-                        ...prev,
                         {
                             serviceCallId: sid,
                             created_at:
                                 typeof d.createdAt === 'string' && d.createdAt
                                     ? d.createdAt
                                     : new Date().toISOString(),
+                            message: d.message != null ? String(d.message) : null,
                         },
                     ];
                 });
             }
-            if (table && !waiterShouldApplyServiceCallOverlay(user, table, ct)) {
+            const isMyCallTarget =
+                d.targetWaiterId != null &&
+                Number.isFinite(Number(d.targetWaiterId)) &&
+                Number(d.targetWaiterId) === Number(user?.id);
+            const bypassZoneForEscalation = Boolean(d.escalated) && isMyCallTarget;
+            if (table && !bypassZoneForEscalation && !waiterShouldApplyServiceCallOverlay(user, table, ct)) {
                 return;
             }
             if (table) {
@@ -944,6 +1265,8 @@ export const WaiterPanel: React.FC = () => {
                         serviceCallId: Number(d.serviceCallId),
                         assignedWaiterId: assignee,
                         createdAtMs: Number.isFinite(createdMs) ? createdMs : Date.now(),
+                        callType: ct,
+                        message: d.message != null ? String(d.message) : null,
                     },
                 }));
             }
@@ -957,16 +1280,15 @@ export const WaiterPanel: React.FC = () => {
                 !Number.isFinite(Number(d.targetWaiterId)) ||
                 Number(d.targetWaiterId) === Number(user?.id);
             if (notifySound) {
-                toast(`${title}: ${place}`, { icon: '🔔', duration: 6000 });
-                void playNotification('service_call');
+                toast(`${title}: ${place}`, { icon: d.escalated ? '⚠️' : '🔔', duration: 6000 });
+                void (async () => {
+                    const ok = await playNotification(d.escalated ? 'service_call_urgent' : 'service_call');
+                    if (ok) setIsAudioEnabled(true);
+                })();
             }
         });
 
         socket.on('service_call:updated', (d: any) => {
-            const scId = d.id != null ? Number(d.id) : NaN;
-            if (Number.isFinite(scId)) {
-                setCashierNoTableCalls((prev) => prev.filter((x) => Number(x.serviceCallId) !== scId));
-            }
             const tid = d.tableId != null ? Number(d.tableId) : null;
             if (tid == null || !Number.isFinite(tid)) return;
             setPendingServiceCalls((prev) => {
@@ -985,27 +1307,27 @@ export const WaiterPanel: React.FC = () => {
             }
         });
 
-        socket.on('customer:order_request', (d: any) => {
+        const handleOrderRequest = (d: any) => {
             const oid = d.orderId;
             if (oid == null) return;
             const assigned =
                 d.assignedWaiterId != null && Number.isFinite(Number(d.assignedWaiterId))
                     ? Number(d.assignedWaiterId)
                     : null;
+            
+            const tid = d.tableId != null && Number.isFinite(Number(d.tableId)) ? Number(d.tableId) : null;
+            const newQrReq = {
+                orderId: oid,
+                tableId: tid,
+                tableName: d.tableName || t('waiter.table_fallback'),
+                customerName: d.customerName,
+                totalAmount: d.totalAmount,
+                assignedWaiterId: assigned,
+            };
+
             setQrQueue((q) => {
                 if (q.some((x) => x.orderId === oid)) return q;
-                const tid = d.tableId != null && Number.isFinite(Number(d.tableId)) ? Number(d.tableId) : null;
-                return [
-                    ...q,
-                    {
-                        orderId: oid,
-                        tableId: tid,
-                        tableName: d.tableName || t('waiter.table_fallback'),
-                        customerName: d.customerName,
-                        totalAmount: d.totalAmount,
-                        assignedWaiterId: assigned,
-                    },
-                ];
+                return [...q, newQrReq];
             });
             const forMe =
                 assigned == null || !Number.isFinite(assigned) || assigned === Number(user?.id);
@@ -1017,17 +1339,58 @@ export const WaiterPanel: React.FC = () => {
                     }),
                     { icon: '📱', duration: 6500 },
                 );
+                
+                // Canlı pop-up
+                setQrAdisyonGuestName(String(d.customerName || '').trim());
+                setQrAdisyonAllergy('');
+                setQrAdisyonModal(newQrReq);
             }
-        });
+        };
+
+        socket.on('customer:order_request', handleOrderRequest);
+        socket.on('qr:order_request', handleOrderRequest);
 
         socket.on('order:status_changed', (d: any) => {
             if (d.status && d.status !== 'pending') {
                 setQrQueue(q => q.filter(x => x.orderId !== d.orderId));
             }
+            void loadTablesRef.current(true);
+            void fetchReadyOrders();
         });
 
-        return () => { socket.disconnect(); };
-    }, [tenantId, user, token, tables, t]);
+        socket.on('table:session_opened', () => {
+            void loadTablesRef.current(true);
+        });
+        socket.on('tables:updated', () => {
+            void loadTablesRef.current(true);
+        });
+
+        socket.on('table:viewing', (d: any) => {
+            const tid = Number(d.tableId);
+            if (tid) {
+                setViewingStaff(prev => ({
+                    ...prev,
+                    [tid]: { waiterId: Number(d.waiterId), waiterName: d.waiterName }
+                }));
+            }
+        });
+
+        socket.on('table:stopped_viewing', (d: any) => {
+            const tid = Number(d.tableId);
+            if (tid) {
+                setViewingStaff(prev => {
+                    const next = { ...prev };
+                    delete next[tid];
+                    return next;
+                });
+            }
+        });
+
+        return () => {
+            socket.disconnect();
+            socketRef.current = null;
+        };
+    }, [tenantId, user, token, t]);
 
     // Interval refresh
     useEffect(() => {
@@ -1035,15 +1398,45 @@ export const WaiterPanel: React.FC = () => {
         return () => clearInterval(iv);
     }, [loadTables]);
 
+    useEffect(() => {
+        if (!socketRef.current || !tenantId || !user) return;
+        if (!selectedTable?.id) return;
+        
+        const socket = socketRef.current;
+        const payload = {
+            tenantId,
+            tableId: selectedTable.id,
+            waiterName: user.name || user.username || "Garson",
+            waiterId: user.id
+        };
+        
+        socket.emit('table:viewing', payload);
+        
+        return () => {
+            socket.emit('table:stopped_viewing', payload);
+        };
+    }, [selectedTable?.id, tenantId, user]);
+
     // Filter Logic
     const sections = useMemo(() => {
         const names = new Set<string>();
         tables.forEach((x) => names.add(x.section_name || t('waiter.section_general')));
-        return ['all', ...Array.from(names).sort()];
-    }, [tables, t]);
+        const base = Array.from(names).sort();
+        if (preferredFloorView === 'visual') {
+            return base;
+        }
+        return ['all', ...base];
+    }, [tables, t, preferredFloorView]);
+
+    // Auto-select first section in visual mode if currently on 'all'
+    useEffect(() => {
+        if (preferredFloorView === 'visual' && sectionTab === 'all' && sections.length > 0 && sections[0] !== 'all') {
+            setSectionTab(sections[0]);
+        }
+    }, [preferredFloorView, sectionTab, sections]);
 
     const filteredProducts = useMemo(() => {
-        let list = products;
+        let list = products.filter(p => p.isActive !== false);
         if (activeCategoryId) list = list.filter(p => p.categoryId === activeCategoryId);
         if (searchQuery) {
             const q = searchQuery.toLowerCase();
@@ -1215,6 +1608,7 @@ export const WaiterPanel: React.FC = () => {
 
         const busy = tbl.active_session_id != null && Number(tbl.active_session_id) !== 0;
         if (busy) {
+            const isDifferentTable = selectedTable?.id !== tbl.id;
             setSelectedTable({
                 id: tbl.id,
                 name: tbl.name,
@@ -1222,7 +1616,9 @@ export const WaiterPanel: React.FC = () => {
                 sessionId: tbl.active_session_id,
             });
             setOrderType('dine_in');
-            clearCart();
+            if (isDifferentTable) {
+                clearCart();
+            }
             setView('order');
         } else {
             setOpenModalTable(tbl);
@@ -1233,49 +1629,62 @@ export const WaiterPanel: React.FC = () => {
 
     const submitOpenTable = async () => {
         if (!openModalTable) return;
+        if (isOfflineLocked()) {
+            toast.error(t('offline.lock.blocked'));
+            return;
+        }
         try {
-            const res = await fetch(`/api/v1/tables/${openModalTable.id}/open`, {
-                method: 'POST',
-                headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    customerId: identifiedCustomer?.id ?? null,
-                    guestName: identifiedCustomer?.name?.trim() || null,
-                    guestCount: Number(openForm.guestCount) || 1,
-                    waiterId: Number(user?.id)
-                }),
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setOpenModalTable(null);
-                setSelectedTable({
-                    id: openModalTable.id,
-                    name: openModalTable.name,
-                    sectionName: openModalTable.section_name || t('waiter.section_general'),
-                    sessionId: data.sessionId
-                });
-                setOrderType('dine_in');
-                clearCart();
-                setView('order');
-                void loadTables(true);
+            const opened = await openTableSession(
+                openModalTable.id,
+                Number(openForm.guestCount) || 1,
+                identifiedCustomer?.id ?? null,
+            );
+            if (!opened) {
+                toast.error(t('waiter.toast_table_open_failed'));
+                return;
             }
-        } catch (e) { toast.error(t('waiter.toast_table_open_failed')); }
+            setOpenModalTable(null);
+            setSelectedTable({
+                id: openModalTable.id,
+                name: openModalTable.name,
+                translations: {},
+                sectionName: openModalTable.section_name || t('waiter.section_general'),
+                sessionId: opened.sessionId,
+                clientSessionId: opened.clientSessionId,
+            });
+            setOrderType('dine_in');
+            clearCart();
+            setView('order');
+            void loadTables(true);
+        } catch (e) {
+            toast.error(t('waiter.toast_table_open_failed'));
+        }
     };
 
     const handleSendOrder = async () => {
         if (cart.length === 0) return;
         setIsSubmittingOrder(true);
         try {
-            const res = await submitRemoteOrder({ activeCustomer: identifiedCustomer });
+            const res = await submitRemoteOrder({ activeCustomer: identifiedCustomer, skipPrint: true });
             if (res.ok) {
-                toast.success(t('waiter.toast_kitchen_sent'));
+                if (res.queuedOffline) {
+                    toast.success(t('offline.toast.orderQueued'));
+                } else {
+                    toast.success(t('waiter.toast_kitchen_sent'));
+                }
                 setOrderCartOpen(false);
                 setView('floor');
                 void loadTables(true);
+            } else if (res.error === 'OFFLINE_LOCKED') {
+                toast.error(t('offline.lock.blocked'));
             } else {
                 toast.error(res.error || t('waiter.toast_send_failed'));
             }
-        } catch (e) { toast.error(t('waiter.toast_connection_error')); }
-        finally { setIsSubmittingOrder(false); }
+        } catch (e) {
+            toast.error(t('waiter.toast_connection_error'));
+        } finally {
+            setIsSubmittingOrder(false);
+        }
     };
 
     const openQrAdisyonModal = (q: QrRequest) => {
@@ -1324,74 +1733,401 @@ export const WaiterPanel: React.FC = () => {
             });
             if (res.ok) {
                 setQrQueue(q => q.filter(x => x.orderId !== orderId));
+                if (qrAdisyonModal?.orderId === orderId) setQrAdisyonModal(null);
+                toast.success(t('waiter.qr_reject_ok') || 'QR siparişi reddedildi');
+            } else {
+                const err = await res.json().catch(() => ({}));
+                toast.error((err as { error?: string }).error || t('waiter.toast_reject_failed'));
             }
         } catch (e) { toast.error(t('waiter.toast_reject_failed')); }
     };
 
-    const renderFloorView = () => (
-        <motion.div 
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            className="flex-1 flex flex-col p-3 sm:p-6 overflow-hidden mt-0 sm:mt-2 min-h-0"
-        >
-            <div className="flex items-center justify-between mb-4 sm:mb-8">
-                <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 flex-1 -mx-1 px-1 touch-pan-x">
-                    <LayoutGroup id="sections">
-                        {sections.map((s) => (
-                            <button
-                                key={s}
-                                type="button"
-                                onClick={() => setSectionTab(s)}
-                                className={`relative shrink-0 rounded-xl sm:rounded-2xl min-h-[44px] px-4 sm:px-6 py-3 sm:py-4 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] transition-all no-tap-highlight touch-manipulation ${
-                                    sectionTab === s ? 'text-white' : 'text-slate-500 bg-white/5 border border-white/5'
-                                }`}
-                            >
-                                {sectionTab === s && (
-                                    <motion.div 
-                                        layoutId="active-sec"
-                                        className="absolute inset-0 bg-[#e91e63] rounded-2xl shadow-xl shadow-pink-600/20"
-                                    />
-                                )}
-                                <span className="relative z-10">{s === 'all' ? t('waiter.section_all') : s}</span>
-                            </button>
-                        ))}
-                    </LayoutGroup>
-                </div>
-            </div>
+    const handleTakeoverTable = async () => {
+        if (!activeTableObj) return;
+        const confirmed = window.confirm("Bu masanın sahipliğini üzerinize almak istediğinizden emin misiniz? Diğer garsonun yetkisi kısıtlanacaktır.");
+        if (!confirmed) return;
 
-            <div className="flex-1 overflow-y-auto no-scrollbar min-h-0 overscroll-contain">
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-6">
-                    {tables.filter(tbl => sectionTab === 'all' || (tbl.section_name || t('waiter.section_general')) === sectionTab).map((tbl) => (
-                        <TableCard 
-                            key={`table-${tbl.id}`} 
-                            table={tbl} 
-                            status={tableStatuses[tbl.id] || 'empty'}
-                            readyAt={tableReadyTimes[tbl.id]}
-                            partialItems={partialReadyItems[tbl.id]}
-                            onClick={() => void onTableAction(tbl)}
-                            serviceCallMeta={pendingServiceCalls[tbl.id] ?? null}
-                            currentUserId={user?.id != null ? Number(user.id) : undefined}
-                            onServe={(e) => {
-                                e.stopPropagation();
-                                if (settings?.pickupSecurity?.requirePIN) {
-                                    setPinModal({ open: true, tableId: tbl.id });
-                                } else {
-                                    void handleServe(tbl.id);
-                                }
-                            }}
-                        />
-                    ))}
+        try {
+            const res = await fetch(`/api/v1/tables/${activeTableObj.id}/claim`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+            });
+            if (res.ok) {
+                toast.success("Masa sahipliği üzerinize alındı!");
+                void loadTables(true);
+            } else {
+                toast.error("Sahiplik devralınamadı.");
+            }
+        } catch {
+            toast.error(t('waiter.toast_connection_error'));
+        }
+    };
+
+    const renderVisualChairs = (shape: string) => {
+        const chairClass = "absolute bg-[#111827] border border-[#374151]/50 rounded shadow-md z-0";
+        if (shape === 'round') {
+            return (
+                <>
+                    <div className={`${chairClass} w-5 h-4 -top-3 left-1/2 -translate-x-1/2 rounded-t`} />
+                    <div className={`${chairClass} w-5 h-4 -bottom-3 left-1/2 -translate-x-1/2 rounded-b`} />
+                </>
+            );
+        } else if (shape === 'rect') {
+            return (
+                <>
+                    <div className={`${chairClass} w-5 h-4 -top-3 left-[20%] -translate-x-1/2 rounded-t`} />
+                    <div className={`${chairClass} w-5 h-4 -top-3 left-1/2 -translate-x-1/2 rounded-t`} />
+                    <div className={`${chairClass} w-5 h-4 -top-3 left-[80%] -translate-x-1/2 rounded-t`} />
+                    <div className={`${chairClass} w-5 h-4 -bottom-3 left-[20%] -translate-x-1/2 rounded-b`} />
+                    <div className={`${chairClass} w-5 h-4 -bottom-3 left-1/2 -translate-x-1/2 rounded-b`} />
+                    <div className={`${chairClass} w-5 h-4 -bottom-3 left-[80%] -translate-x-1/2 rounded-b`} />
+                </>
+            );
+        } else {
+            // square or standard
+            return (
+                <>
+                    <div className={`${chairClass} w-5 h-4 -top-3 left-1/2 -translate-x-1/2 rounded-t`} />
+                    <div className={`${chairClass} w-5 h-4 -bottom-3 left-1/2 -translate-x-1/2 rounded-b`} />
+                    <div className={`${chairClass} w-4 h-5 -left-3 top-1/2 -translate-y-1/2 rounded-l`} />
+                    <div className={`${chairClass} w-4 h-5 -right-3 top-1/2 -translate-y-1/2 rounded-r`} />
+                </>
+            );
+        }
+    };
+
+    const statusColors: Record<string, string> = {
+        emerald: 'bg-gradient-to-br from-emerald-600/25 to-emerald-950/15 border-emerald-500/30 text-emerald-300 shadow-[inset_0_2px_8px_rgba(255,255,255,0.02)] hover:from-emerald-600/35 hover:to-emerald-950/25 hover:border-emerald-500/45',
+        rose: 'bg-gradient-to-br from-rose-600/30 via-rose-700/20 to-rose-900/15 border-rose-500/40 text-rose-100 shadow-[inset_0_2px_10px_rgba(255,255,255,0.05),0_10px_30px_rgba(239,68,68,0.2)] animate-pulse-fast hover:scale-[1.01]',
+        blue: 'bg-gradient-to-br from-blue-600/25 via-blue-700/20 to-slate-900/15 border-blue-500/40 text-blue-100 shadow-[0_10px_30px_rgba(59,130,246,0.15)] animate-pulse-slow hover:scale-[1.01]',
+        amber: 'bg-gradient-to-br from-amber-600/20 via-amber-700/15 to-orange-950/10 border-amber-500/30 text-amber-50 shadow-[0_10px_25px_rgba(245,158,11,0.15)] animate-pulse-fast hover:scale-[1.01]',
+        occupiedFresh: 'bg-gradient-to-br from-amber-500/25 via-amber-600/15 to-orange-800/10 border-amber-500/40 text-white shadow-[0_10px_30px_rgba(245,158,11,0.25)] hover:scale-[1.01]',
+        occupiedLong: 'bg-gradient-to-br from-red-600/35 via-rose-700/20 to-red-950/30 border-red-500/55 text-white shadow-[0_12px_36px_rgba(239,68,68,0.35)] ring-1 ring-red-500/20 animate-pulse-slow hover:scale-[1.01]',
+        sky: 'bg-gradient-to-br from-sky-600/20 to-slate-900/15 border-sky-500/30 text-sky-100',
+        slate: 'bg-slate-800/35 border-slate-700/30 text-slate-300',
+    };
+
+    const activeDbSection = useMemo(() => {
+        return dbSections.find(s => s.name === sectionTab);
+    }, [dbSections, sectionTab]);
+
+    const renderFloorView = () => {
+        const isVisual = preferredFloorView === 'visual';
+        const sectionTables = tables.filter(tbl => sectionTab === 'all' || (tbl.section_name || t('waiter.section_general')) === sectionTab);
+        
+        return (
+            <motion.div 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                className="flex-1 flex flex-col p-3 sm:p-6 overflow-hidden mt-0 sm:mt-2 min-h-0"
+            >
+                <div className="flex items-center justify-between mb-4 sm:mb-8 shrink-0">
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 flex-1 -mx-1 px-1 touch-pan-x">
+                        <LayoutGroup id="sections">
+                            {sections.map((s) => (
+                                <button
+                                    key={s}
+                                    type="button"
+                                    onClick={() => setSectionTab(s)}
+                                    className={`relative shrink-0 rounded-xl sm:rounded-2xl min-h-[44px] px-4 sm:px-6 py-3 sm:py-4 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] transition-all no-tap-highlight touch-manipulation ${
+                                        sectionTab === s ? 'text-white' : 'text-slate-500 bg-white/5 border border-white/5'
+                                    }`}
+                                >
+                                    {sectionTab === s && (
+                                        <motion.div 
+                                            layoutId="active-sec"
+                                            className="absolute inset-0 bg-[#e91e63] rounded-2xl shadow-xl shadow-pink-600/20"
+                                        />
+                                    )}
+                                    <span className="relative z-10">{s === 'all' ? t('waiter.section_all') : s}</span>
+                                </button>
+                            ))}
+                        </LayoutGroup>
+                    </div>
                 </div>
-                {tables.length === 0 && !loading && (
-                    <div className="flex flex-col items-center justify-center h-64 opacity-20">
-                        <FiLayers size={64} className="mb-4 text-slate-500" />
-                        <p className="text-xs font-black uppercase tracking-[0.4em] text-slate-400">{t('waiter.empty_no_tables')}</p>
+
+                {isVisual ? (
+                    /* Görsel Kat Planı Görünümü */
+                    <div className="flex-1 bg-[#020617] border border-white/5 rounded-[2rem] overflow-auto select-none custom-scrollbar p-6 relative">
+                        <div 
+                            className="w-[2000px] h-[2000px] relative rounded-2xl overflow-hidden bg-[#040815] border border-white/[0.02]"
+                            style={{
+                                backgroundImage: `
+                                    linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                                    linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px)
+                                `,
+                                backgroundSize: '40px 40px',
+                                boxShadow: 'inset 0 0 100px rgba(0,0,0,0.9)'
+                            }}
+                        >
+                            {/* BACKGROUND DRAWINGS / MAP LAYER */}
+                            {activeDbSection?.layout_data?.bg?.url && (
+                                <div 
+                                    className="absolute pointer-events-none transition-all duration-75 select-none"
+                                    style={{
+                                        left: `${activeDbSection.layout_data.bg.x ?? 0}px`,
+                                        top: `${activeDbSection.layout_data.bg.y ?? 0}px`,
+                                        width: 'auto',
+                                        height: 'auto',
+                                        maxWidth: 'none',
+                                        transform: `scale(${activeDbSection.layout_data.bg.scale ?? 1})`,
+                                        transformOrigin: 'top left',
+                                        opacity: activeDbSection.layout_data.bg.opacity ?? 0.4,
+                                        zIndex: 5
+                                    }}
+                                >
+                                    <img 
+                                        src={activeDbSection.layout_data.bg.url} 
+                                        alt="Kat Planı Arkaplanı" 
+                                        className="select-none pointer-events-none"
+                                        draggable={false}
+                                    />
+                                </div>
+                            )}
+
+                            {/* ARCHITECTURAL OBSTACLES (Walls, Columns, Labels) */}
+                            {activeDbSection?.layout_data?.elements?.map((el: any) => {
+                                const style: React.CSSProperties = {
+                                    position: 'absolute',
+                                    top: el.y,
+                                    left: el.x,
+                                    width: el.width,
+                                    height: el.height,
+                                    transform: `rotate(${el.rotation || 0}deg)`,
+                                    pointerEvents: 'none',
+                                    zIndex: 10,
+                                };
+                                return (
+                                    <div key={el.id} style={style} className="flex items-center justify-center">
+                                        {el.type === 'wall' && <div className="w-full h-full bg-[#1e293b]/70 border-y border-white/5 shadow-md" />}
+                                        {el.type === 'wall-corner' && <div className="w-full h-full border-l-[8px] border-t-[8px] border-[#1e293b]/70" />}
+                                        {el.type === 'pillar' && <div className="w-full h-full bg-[#111827] border-2 border-slate-700/50 shadow-md flex items-center justify-center text-[7px] text-slate-500 font-bold">KOLON</div>}
+                                        {el.type === 'stairs' && (
+                                            <div className="w-full h-full bg-slate-800/20 border border-white/5 flex flex-col justify-between p-0.5">
+                                                <div className="h-[1px] bg-slate-700/30 w-full" />
+                                                <div className="h-[1px] bg-slate-700/30 w-full" />
+                                                <div className="h-[1px] bg-slate-700/30 w-full" />
+                                                <div className="h-[1px] bg-slate-700/30 w-full" />
+                                            </div>
+                                        )}
+                                        {el.type === 'sofa' && (
+                                            <div className="w-full h-full p-0.5">
+                                                <div className="w-full h-full rounded border border-amber-500/10 bg-amber-500/5 relative flex items-center justify-center">
+                                                    <div className="absolute inset-x-1 top-0.5 h-2 bg-amber-500/10 border-b border-amber-500/20 rounded-t-sm" />
+                                                    <span className="text-[6px] font-black text-amber-500/30 uppercase tracking-widest">SEDİR</span>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {el.type === 'plant' && (
+                                            <div className="w-full h-full rounded-full border-2 border-emerald-500/20 flex items-center justify-center">
+                                                <div className="w-[50%] h-[50%] rounded-full bg-emerald-500/10 border border-emerald-400/20" />
+                                            </div>
+                                        )}
+                                        {el.type === 'bar-counter' && (
+                                            <div className="w-full h-full p-0.5">
+                                                <div className="w-full h-full rounded border border-amber-600/20 bg-amber-600/5 flex items-center justify-center">
+                                                    <span className="text-[6px] font-black text-amber-500/40 uppercase tracking-widest">BAR</span>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {el.type === 'kitchen' && (
+                                            <div className="w-full h-full p-0.5">
+                                                <div className="w-full h-full rounded border border-slate-500/25 bg-[#334155]/10 flex flex-col items-center justify-center gap-0.5">
+                                                    <span className="text-[5px] font-black text-slate-400/50 uppercase tracking-widest">MUTFAK</span>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {el.type === 'checkout' && (
+                                            <div className="w-full h-full p-0.5">
+                                                <div className="w-full h-full rounded border border-amber-500/25 bg-amber-500/5 flex flex-col items-center justify-center gap-0.5">
+                                                    <span className="text-[5px] font-black text-amber-500/50 uppercase tracking-widest">KASA</span>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {el.type === 'window' && <div className="w-full h-full bg-sky-500/10 border-2 border-sky-400/20 backdrop-blur-sm flex items-center justify-center"><div className="w-full h-[1px] bg-sky-300/10" /></div>}
+                                        {el.type === 'door' && <div className="w-full h-full border-l-2 border-t-2 rounded-tl-full border-amber-500/20" />}
+                                        {el.type === 'label' && (
+                                            <span className="text-[8px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap bg-black/40 px-1 border border-white/5 rounded">{el.label || 'BÖLGE'}</span>
+                                        )}
+                                    </div>
+                                );
+                            })}
+
+                            {/* DYNAMIC INTERACTIVE TABLES */}
+                            {sectionTables.map((tbl) => {
+                                const st = tableStatuses[tbl.id] || 'empty';
+                                const readyAt = tableReadyTimes[tbl.id];
+                                const partialItems = partialReadyItems[tbl.id];
+                                const serviceCallMeta = pendingServiceCalls[tbl.id] ?? null;
+                                const isBusy = st !== 'empty';
+                                
+                                // Timer calculation
+                                const elapsed = tbl.session_opened_at ? Math.floor((currentTime - new Date(tbl.session_opened_at).getTime()) / 60000) : 0;
+                                const isLongOccupied = st === 'occupied' && elapsed > getLongOccupiedThresholdMinutes(settings);
+                                const readyTimer = readyAt ? Math.floor((currentTime - readyAt) / 60000) : 0;
+                                
+                                // Color Map Selection
+                                let colorKey = 'emerald';
+                                if (st === 'ready') colorKey = 'rose';
+                                else if (st === 'billing') colorKey = 'blue';
+                                else if (st === 'waiting') colorKey = 'amber';
+                                else if (st === 'occupied') colorKey = isLongOccupied ? 'occupiedLong' : 'occupiedFresh';
+                                else if (st === 'reserved') colorKey = 'sky';
+                                else if (st === 'dirty') colorKey = 'slate';
+
+                                const colorClass = statusColors[colorKey] || statusColors.emerald;
+                                const width = tbl.shape === 'rect' ? 160 : 80;
+                                const height = 80;
+                                
+                                const shapeStyle = tbl.shape === 'round' ? 'rounded-full' : 'rounded-2xl';
+                                const style: React.CSSProperties = {
+                                    position: 'absolute',
+                                    left: tbl.position_x || 100,
+                                    top: tbl.position_y || 100,
+                                    width,
+                                    height,
+                                    zIndex: 30,
+                                };
+
+                                return (
+                                    <div key={tbl.id} style={style} className="relative group/tbl">
+                                        {/* CHAIRS RENDER LAYER */}
+                                        {renderVisualChairs(tbl.shape || 'square')}
+
+                                        {/* INTERACTIVE TABLE TOP */}
+                                        <button
+                                            type="button"
+                                            onClick={() => void onTableAction(tbl)}
+                                            className={`
+                                                w-full h-full p-2 relative flex flex-col items-center justify-center transition-all duration-300 border
+                                                shadow-[0_4px_16px_rgba(0,0,0,0.5)] active:scale-[0.97]
+                                                ${shapeStyle} ${colorClass}
+                                            `}
+                                        >
+                                            {/* Ownership dot indicator */}
+                                            {tbl.active_staff_id != null && (
+                                                <div className="absolute top-1.5 left-2 z-10 flex items-center gap-0.5 pointer-events-none">
+                                                    {Number(user?.id) === Number(tbl.active_staff_id) ? (
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse border border-emerald-400" />
+                                                    ) : (
+                                                        <FiEye size={8} className="text-rose-400 animate-pulse" />
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {/* Pulse overlay if waiting/billing/ready */}
+                                            {(st === 'ready' || st === 'waiting' || st === 'billing') && (
+                                                <div className={`absolute inset-0 pointer-events-none border-2 animate-ping-slow ${shapeStyle} ${
+                                                    st === 'ready' ? 'border-rose-500' :
+                                                    st === 'waiting' ? 'border-amber-500' : 'border-blue-500'
+                                                }`} />
+                                            )}
+
+                                            {/* Active balance badge (Upper right) */}
+                                            {isBusy && tbl.total_amount != null && Number(tbl.total_amount) > 0 && (
+                                                <div className="absolute -top-1.5 -right-1.5 z-10 bg-black/40 backdrop-blur-md px-1.5 py-0.5 rounded border border-white/10 text-[8px] font-black text-white tabular-nums">
+                                                    {currency}{Math.round(Number(tbl.total_amount))}
+                                                </div>
+                                            )}
+
+                                            {/* Order serving status quick serve button (Bottom full width overlay) */}
+                                            {st === 'ready' ? (
+                                                <div 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (settings?.pickupSecurity?.requirePIN) {
+                                                            setPinModal({ open: true, tableId: tbl.id });
+                                                        } else {
+                                                            void handleServe(tbl.id);
+                                                        }
+                                                    }}
+                                                    className="absolute inset-0 flex flex-col items-center justify-center bg-rose-600 text-white rounded-2xl text-[8px] font-black uppercase tracking-widest hover:bg-rose-500 shadow-lg shadow-rose-600/30 transition-all z-20 gap-1"
+                                                >
+                                                    <span>{t('waiter.served_done') || 'SERVİS ET'}</span>
+                                                    <span className="bg-rose-900/40 px-1.5 py-0.5 rounded opacity-90 text-[7px] font-black tabular-nums">
+                                                        {readyTimer}{t('waiter.timer_min_short')}
+                                                    </span>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col items-center justify-center gap-0.5 w-full min-w-0">
+                                                    {/* Table label */}
+                                                    <span className="text-[11px] font-black text-white italic tracking-tighter truncate leading-none">
+                                                        {tbl.name}
+                                                    </span>
+
+                                                    {/* Guest Name & Session Information */}
+                                                    {isBusy ? (
+                                                        <>
+                                                            <span className={`text-[7px] font-black uppercase tracking-widest truncate max-w-full leading-none mt-0.5 ${
+                                                                isLongOccupied ? 'text-red-300' : 'text-amber-200/90'
+                                                            }`}>
+                                                                {(tbl.customer_name?.trim() || tbl.guest_name?.trim()) || `👤 ${t('waiter.guest_label')}`}
+                                                            </span>
+                                                            {viewingStaff[tbl.id] && Number(viewingStaff[tbl.id].waiterId) !== Number(user?.id) ? (
+                                                                <div className="flex items-center gap-0.5 text-[6px] font-black text-amber-300 animate-pulse leading-none mt-1">
+                                                                    <FiEye size={6} className="animate-bounce shrink-0" />
+                                                                    <span className="truncate max-w-[65px]">{viewingStaff[tbl.id].waiterName} inceliyor</span>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex items-center gap-0.5 text-[6px] font-bold text-white/50 tabular-nums leading-none mt-1">
+                                                                    <FiClock size={6} />
+                                                                    <span>{elapsed} dk</span>
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        <span className="text-[7px] font-black text-white/30 uppercase tracking-widest leading-none mt-0.5">BOŞ</span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ) : (
+                    /* Grid Liste Görünümü (Mevcut Sistem) */
+                    <div className="flex-1 overflow-y-auto no-scrollbar min-h-0 overscroll-contain">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-6">
+                            {sectionTables.map((tbl) => (
+                                <TableCard 
+                                    key={`table-${tbl.id}`} 
+                                    table={tbl} 
+                                    status={tableStatuses[tbl.id] || 'empty'}
+                                    readyAt={tableReadyTimes[tbl.id]}
+                                    partialItems={partialReadyItems[tbl.id]}
+                                    onClick={() => void onTableAction(tbl)}
+                                    serviceCallMeta={pendingServiceCalls[tbl.id] ?? null}
+                                    currentUserId={user?.id != null ? Number(user.id) : undefined}
+                                    currentlyViewingText={
+                                        viewingStaff[tbl.id] && Number(viewingStaff[tbl.id].waiterId) !== Number(user?.id)
+                                            ? `${viewingStaff[tbl.id].waiterName} inceliyor...`
+                                            : null
+                                    }
+                                    onServe={(e) => {
+                                        e.stopPropagation();
+                                        if (settings?.pickupSecurity?.requirePIN) {
+                                            setPinModal({ open: true, tableId: tbl.id });
+                                        } else {
+                                            void handleServe(tbl.id);
+                                        }
+                                    }}
+                                />
+                            ))}
+                        </div>
+                        {sectionTables.length === 0 && !loading && (
+                            <div className="flex flex-col items-center justify-center h-64 opacity-20">
+                                <FiLayers size={64} className="mb-4 text-slate-500" />
+                                <p className="text-xs font-black uppercase tracking-[0.4em] text-slate-400">{t('waiter.empty_no_tables')}</p>
+                            </div>
+                        )}
                     </div>
                 )}
-            </div>
-        </motion.div>
-    );
+            </motion.div>
+        );
+    };
 
     const renderOrderView = () => (
         <motion.div 
@@ -1418,9 +2154,21 @@ export const WaiterPanel: React.FC = () => {
                                 </p>
                             </div>
                         </div>
-                        <div className="hidden sm:flex items-center gap-3 glass px-5 py-3 rounded-2xl border-white/5">
-                            <FiActivity size={18} className="text-[#e91e63]" />
-                            <span className="text-[10px] font-black text-white italic">WAITER {user?.id}</span>
+                        <div className="flex items-center gap-2">
+                            {(settings?.waiterPayment?.allowPayment !== false) && activeTableObj && sessionTotal > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => setIsCheckoutOpen(true)}
+                                    className="px-3.5 py-2.5 sm:px-5 sm:py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-xl sm:rounded-2xl font-black text-[9px] sm:text-xs uppercase tracking-wider sm:tracking-widest shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/35 border border-emerald-400/30 flex items-center gap-1.5 active:scale-95 transition-all touch-manipulation cursor-pointer"
+                                >
+                                    <FiCreditCard size={14} className="shrink-0" />
+                                    <span>{t('waiter.pay_bill_action') || 'Ödeme Al / Hesap Kapat'} ({currency}{Math.round(sessionTotal)})</span>
+                                </button>
+                            )}
+                            <div className="hidden sm:flex items-center gap-3 glass px-5 py-3 rounded-2xl border-white/5">
+                                <FiActivity size={18} className="text-[#e91e63]" />
+                                <span className="text-[10px] font-black text-white italic">WAITER {user?.id}</span>
+                            </div>
                         </div>
                     </div>
 
@@ -1444,6 +2192,27 @@ export const WaiterPanel: React.FC = () => {
                                     {t('waiter.qr_add_to_tab')}
                                 </button>
                             </div>
+                        </div>
+                    )}
+
+                    {isReadOnlyMode && (
+                        <div className="rounded-2xl border border-rose-500/35 bg-gradient-to-r from-rose-950/40 to-slate-900/40 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg shadow-rose-950/20">
+                            <div className="flex items-center gap-3">
+                                <FiEye size={20} className="text-rose-400 animate-pulse shrink-0" />
+                                <div>
+                                    <p className="text-xs font-black text-white italic uppercase tracking-wider">İzleme Modu Aktif</p>
+                                    <p className="text-[10px] font-bold text-slate-400 mt-0.5">
+                                        Bu masa <span className="text-rose-300 font-extrabold">{activeTableObj?.active_staff_name || "başka bir garson"}</span> tarafından kilitlenmiştir.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleTakeoverTable}
+                                className="min-h-[40px] px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-black uppercase tracking-wider transition-all active:scale-[0.97]"
+                            >
+                                Masayı Üzerine Al
+                            </button>
                         </div>
                     )}
 
@@ -1518,131 +2287,223 @@ export const WaiterPanel: React.FC = () => {
         </motion.div>
     );
 
-    const renderStatsView = () => (
-        <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="flex-1 p-4 sm:p-8 overflow-y-auto no-scrollbar min-h-0 overscroll-contain"
-        >
-            <div className="max-w-4xl mx-auto space-y-10">
-                <div className="flex items-center gap-6 mb-12">
-                    <button onClick={() => setView('floor')} className="w-16 h-16 glass rounded-[24px] flex items-center justify-center text-white/40 hover:text-white transition-all">
-                        <FiChevronLeft size={28} />
-                    </button>
-                    <div>
-                        <h2 className="text-4xl font-black text-white italic tracking-tighter">
-                            {t('waiter.stats_title_lead')}{' '}
-                            <span className="text-[#e91e63]">{t('waiter.stats_title_accent')}</span>
-                        </h2>
-                        <p className="text-xs font-black text-slate-500 uppercase tracking-[0.4em] mt-2">
-                            {tpl(t, 'waiter.stats_sub', { id: user?.id ?? '—' })}
-                        </p>
-                    </div>
-                </div>
+    const renderStatsView = () => {
+        const lastShift = statsData?.lastShift;
+        const isShiftActive = lastShift && !lastShift.clock_out;
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {[
-                        { label: t('waiter.stats_orders'), val: statsData?.totalOrders || '24', icon: <FiShoppingBag />, color: 'text-blue-400' },
-                        { label: t('waiter.stats_tables'), val: statsData?.servedTables || '12', icon: <FiLayout />, color: 'text-[#e91e63]' },
-                        { label: t('waiter.stats_avg'), val: currency + (statsData?.avgOrder || '480'), icon: <FiTrendingUp />, color: 'text-emerald-400' },
-                    ].map((s, idx) => (
-                        <div key={idx} className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-10 rounded-[48px] shadow-2xl relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 p-8 text-white/10 group-hover:text-white/20 transition-all">
-                                {React.cloneElement(s.icon as any, { size: 64 })}
-                            </div>
-                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] block mb-4">{s.label}</span>
-                            <span className={`text-5xl font-black tracking-tighter italic ${s.color}`}>{s.val}</span>
+        const getShiftDurationLabel = (clockInStr: string, clockOutStr?: string | null) => {
+            if (!clockInStr) return '—';
+            const start = new Date(clockInStr).getTime();
+            const end = clockOutStr ? new Date(clockOutStr).getTime() : currentTime;
+            const diffMs = end - start;
+            if (diffMs < 0) return '0 dk';
+            const mins = Math.floor(diffMs / 60000);
+            const hours = Math.floor(mins / 60);
+            const remainingMins = mins % 60;
+            return hours > 0 ? `${hours} sa ${remainingMins} dk` : `${remainingMins} dk`;
+        };
+
+        return (
+            <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="flex-1 p-4 sm:p-8 overflow-y-auto no-scrollbar min-h-0 overscroll-contain"
+            >
+                <div className="max-w-4xl mx-auto space-y-8">
+                    <div className="flex items-center gap-6 mb-8">
+                        <button onClick={() => setView('floor')} className="w-16 h-16 glass rounded-[24px] flex items-center justify-center text-white/40 hover:text-white transition-all">
+                            <FiChevronLeft size={28} />
+                        </button>
+                        <div>
+                            <h2 className="text-4xl font-black text-white italic tracking-tighter">
+                                {t('waiter.stats_title_lead') || 'Kişisel'}{' '}
+                                <span className="text-[#e91e63]">{t('waiter.stats_title_accent') || 'Performans Raporum'}</span>
+                            </h2>
+                            <p className="text-xs font-black text-slate-500 uppercase tracking-[0.4em] mt-2">
+                                {tpl(t, 'waiter.stats_sub', { id: user?.id ?? '—' })}
+                            </p>
                         </div>
-                    ))}
-                </div>
-
-                <div className="bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-[48px] p-12 overflow-hidden relative">
-                    <div className="flex items-center justify-between mb-10">
-                        <h3 className="text-xl font-black italic text-white tracking-tighter">{t('waiter.stats_top')}</h3>
-                        <FiTrendingUp className="text-[#e91e63]" size={24} />
                     </div>
-                    <div className="space-y-6">
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         {[
-                            { name: 'Napoli Pizza', qty: 42, growth: '+12%' },
-                            { name: 'Coke Zero 0.33', qty: 38, growth: '+5%' },
-                            { name: 'Tiramisu Klasik', qty: 15, growth: '+2%' },
-                        ].map((p, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-6 bg-white/[0.03] border border-white/5 rounded-[24px] hover:bg-white/[0.08] transition-all">
-                                <div className="flex items-center gap-6">
-                                    <span className="text-xl font-black text-slate-700 italic">0{idx+1}</span>
-                                    <span className="text-sm font-black text-white uppercase tracking-widest">{p.name}</span>
+                            { label: t('waiter.stats_orders') || 'BUGÜNKÜ SİPARİŞLER', val: statsData?.today?.total_orders ?? 0, icon: <FiShoppingBag />, color: 'text-blue-400' },
+                            { label: t('waiter.stats_revenue') || 'BUGÜNKÜ CİRO', val: currency + Number(statsData?.today?.total_revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), icon: <FiDollarSign />, color: 'text-emerald-400' },
+                            { label: t('waiter.stats_tips') || 'BUGÜNKÜ BAHŞİŞ (TRINKGELD)', val: currency + Number(statsData?.tipsToday || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), icon: <FiCreditCard />, color: 'text-amber-400' },
+                        ].map((s, idx) => (
+                            <div key={idx} className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-8 rounded-[36px] shadow-2xl relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 p-6 text-white/10 group-hover:text-white/20 transition-all">
+                                    {React.cloneElement(s.icon as any, { size: 48 })}
                                 </div>
-                                <div className="flex items-center gap-10">
-                                    <div className="flex flex-col items-end">
-                                        <span className="text-xl font-black text-white">{p.qty}x</span>
-                                        <span className="text-[9px] font-black text-emerald-500">{p.growth}</span>
-                                    </div>
-                                    <div className="w-12 h-1 px-8 bg-slate-800 rounded-full relative overflow-hidden hidden sm:block">
-                                        <div className="absolute inset-y-0 left-0 bg-[#e91e63]" style={{ width: `${100 - (idx * 25)}%` }} />
-                                    </div>
-                                </div>
+                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] block mb-2">{s.label}</span>
+                                <span className={`text-3xl font-black tracking-tighter italic ${s.color}`}>{s.val}</span>
                             </div>
                         ))}
                     </div>
+
+                    <div className="bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-[36px] p-8 overflow-hidden relative group">
+                        <div className="absolute top-0 right-0 w-48 h-48 bg-[#e91e63]/5 rounded-full blur-3xl pointer-events-none" />
+                        <div className="flex items-center justify-between mb-6">
+                            <div className="flex items-center gap-3">
+                                <FiClock className="text-[#e91e63]" size={22} />
+                                <h3 className="text-lg font-black italic text-white tracking-tighter">
+                                    {t('waiter.shift_status') || 'Mesai & Çalışma Geçmişi'}
+                                </h3>
+                            </div>
+                            {lastShift && (
+                                <span className={`text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1.5 rounded-xl border ${
+                                    isShiftActive 
+                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 animate-pulse' 
+                                        : 'bg-slate-800 border-white/10 text-slate-400'
+                                }`}>
+                                    {isShiftActive ? 'MESAİDE / AKTİF' : 'MESAİ BİTTİ'}
+                                </span>
+                            )}
+                        </div>
+
+                        {lastShift ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">
+                                        GİRİŞ ZAMANI
+                                    </span>
+                                    <span className="text-sm font-black text-white font-mono">
+                                        {new Date(lastShift.clock_in).toLocaleString('tr-TR')}
+                                    </span>
+                                </div>
+                                <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">
+                                        {isShiftActive ? 'AKTİF SÜRE' : 'TOPLAM MESAİ SÜRESİ'}
+                                    </span>
+                                    <span className="text-sm font-black text-white font-mono">
+                                        {getShiftDurationLabel(lastShift.clock_in, lastShift.clock_out)}
+                                    </span>
+                                </div>
+                                {!isShiftActive && (
+                                    <>
+                                        <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">
+                                                MESAİ BOYUNCA CİRO
+                                            </span>
+                                            <span className="text-sm font-black text-[#e91e63] font-mono">
+                                                {currency}{Number(lastShift.total_sales || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                            </span>
+                                        </div>
+                                        <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl">
+                                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">
+                                                MESAİ BOYUNCA SİPARİŞ
+                                            </span>
+                                            <span className="text-sm font-black text-blue-400 font-mono">
+                                                {lastShift.total_orders || 0} Adet
+                                            </span>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="p-8 text-center bg-white/[0.01] border border-white/5 rounded-2xl">
+                                <span className="text-xs font-bold text-slate-400 block mb-2">
+                                    Bugün henüz kayıtlı bir mesai başlangıcınız bulunmuyor.
+                                </span>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
-        </motion.div>
-    );
+            </motion.div>
+        );
+    };
 
     const renderMessagesView = () => {
-        const zoneGarsonTables = tables.filter(
-            (t) => tableStatuses[t.id] === 'waiting' && isTableInWaiterAssignedSection(user, t)
-        );
-        const hesapKasaTables = tables.filter((t) => tableStatuses[t.id] === 'billing');
+        const tableCallRows = tables.filter((t) => {
+            const st = tableStatuses[t.id];
+            if (st === 'billing') return true;
+            if (st === 'waiting') return isTableInWaiterAssignedSection(user, t);
+            return false;
+        });
+
+        const acknowledgeTableCall = async (tbl: TableRow) => {
+            const meta = pendingServiceCalls[tbl.id];
+            if (meta?.serviceCallId) {
+                try {
+                    const res = await fetch(`/api/v1/service-calls/${meta.serviceCallId}/status`, {
+                        method: 'PATCH',
+                        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: 'in_progress' }),
+                    });
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        toast.error(err.error || t('waiter.toast_call_claim_failed'));
+                        return;
+                    }
+                } catch {
+                    toast.error(t('waiter.toast_connection_error'));
+                    return;
+                }
+            }
+
+            setPendingServiceCalls((prev) => {
+                const next = { ...prev };
+                delete next[tbl.id];
+                return next;
+            });
+            setTableStatuses((prev) => ({ ...prev, [tbl.id]: 'occupied' }));
+            toast.success(t('waiter.toast_call_done'));
+        };
 
         const callCard = (tbl: TableRow, mode: 'garson' | 'hesap') => {
             const billing = mode === 'hesap';
+            const meta = pendingServiceCalls[tbl.id];
+            const detailText = serviceCallText(meta?.callType, meta?.message);
+            const elapsedSec = meta?.createdAtMs
+                ? Math.max(0, Math.floor((Date.now() - meta.createdAtMs) / 1000))
+                : 0;
+            const elapsedLabel =
+                elapsedSec >= 60
+                    ? `${Math.floor(elapsedSec / 60)}dk ${elapsedSec % 60}sn`
+                    : `${elapsedSec}sn`;
             return (
                 <motion.div
                     key={`${mode}-${tbl.id}`}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="bg-slate-900/60 backdrop-blur-3xl border border-white/10 p-8 rounded-[48px] flex items-center justify-between group overflow-hidden relative"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="border border-white/10 bg-slate-900/55 p-5 sm:p-6 rounded-3xl flex items-center justify-between gap-4"
                 >
-                    <div className={`absolute top-0 left-0 w-1 h-full ${billing ? 'bg-blue-500' : 'bg-amber-500'}`} />
-                    <div className="flex items-center gap-6 min-w-0">
+                    <div className="flex items-center gap-4 min-w-0">
                         <div
-                            className={`relative w-16 h-16 shrink-0 rounded-[24px] flex items-center justify-center shadow-xl border ${
-                                billing ? 'bg-blue-600/10 text-blue-500 border-blue-500/10' : 'bg-amber-600/10 text-amber-500 border-amber-500/10'
+                            className={`w-11 h-11 shrink-0 rounded-xl flex items-center justify-center border ${
+                                billing
+                                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                    : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
                             }`}
                         >
-                            {billing ? <FiCreditCard size={28} /> : <FiBell size={28} className="animate-pulse-fast" />}
-                            <div
-                                className={`absolute -inset-2 border-2 rounded-[28px] animate-ping-slow ${
-                                    billing ? 'border-blue-500/30' : 'border-amber-500/30'
-                                }`}
-                            />
+                            {billing ? <FiCreditCard size={18} /> : <FiBell size={18} />}
                         </div>
-                        <div className="flex flex-col min-w-0">
-                            <span
-                                className={`text-[10px] font-black uppercase tracking-[0.4em] mb-1.5 ${
-                                    billing ? 'text-blue-500' : 'text-amber-500'
-                                }`}
-                            >
+                        <div className="min-w-0">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                                 {billing ? t('waiter.call_card_billing') : t('waiter.call_card_zone')}
-                            </span>
-                            <span className="text-2xl font-black text-white italic tracking-tighter uppercase truncate leading-none mb-1">
+                            </div>
+                            <div className="text-lg font-semibold text-white truncate">
                                 {tpl(t, 'waiter.call_table', { name: tbl.name })}
-                            </span>
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate">
+                            </div>
+                            <div className="text-[11px] text-slate-400 truncate">
                                 {tbl.section_name ? `${tbl.section_name} · ` : ''}
-                                {billing ? t('waiter.call_pay_request') : t('waiter.call_service_help')}
-                            </span>
+                                {detailText || (billing ? t('waiter.call_pay_request') : t('waiter.call_service_help'))}
+                            </div>
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => setTableStatuses((prev) => ({ ...prev, [tbl.id]: 'occupied' }))}
-                        className="w-16 h-16 shrink-0 glass rounded-[24px] flex items-center justify-center text-slate-600 hover:text-emerald-500 transition-all border-white/5 active:scale-90"
-                    >
-                        <FiCheckCircle size={28} />
-                    </button>
+                    <div className="flex items-center gap-3 shrink-0">
+                        <span className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-slate-300 tabular-nums">
+                            {elapsedLabel}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => void acknowledgeTableCall(tbl)}
+                            className="w-11 h-11 rounded-xl flex items-center justify-center text-emerald-300 hover:text-white hover:bg-emerald-500/30 border border-emerald-500/25 transition-colors"
+                        >
+                            <FiCheckCircle size={18} />
+                        </button>
+                    </div>
                 </motion.div>
             );
         };
@@ -1658,84 +2519,10 @@ export const WaiterPanel: React.FC = () => {
                     <section className="space-y-8">
                         <div className="flex items-center justify-between px-2">
                             <div className="flex items-center gap-4">
-                                <div className="w-1.5 h-1.5 bg-[#e91e63] rounded-full animate-pulse-fast" />
-                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.4em]">
-                                    {t('waiter.qr_calls_section_title')}
-                                </h3>
-                            </div>
-                            <span className="text-[10px] font-black text-slate-600 tabular-nums">{qrQueue.length}</span>
-                        </div>
-                        {qrQueue.length === 0 ? (
-                            <div className="bg-white/[0.02] border border-dashed border-white/10 rounded-[40px] py-16 text-center">
-                                <FiShoppingBag className="w-12 h-12 mx-auto mb-3 opacity-15" />
-                                <p className="text-[10px] font-black text-slate-700 uppercase tracking-[0.4em] italic">
-                                    {t('waiter.qr_calls_section_empty')}
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-1 gap-4">
-                                {qrQueue.map((q) => (
-                                    <div
-                                        key={q.orderId}
-                                        className="flex flex-col gap-4 rounded-[32px] border border-[#e91e63]/25 bg-[#e91e63]/5 p-5 sm:flex-row sm:items-center sm:justify-between"
-                                    >
-                                        <div className="flex min-w-0 items-start gap-4">
-                                            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#e91e63]/20 text-[#e91e63]">
-                                                <FiShoppingBag size={26} />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <span className="text-[10px] font-black uppercase tracking-[0.35em] text-[#e91e63]">
-                                                    {t('waiter.qr_tablet_order_badge')}
-                                                </span>
-                                                <p className="mt-1 break-words text-lg font-black uppercase italic tracking-tighter text-white">
-                                                    {`${q.tableName} · ${q.customerName || t('waiter.guest_upper')} · ${currency}${Number(q.totalAmount ?? 0).toFixed(0)}`}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-wrap gap-2 sm:shrink-0">
-                                            <button
-                                                type="button"
-                                                onClick={() =>
-                                                    setConfirm({
-                                                        title: t('waiter.qr_reject_title'),
-                                                        description: t('waiter.qr_reject_desc'),
-                                                        confirmText: t('waiter.qr_reject_confirm'),
-                                                        type: 'danger',
-                                                        onConfirm: () => void rejectQr(q.orderId),
-                                                    })
-                                                }
-                                                aria-label={t('waiter.qr_reject_title')}
-                                                className="min-h-[48px] min-w-[48px] rounded-2xl border border-white/10 bg-white/5 px-3 text-rose-400 hover:bg-rose-500 hover:text-white"
-                                            >
-                                                <FiX size={22} className="mx-auto" />
-                                            </button>
-                                            <button
-                                                type="button"
-                                                disabled={qrImportBusy}
-                                                onClick={() => void importQrOrderLinesToCart(q)}
-                                                className="min-h-[48px] rounded-2xl border border-white/15 bg-white/10 px-4 text-[10px] font-black uppercase tracking-widest text-white hover:bg-white/15 disabled:opacity-50"
-                                            >
-                                                {t('waiter.qr_pull_to_cart')}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => openQrAdisyonModal(q)}
-                                                className="min-h-[48px] rounded-2xl bg-emerald-600 px-5 text-[10px] font-black uppercase tracking-widest text-white hover:bg-emerald-500"
-                                            >
-                                                {t('waiter.qr_add_to_tab')}
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </section>
-
-                    <section className="space-y-8">
-                        <div className="flex items-center justify-between px-2">
-                            <div className="flex items-center gap-4">
                                 <div className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse-fast" />
-                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.4em]">{t('waiter.calls_cashier_no_table')}</h3>
+                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.4em]">
+                                    KASIYER YONLENDIRMELERI
+                                </h3>
                             </div>
                             <span className="text-[10px] font-black text-slate-600 tabular-nums">{cashierNoTableCalls.length}</span>
                         </div>
@@ -1751,43 +2538,40 @@ export const WaiterPanel: React.FC = () => {
                                 {cashierNoTableCalls.map((c) => (
                                     <motion.div
                                         key={c.serviceCallId}
-                                        role="button"
-                                        tabIndex={0}
-                                        initial={{ opacity: 0, scale: 0.9 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        onClick={() => void completeCashierNoTableCall(c.serviceCallId)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter' || e.key === ' ') {
-                                                e.preventDefault();
-                                                void completeCashierNoTableCall(c.serviceCallId);
-                                            }
-                                        }}
-                                        title={t('waiter.calls_card_done')}
-                                        className="bg-slate-900/60 backdrop-blur-3xl border border-white/10 p-8 rounded-[48px] flex items-center justify-between group overflow-hidden relative cursor-pointer touch-manipulation active:scale-[0.99] select-none"
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="border border-white/10 bg-slate-900/55 p-5 sm:p-6 rounded-3xl flex items-center justify-between gap-4"
                                     >
-                                        <div className="absolute top-0 left-0 w-1 h-full bg-rose-500" />
-                                        <div className="flex items-center gap-6 min-w-0">
-                                            <div className="relative w-16 h-16 shrink-0 rounded-[24px] flex items-center justify-center shadow-xl border bg-rose-600/10 text-rose-500 border-rose-500/10">
-                                                <FiBriefcase size={28} className="animate-pulse-fast" />
-                                                <div className="absolute -inset-2 border-2 rounded-[28px] animate-ping-slow border-rose-500/30" />
+                                        <div className="flex items-center gap-4 min-w-0">
+                                            <div className="w-11 h-11 shrink-0 rounded-xl flex items-center justify-center border bg-rose-500/10 text-rose-400 border-rose-500/20">
+                                                <FiBriefcase size={18} />
                                             </div>
-                                            <div className="flex flex-col min-w-0">
-                                                <span className="text-[10px] font-black uppercase tracking-[0.4em] mb-1.5 text-rose-500">
+                                            <div className="min-w-0">
+                                                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                                                     {t('waiter.calls_cashier_target')}
-                                                </span>
-                                                <span className="text-2xl font-black text-white italic tracking-tighter uppercase truncate leading-none mb-1">
+                                                </div>
+                                                <div className="text-lg font-semibold text-white truncate">
                                                     {t('waiter.calls_no_table_call')}
-                                                </span>
-                                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate">
+                                                </div>
+                                                <div className="text-[11px] text-slate-400 truncate">
+                                                    {serviceCallText('call_waiter', c.message)}
+                                                </div>
+                                                <div className="text-[10px] text-slate-500 truncate">
                                                     {tpl(t, 'waiter.calls_from_cashier', { min: formatElapsedTime(c.created_at) })}
-                                                </span>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div
-                                            className="w-16 h-16 shrink-0 glass rounded-[24px] flex items-center justify-center text-emerald-500/90 border-white/5 pointer-events-none"
-                                            aria-hidden
-                                        >
-                                            <FiCheckCircle size={28} />
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <span className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] font-medium text-slate-300 tabular-nums">
+                                                {formatElapsedTime(c.created_at)} dk
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => void completeCashierNoTableCall(c.serviceCallId)}
+                                                className="h-9 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 text-[10px] font-black uppercase tracking-wider text-emerald-300 hover:bg-emerald-500 hover:text-white transition-colors"
+                                            >
+                                                KABUL
+                                            </button>
                                         </div>
                                     </motion.div>
                                 ))}
@@ -1799,39 +2583,26 @@ export const WaiterPanel: React.FC = () => {
                         <div className="flex items-center justify-between px-2">
                             <div className="flex items-center gap-4">
                                 <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse-fast" />
-                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.4em]">{t('waiter.calls_zone')}</h3>
+                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.4em]">
+                                    MASA / KIOSK CAGRILARI
+                                </h3>
                             </div>
-                            <span className="text-[10px] font-black text-slate-600 tabular-nums">{zoneGarsonTables.length}</span>
+                            <span className="text-[10px] font-black text-slate-600 tabular-nums">{tableCallRows.length}</span>
                         </div>
-                        {zoneGarsonTables.length === 0 ? (
+                        {tableCallRows.length === 0 ? (
                             <div className="bg-white/[0.02] border border-dashed border-white/10 rounded-[40px] py-16 text-center">
                                 <FiBell className="w-12 h-12 mx-auto mb-3 opacity-15" />
                                 <p className="text-[10px] font-black text-slate-700 uppercase tracking-[0.4em] italic">
-                                    {t('waiter.calls_zone_empty')}
+                                    BEKLEYEN MASA CAGRISI YOK
                                 </p>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">{zoneGarsonTables.map((t) => callCard(t, 'garson'))}</div>
-                        )}
-                    </section>
-
-                    <section className="space-y-8">
-                        <div className="flex items-center justify-between px-2">
-                            <div className="flex items-center gap-4">
-                                <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse-fast" />
-                                <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.4em]">{t('waiter.calls_billing')}</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {tableCallRows.map((row) => {
+                                    const st = tableStatuses[row.id];
+                                    return callCard(row, st === 'billing' ? 'hesap' : 'garson');
+                                })}
                             </div>
-                            <span className="text-[10px] font-black text-slate-600 tabular-nums">{hesapKasaTables.length}</span>
-                        </div>
-                        {hesapKasaTables.length === 0 ? (
-                            <div className="bg-white/[0.02] border border-dashed border-white/10 rounded-[40px] py-16 text-center">
-                                <FiCreditCard className="w-12 h-12 mx-auto mb-3 opacity-15" />
-                                <p className="text-[10px] font-black text-slate-700 uppercase tracking-[0.4em] italic">
-                                    {t('waiter.calls_billing_empty')}
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">{hesapKasaTables.map((t) => callCard(t, 'hesap'))}</div>
                         )}
                     </section>
                 </div>
@@ -1963,7 +2734,8 @@ export const WaiterPanel: React.FC = () => {
     };
 
     return (
-        <div className="flex h-[100dvh] min-h-0 flex-col bg-[#020617] text-slate-200 font-sans overflow-hidden relative selection:bg-[#e91e63] selection:text-white touch-manipulation pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]">
+        <div className="theme-waiter-root flex h-[100dvh] min-h-0 flex-col bg-[#020617] text-slate-200 font-sans overflow-hidden relative selection:bg-[#e91e63] selection:text-white touch-manipulation pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]">
+            <OfflineBanner />
             {/* Background Blobs */}
             <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
                 <motion.div 
@@ -2008,6 +2780,22 @@ export const WaiterPanel: React.FC = () => {
                         <FiClock className="text-[#e91e63]" size={16} />
                         <span className="text-[10px] font-black tracking-widest text-white/50">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
+
+                    {user?.role === 'waiter' && (
+                        <button
+                            type="button"
+                            onClick={() => void toggleWaiterBreak()}
+                            disabled={breakBusy}
+                            title={waiterOnBreak ? t('waiter.break_end_tooltip') : t('waiter.break_start_tooltip')}
+                            className={`w-12 h-12 sm:w-14 sm:h-14 glass rounded-[20px] sm:rounded-[24px] flex items-center justify-center transition-all relative touch-manipulation active:scale-95 disabled:opacity-50 ${
+                                waiterOnBreak
+                                    ? 'text-amber-400 bg-amber-500/15 border border-amber-500/30 shadow-lg shadow-amber-500/10'
+                                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            <FiPauseCircle size={24} className={waiterOnBreak ? 'animate-pulse' : ''} />
+                        </button>
+                    )}
                     
                     <button 
                         type="button"
@@ -2145,7 +2933,7 @@ export const WaiterPanel: React.FC = () => {
                             <>
                                 <span className="text-lg sm:text-xl font-black tabular-nums leading-none">{cartQtyTotal}</span>
                                 <span className="text-sm sm:text-base font-black tabular-nums opacity-95 border-l border-white/30 pl-2 sm:pl-3 ml-0.5 whitespace-nowrap">
-                                    ₺{Math.round(getCartTotal().final_total)}
+                                    {currency}{Math.round(getCartTotal().final_total)}
                                 </span>
                             </>
                         )}
@@ -2336,7 +3124,7 @@ export const WaiterPanel: React.FC = () => {
 
                             <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-8 space-y-4 sm:space-y-5 no-scrollbar custom-scrollbar overscroll-contain">
                                 <AnimatePresence mode="popLayout">
-                                    {cart.length === 0 ? (
+                                    {cart.length === 0 && activeSessionOrders.length === 0 ? (
                                         <div className="flex flex-col items-center justify-center py-16 text-center opacity-25 px-6">
                                             <div className="mb-6 flex h-28 w-28 items-center justify-center rounded-full border-2 border-dashed border-white/20 bg-white/5">
                                                 <FiShoppingBag size={40} />
@@ -2346,100 +3134,195 @@ export const WaiterPanel: React.FC = () => {
                                             </p>
                                         </div>
                                     ) : (
-                                        cart.map(item => (
-                                            <motion.div
-                                                key={item.cartId}
-                                                layout
-                                                initial={{ opacity: 0, x: 20 }}
-                                                animate={{ opacity: 1, x: 0 }}
-                                                exit={{ opacity: 0, scale: 0.9 }}
-                                                className="bg-white/[0.03] border border-white/5 p-5 sm:p-6 rounded-[28px] relative overflow-hidden group shadow-lg"
-                                            >
-                                                <div className="flex justify-between items-start mb-4 sm:mb-6">
-                                                    <div className="min-w-0 pr-4">
-                                                        <span className="text-sm font-black text-white leading-tight uppercase italic group-hover:text-[#e91e63] transition-colors">
-                                                            {item.product.displayName}
-                                                        </span>
-                                                        <div className="flex items-center gap-3 mt-2 flex-wrap">
-                                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-white/5 px-2 py-0.5 rounded-md">
-                                                                ₺{Math.round(item.price)}
-                                                            </span>
-                                                            {item.notes && (
-                                                                <span className="text-[9px] font-black text-emerald-500 uppercase flex items-center gap-1">
-                                                                    ⚡ {item.notes}
-                                                                </span>
-                                                            )}
+                                        <div className="space-y-6">
+                                            {/* Placed Session Orders */}
+                                            {activeSessionOrders.length > 0 && (
+                                                <div className="space-y-2 mb-6 border-b border-white/5 pb-6">
+                                                    <div className="text-[9px] font-black text-[#e91e63] uppercase tracking-[0.3em] mb-3">
+                                                        {t('cart.history') || 'GÖNDERİLEN SİPARİŞLER'}
+                                                    </div>
+                                                    {activeSessionOrders.flatMap(o => o.items).map((item: any, idx) => (
+                                                        <div key={`hist-${idx}`} className="flex py-2.5 border-b border-white/[0.03] last:border-0 items-baseline opacity-75 gap-2">
+                                                            <span className="text-[11px] font-black text-slate-400">{item.qty}×</span>
+                                                            <div className="flex-1 min-w-0 flex flex-col">
+                                                                <p className="text-[11px] font-bold text-slate-300 uppercase truncate tracking-tight">{item.product?.displayName}</p>
+                                                            </div>
+                                                            <div className="text-[11px] font-black text-slate-400 tabular-nums">
+                                                                {currency}{Math.round(item.price * item.qty)}
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => removeFromCart(item.cartId)}
-                                                        className="shrink-0 w-10 h-10 rounded-2xl glass text-rose-500 flex items-center justify-center hover:bg-rose-500 hover:text-white hover:shadow-lg hover:shadow-rose-600/30 transition-all border-white/5 touch-manipulation"
-                                                    >
-                                                        <FiTrash2 size={18} />
-                                                    </button>
+                                                    ))}
                                                 </div>
-                                                <div className="flex justify-between items-center bg-black/30 rounded-3xl p-2 pr-4 sm:pr-6">
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => updateQty(item.cartId, item.qty - 1)}
-                                                            className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-white/5 flex items-center justify-center text-white hover:bg-white/10 transition-all active:scale-90 touch-manipulation"
-                                                        >
-                                                            <FiMinus size={14} />
-                                                        </button>
-                                                        <span className="text-lg font-black text-white w-9 sm:w-10 text-center font-display tabular-nums">
-                                                            {item.qty}
-                                                        </span>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => updateQty(item.cartId, item.qty + 1)}
-                                                            className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-[#e91e63]/10 text-[#e91e63] flex items-center justify-center hover:bg-[#e91e63] hover:text-white transition-all active:scale-90 touch-manipulation"
-                                                        >
-                                                            <FiPlus size={14} />
-                                                        </button>
-                                                    </div>
-                                                    <span className="text-lg sm:text-xl font-black text-emerald-400 italic tracking-tighter tabular-nums">
-                                                        ₺{Math.round(item.price * item.qty)}
-                                                    </span>
+                                            )}
+
+                                            {/* New Unsent Cart Items */}
+                                            {cart.length > 0 && (
+                                                <div className="space-y-4">
+                                                    {activeSessionOrders.length > 0 && (
+                                                        <div className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-1">
+                                                            {t('cart.newItems') || 'YENİ EKLENENLER (MUTFAĞA GÖNDERİLMEDİ)'}
+                                                        </div>
+                                                    )}
+                                                    {cart.map(item => {
+                                                         const modSum = (item.modifiers || []).reduce((a, m) => a + Number(m.price || 0), 0);
+                                                         const itemUnitPrice = item.price + modSum;
+                                                         const itemTotalPrice = itemUnitPrice * item.qty;
+
+                                                         return (
+                                                             <motion.div
+                                                                 key={item.cartId}
+                                                                 layout
+                                                                 initial={{ opacity: 0, y: 8 }}
+                                                                 animate={{ opacity: 1, y: 0 }}
+                                                                 exit={{ opacity: 0, scale: 0.95 }}
+                                                                 className="relative group bg-slate-950/20 hover:bg-slate-950/45 border-b border-white/[0.04] py-2 px-3 sm:px-4 flex flex-col gap-1 transition-all duration-300 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[3px] before:bg-gradient-to-b before:from-[#e91e63] before:to-indigo-500 before:rounded-r before:shadow-[0_0_8px_rgba(233,30,99,0.4)] overflow-hidden"
+                                                             >
+                                                                 <div className="flex items-center justify-between gap-2.5">
+                                                                     {/* Product Title and Glowing Badges */}
+                                                                     <div className="min-w-0 flex-1 flex flex-col">
+                                                                         <div className="flex flex-wrap items-center gap-1.5">
+                                                                             <span className="text-[11px] sm:text-xs font-black uppercase tracking-tight text-white leading-tight italic group-hover:text-[#e91e63] transition-colors duration-300 truncate">
+                                                                                 {item.product.displayName}
+                                                                             </span>
+                                                                             {item.variant && (
+                                                                                 <span className="px-1 py-0.25 bg-gradient-to-r from-pink-500/10 to-[#e91e63]/25 text-[#e91e63] border border-[#e91e63]/30 rounded text-[7px] font-black uppercase tracking-wider shadow-[0_0_6px_rgba(233,30,99,0.15)] scale-90 origin-left">
+                                                                                     {item.variant.displayName || item.variant.name}
+                                                                                 </span>
+                                                                             )}
+                                                                         </div>
+
+                                                                         {/* Complex Metadata: Modifiers and Notes in a single row */}
+                                                                         {((item.modifiers && item.modifiers.length > 0) || item.notes) && (
+                                                                             <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                                                                                 {item.modifiers?.map((m) => (
+                                                                                     <span key={m.id} className="text-[7.5px] font-extrabold bg-indigo-950/30 border border-indigo-500/20 text-indigo-300 px-1 py-0.25 rounded uppercase tracking-wide">
+                                                                                         + {m.displayName || m.name}
+                                                                                     </span>
+                                                                                 ))}
+                                                                                 {item.notes && (
+                                                                                     <span className="text-[7.5px] font-extrabold bg-emerald-950/30 border border-emerald-500/20 text-emerald-400 px-1 py-0.25 rounded uppercase tracking-wide flex items-center gap-0.5">
+                                                                                         ⚡ {item.notes}
+                                                                                     </span>
+                                                                                 )}
+                                                                             </div>
+                                                                         )}
+                                                                     </div>
+
+                                                                     {/* Pricing Math, Quantity Pill and Action Controls */}
+                                                                     <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                                                                         {/* Quantity Pill Changer */}
+                                                                         <div className="h-6 px-0.5 bg-black/50 border border-white/10 rounded-full flex items-center gap-0.5">
+                                                                             <button
+                                                                                 type="button"
+                                                                                 onClick={() => updateQty(item.cartId, item.qty - 1)}
+                                                                                 className="w-4.5 h-4.5 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center text-[8px] active:scale-90 transition-all touch-manipulation"
+                                                                             >
+                                                                                 <FiMinus size={8} />
+                                                                             </button>
+                                                                             <span className="text-[10px] font-black text-white w-3 text-center tabular-nums font-mono leading-none">
+                                                                                 {item.qty}
+                                                                             </span>
+                                                                             <button
+                                                                                 type="button"
+                                                                                 onClick={() => updateQty(item.cartId, item.qty + 1)}
+                                                                                 className="w-4.5 h-4.5 rounded-full bg-[#e91e63]/10 hover:bg-[#e91e63] text-[#e91e63] hover:text-white flex items-center justify-center text-[8px] active:scale-90 transition-all touch-manipulation"
+                                                                             >
+                                                                                 <FiPlus size={8} />
+                                                                             </button>
+                                                                         </div>
+
+                                                                         {/* Math Breakdowns and Total Price */}
+                                                                         <div className="flex flex-col items-end min-w-[55px]">
+                                                                             <span className="text-[11px] font-black text-emerald-400 italic tracking-tighter tabular-nums font-mono leading-none">
+                                                                                 {currency}{Math.round(itemTotalPrice)}
+                                                                             </span>
+                                                                             <span className="text-[7.5px] text-slate-500 font-mono tracking-tighter mt-0.5 leading-none">
+                                                                                 {item.qty}×{currency}{Math.round(itemUnitPrice)}
+                                                                             </span>
+                                                                         </div>
+
+                                                                         {/* Sleek Delete Action Circular Button */}
+                                                                         <button
+                                                                             type="button"
+                                                                             onClick={() => removeFromCart(item.cartId)}
+                                                                             className="w-5.5 h-5.5 rounded-full bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border border-rose-500/20 hover:border-rose-500/40 flex items-center justify-center transition-all duration-300 touch-manipulation cursor-pointer"
+                                                                             aria-label={t('waiter.remove')}
+                                                                         >
+                                                                             <FiTrash2 size={10} />
+                                                                         </button>
+                                                                     </div>
+                                                                 </div>
+                                                             </motion.div>
+                                                         );
+                                                     })}
                                                 </div>
-                                            </motion.div>
-                                        ))
+                                            )}
+                                    </div>
                                     )}
                                 </AnimatePresence>
                             </div>
 
                             <div className="space-y-4 sm:space-y-6 shrink-0 border-t border-white/10 bg-black/40 p-4 sm:p-8 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                                {sessionTotal > 0 && (
+                                    <div className="space-y-1.5 text-[11px] border-b border-white/5 pb-3">
+                                        <div className="flex justify-between items-center text-slate-400 font-bold uppercase tracking-wider">
+                                            <span>{t('cart.history') || 'Önceki Siparişler'}</span>
+                                            <span className="font-mono">{currency}{Math.round(sessionTotal)}</span>
+                                        </div>
+                                        {cart.length > 0 && (
+                                            <div className="flex justify-between items-center text-slate-400 font-bold uppercase tracking-wider">
+                                                <span>{t('cart.newItems') || 'Yeni Eklenenler'}</span>
+                                                <span className="font-mono">{currency}{Math.round(getCartTotal().final_total)}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 <div className="flex justify-between items-end gap-2">
                                     <div className="flex flex-col gap-1.5">
                                         <span className="text-[10px] font-black text-slate-600 uppercase tracking-[0.4em]">{t('waiter.cart_net')}</span>
-                                        <span className="text-lg font-black text-slate-400 tabular-nums">₺{Math.round(getCartTotal().subtotal)}</span>
+                                        <span className="text-lg font-black text-slate-400 tabular-nums">{currency}{Math.round(checkoutBillDetails.subtotal)}</span>
                                     </div>
                                     <div className="flex flex-col items-end gap-1.5">
                                         <span className="text-[10px] font-black text-[#e91e63] uppercase tracking-[0.6em]">{t('waiter.cart_grand_total')}</span>
                                         <span className="text-4xl sm:text-5xl font-black text-white tracking-tighter italic tabular-nums">
-                                            ₺{Math.round(getCartTotal().final_total)}
+                                            {currency}{Math.round(sessionTotal + getCartTotal().final_total)}
                                         </span>
                                     </div>
                                 </div>
 
                                 <div className="h-px bg-white/5 w-full" />
 
-                                <button
-                                    type="button"
-                                    disabled={cart.length === 0 || isSubmittingOrder}
-                                    onClick={handleSendOrder}
-                                    className="group w-full min-h-[56px] sm:min-h-[72px] py-4 bg-[#e91e63] hover:bg-[#c2185b] disabled:opacity-20 disabled:grayscale rounded-[24px] sm:rounded-[32px] text-white font-black text-sm sm:text-base uppercase tracking-[0.2em] sm:tracking-[0.3em] shadow-[0_20px_60px_-15px_rgba(233,30,99,0.6)] flex items-center justify-center gap-3 sm:gap-4 transition-all active:scale-[0.98] touch-manipulation"
-                                >
-                                    {isSubmittingOrder ? (
-                                        <FiRefreshCw className="animate-spin text-3xl" />
-                                    ) : (
-                                        <>
-                                            <span className="group-hover:translate-x-2 transition-transform duration-500">{t('cart.sendToKitchen')}</span>
-                                            <FiArrowRight size={26} className="group-hover:translate-x-3 transition-transform duration-500 opacity-50" />
-                                        </>
+                                <div className="flex flex-col gap-3">
+                                    <button
+                                        type="button"
+                                        disabled={cart.length === 0 || isSubmittingOrder}
+                                        onClick={handleSendOrder}
+                                        className="group w-full min-h-[56px] sm:min-h-[72px] py-4 bg-[#e91e63] hover:bg-[#c2185b] disabled:opacity-20 disabled:grayscale rounded-[24px] sm:rounded-[32px] text-white font-black text-sm sm:text-base uppercase tracking-[0.2em] sm:tracking-[0.3em] shadow-[0_20px_60px_-15px_rgba(233,30,99,0.6)] flex items-center justify-center gap-3 sm:gap-4 transition-all active:scale-[0.98] touch-manipulation cursor-pointer"
+                                    >
+                                        {isSubmittingOrder ? (
+                                            <FiRefreshCw className="animate-spin text-3xl" />
+                                        ) : (
+                                            <>
+                                                <span className="group-hover:translate-x-2 transition-transform duration-500">{t('cart.sendToKitchen') || 'Mutfak Gönder'}</span>
+                                                <FiArrowRight size={26} className="group-hover:translate-x-3 transition-transform duration-500 opacity-50" />
+                                            </>
+                                        )}
+                                    </button>
+
+                                    {(settings?.waiterPayment?.allowPayment !== false) && checkoutBillTotal > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setOrderCartOpen(false);
+                                                setIsCheckoutOpen(true);
+                                            }}
+                                            className="w-full min-h-[56px] sm:min-h-[72px] py-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white rounded-[24px] sm:rounded-[32px] font-black text-sm uppercase tracking-wider shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/35 border border-emerald-400/30 flex items-center justify-center gap-2 active:scale-95 transition-all touch-manipulation cursor-pointer"
+                                        >
+                                            <FiCreditCard size={18} className="shrink-0" />
+                                            <span>{t('waiter.pay_bill_action') || 'Ödeme Al / Hesap Kapat'} ({currency}{Math.round(checkoutBillTotal)})</span>
+                                        </button>
                                     )}
-                                </button>
+                                </div>
                             </div>
                         </motion.div>
                     </>
@@ -2585,16 +3468,30 @@ export const WaiterPanel: React.FC = () => {
                                         <label className="text-[10px] font-black text-slate-600 uppercase tracking-[0.4em] block">{t('waiter.guest_count_label')}</label>
                                         <span className="text-[9px] font-black text-[#e91e63] bg-[#e91e63]/10 px-3 py-1 rounded-full uppercase tracking-widest">{tpl(t, 'waiter.max_seats', { n: openModalTable.capacity || 4 })}</span>
                                     </div>
-                                    <div className="grid grid-cols-4 gap-4">
-                                        {[1,2,4,6].map(n => (
-                                            <button 
-                                                key={n}
-                                                onClick={() => setOpenForm({ ...openForm, guestCount: String(n) })}
-                                                className={`h-20 rounded-[28px] font-black transition-all border text-lg ${openForm.guestCount === String(n) ? 'bg-[#e91e63] border-[#e91e63] text-white shadow-[0_15px_40px_-5px_rgba(233,30,99,0.4)]' : 'bg-white/[0.02] border-white/5 text-slate-700 hover:text-slate-400 hover:bg-white/5'}`}
-                                            >
-                                                {n}
-                                            </button>
-                                        ))}
+                                    <div className="flex items-center justify-center gap-8 bg-white/[0.02] border border-white/5 rounded-[32px] p-6">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const currentCount = parseInt(openForm.guestCount || '2', 10);
+                                                setOpenForm({ ...openForm, guestCount: String(Math.max(1, currentCount - 1)) });
+                                            }}
+                                            className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-white/10 active:scale-95 transition-all"
+                                        >
+                                            <FiMinus size={24} strokeWidth={2.5} />
+                                        </button>
+                                        <span className="text-4xl font-black text-white min-w-[3ch] text-center tabular-nums italic tracking-tighter">
+                                            {openForm.guestCount}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const currentCount = parseInt(openForm.guestCount || '2', 10);
+                                                setOpenForm({ ...openForm, guestCount: String(currentCount + 1) });
+                                            }}
+                                            className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#e91e63] border border-[#e91e63]/50 text-white shadow-lg shadow-pink-600/30 hover:bg-[#ff1b7e] active:scale-95 transition-all"
+                                        >
+                                            <FiPlus size={24} strokeWidth={2.5} />
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -2634,6 +3531,53 @@ export const WaiterPanel: React.FC = () => {
                                 {qrAdisyonModal.tableName} · {currency}{Number(qrAdisyonModal.totalAmount ?? 0).toFixed(0)}
                             </p>
                             <p className="mt-3 text-xs text-slate-400">{t('waiter.qr_add_to_tab_hint')}</p>
+                            
+                            {/* Ürünler Listesi */}
+                            <div className="mt-4 border-t border-b border-white/5 py-3.5 my-3 max-h-48 overflow-y-auto no-scrollbar">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                                    {t('waiter.qr_order_items') || 'Sipariş İçeriği'}
+                                </p>
+                                {qrModalLoading && (
+                                    <div className="py-4 text-center text-xs text-slate-400 animate-pulse">
+                                        {t('waiter.loading_items') || 'Ürünler yükleniyor...'}
+                                    </div>
+                                )}
+                                {!qrModalLoading && (!qrModalItems || qrModalItems.length === 0) && (
+                                    <div className="py-2 text-left text-xs text-slate-500 italic">
+                                        {t('waiter.no_items') || 'Ürün bulunamadı.'}
+                                    </div>
+                                )}
+                                {!qrModalLoading && qrModalItems && qrModalItems.length > 0 && (
+                                    <div className="space-y-2">
+                                        {qrModalItems.map((item: any, i: number) => {
+                                            const extras = formatReadyOrderItemExtras(item, t);
+                                            return (
+                                                <div key={item.id ?? i} className="flex items-start gap-2 text-xs py-1">
+                                                    <span className="font-black text-[#e91e63] shrink-0 min-w-[2ch]">
+                                                        {item.quantity}x
+                                                    </span>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="font-bold text-slate-200 uppercase tracking-tight leading-snug">
+                                                            {item.product_name}
+                                                        </p>
+                                                        {extras.length > 0 && (
+                                                            <ul className="mt-0.5 space-y-0.5 text-[10px] font-medium text-slate-400 leading-relaxed border-l border-white/10 pl-2">
+                                                                {extras.map((line, li) => (
+                                                                    <li key={li}>{line}</li>
+                                                                ))}
+                                                            </ul>
+                                                        )}
+                                                    </div>
+                                                    <span className="font-mono text-slate-400 font-bold shrink-0">
+                                                        {currency}{Number(item.price ?? 0).toFixed(0)}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
                             <label className="mt-5 block text-[10px] font-black uppercase tracking-widest text-slate-500">
                                 {t('waiter.qr_guest_name_optional')}
                             </label>
@@ -2661,6 +3605,22 @@ export const WaiterPanel: React.FC = () => {
                                     className="flex-1 rounded-2xl border border-white/10 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:bg-white/5"
                                 >
                                     {t('waiter.cancel_btn')}
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={qrAdisyonBusy}
+                                    onClick={() =>
+                                        setConfirm({
+                                            title: t('waiter.qr_reject_title'),
+                                            description: t('waiter.qr_reject_desc'),
+                                            confirmText: t('waiter.qr_reject_confirm'),
+                                            type: 'danger',
+                                            onConfirm: () => void rejectQr(qrAdisyonModal.orderId),
+                                        })
+                                    }
+                                    className="flex-1 rounded-2xl border border-rose-500/30 bg-rose-500/10 py-3 text-[10px] font-black uppercase tracking-widest text-rose-400 hover:bg-rose-500/20 disabled:opacity-50"
+                                >
+                                    {t('waiter.qr_reject_confirm')}
                                 </button>
                                 <button
                                     type="button"
@@ -2700,6 +3660,255 @@ export const WaiterPanel: React.FC = () => {
                 type={confirm?.type || 'warning'}
                 onConfirm={() => confirm?.onConfirm()}
             />
+
+            <AnimatePresence>
+                {isCheckoutOpen && activeTableObj && (
+                    <div className="fixed inset-0 z-[125] flex items-end sm:items-center justify-center bg-black/95 p-3 sm:p-6 backdrop-blur-sm">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.9, y: 30 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.9, y: 30 }}
+                            className="w-full max-w-lg max-h-[92dvh] overflow-y-auto overscroll-contain bg-[#0b0f19] rounded-[28px] sm:rounded-[48px] p-6 sm:p-10 border border-white/10 shadow-[0_40px_120px_rgba(0,0,0,1)] relative flex flex-col gap-6"
+                        >
+                            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-emerald-500 via-[#e91e63] to-blue-600" />
+                            
+                            <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                                <div className="min-w-0">
+                                    <span className="text-[10px] font-black uppercase tracking-[0.4em] text-[#e91e63]">{t('waiter.checkout_title') || 'MASA HESABI KAPATMA'}</span>
+                                    <h3 className="text-xl sm:text-2xl font-black text-white italic tracking-tighter mt-1 truncate">
+                                        {activeTableObj.name}
+                                    </h3>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsCheckoutOpen(false);
+                                        setCheckoutCustomer(null);
+                                        setLoyaltyRedeemPoints(0);
+                                    }}
+                                    className="shrink-0 flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white/80 hover:bg-white/10 transition-all touch-manipulation"
+                                >
+                                    <FiX size={22} />
+                                </button>
+                            </div>
+
+                            <div className="space-y-4 bg-white/[0.02] border border-white/5 p-6 rounded-3xl">
+                                <div className="flex justify-between items-center text-xs font-bold uppercase tracking-widest text-slate-400">
+                                    <span>{t('cart.subtotal') || 'Ara Toplam'}</span>
+                                    <span className="font-mono text-white/80">{currency}{checkoutBillDetails.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-xs font-bold uppercase tracking-widest text-slate-400">
+                                    <span>{t('cart.tax') || 'Vergi'} ({(settings?.taxRate || (Number(import.meta.env.VITE_DEFAULT_VAT_RATE) || 19))}%)</span>
+                                    <span className="font-mono text-white/80">{currency}{checkoutBillDetails.tax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </div>
+                                {tipInput > 0 && (
+                                    <div className="flex justify-between items-center text-xs font-bold uppercase tracking-widest text-slate-400">
+                                        <span>{t('waiter.tip_title') || 'Bahşiş / Trinkgeld'}</span>
+                                        <span className="font-mono text-amber-400">+{currency}{tipInput.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                    </div>
+                                )}
+                                {loyaltyRedeemPoints > 0 && (
+                                    <div className="flex justify-between items-center text-xs font-bold uppercase tracking-widest text-slate-400">
+                                        <span>{t('waiter.loyalty_discount') || 'Sadakat İndirimi'}</span>
+                                        <span className="font-mono text-emerald-400">-{currency}{(loyaltyRedeemPoints / 10).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                    </div>
+                                )}
+                                <div className="h-px bg-white/10 my-2" />
+                                <div className="flex justify-between items-end">
+                                    <span className="text-xs font-black text-[#e91e63] uppercase tracking-[0.3em]">{t('cart.payable') || 'Ödenecek Tutar'}</span>
+                                    <span className="text-4xl font-black text-white tracking-tighter italic font-display">
+                                        {currency}{Math.max(0, checkoutBillDetails.total + tipInput - (loyaltyRedeemPoints / 10)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Premium Glassmorphic Trinkgeld (Tip / Bahşiş) Kartı */}
+                            <div className="space-y-3 bg-white/[0.01] border border-white/5 p-5 rounded-3xl relative overflow-hidden backdrop-blur-sm">
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-[#e91e63]/10 rounded-full blur-2xl pointer-events-none" />
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                                        {t('waiter.tip_title') || 'TRINKGELD / BAHŞİŞ'}
+                                    </span>
+                                    <span className="font-mono text-xs font-bold text-[#e91e63]">
+                                        +{currency}{Number(tipInput || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                </div>
+                                
+                                {/* Hızlı Yüzde / Tutar Butonları */}
+                                <div className="grid grid-cols-4 gap-2">
+                                    {[
+                                        { label: '+0', val: 0 },
+                                        { label: '%5', val: Math.round(checkoutBillDetails.total * 0.05) },
+                                        { label: '%10', val: Math.round(checkoutBillDetails.total * 0.10) },
+                                        { label: '%15', val: Math.round(checkoutBillDetails.total * 0.15) }
+                                    ].map((preset, idx) => {
+                                        const isSelected = Number(tipInput) === Number(preset.val);
+                                        return (
+                                            <button
+                                                key={idx}
+                                                type="button"
+                                                onClick={() => setTipInput(preset.val)}
+                                                className={`py-2 px-1 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                                    isSelected 
+                                                        ? 'bg-gradient-to-r from-[#e91e63] to-[#880e4f] text-white shadow-md shadow-[#e91e63]/20 border border-white/10'
+                                                        : 'bg-white/5 hover:bg-white/10 text-white/70 border border-white/5'
+                                                }`}
+                                            >
+                                                {preset.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Özel Giriş Alanı */}
+                                <div className="relative mt-2">
+                                    <input
+                                        type="number"
+                                        placeholder={t('waiter.custom_tip_placeholder') || 'Özel tutar girin...'}
+                                        value={tipInput === 0 ? '' : tipInput}
+                                        onChange={(e) => {
+                                            const val = parseFloat(e.target.value);
+                                            setTipInput(isNaN(val) || val < 0 ? 0 : val);
+                                        }}
+                                        className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 px-4 text-xs font-mono text-white placeholder-white/30 focus:outline-none focus:border-[#e91e63]/50 transition-all text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                    />
+                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Tutar</span>
+                                    </div>
+                                    <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
+                                        <span className="font-mono text-xs text-white/50">{currency}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* CRM & Sadakat Sadakat Sistemi Kartı */}
+                            <div className="space-y-3 bg-white/[0.01] border border-white/5 p-5 rounded-3xl relative overflow-hidden backdrop-blur-sm">
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
+                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 block">
+                                    {t('waiter.crm_loyalty_title') || 'CRM & SADAKAT SİSTEMİ'}
+                                </span>
+                                
+                                {!checkoutCustomer ? (
+                                    <div className="space-y-2">
+                                        <CustomerIdentify
+                                            onSelect={(c) => {
+                                                setCheckoutCustomer(c);
+                                                setLoyaltyRedeemPoints(0);
+                                            }}
+                                            placeholder={t('waiter.customer_ph') || 'Müşteri ara (isim/telefon)...'}
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between p-3 bg-white/[0.03] border border-white/5 rounded-2xl">
+                                            <div className="min-w-0">
+                                                <span className="text-xs font-black text-white truncate block">
+                                                    👤 {checkoutCustomer.name}
+                                                </span>
+                                                <span className="text-[10px] font-bold text-slate-400 block mt-0.5">
+                                                    📞 {checkoutCustomer.phone || 'Telefon Yok'} | Puan: <span className="font-mono text-emerald-400 font-bold">{checkoutCustomer.reward_points || 0}</span>
+                                                </span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setCheckoutCustomer(null);
+                                                    setLoyaltyRedeemPoints(0);
+                                                }}
+                                                className="shrink-0 text-[10px] font-black uppercase text-rose-500 hover:text-rose-400 transition-colors cursor-pointer"
+                                            >
+                                                {t('waiter.remove') || 'Kaldır'}
+                                            </button>
+                                        </div>
+
+                                        {checkoutCustomer.reward_points > 0 && (
+                                            <div className="space-y-2 p-3 bg-indigo-500/[0.03] border border-indigo-500/10 rounded-2xl">
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-[10px] font-bold text-slate-300">
+                                                        KULLANILACAK PUAN
+                                                    </span>
+                                                    <span className="font-mono text-xs font-bold text-[#e91e63]">
+                                                        -{currency}{Number(loyaltyRedeemPoints / 10 || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                    </span>
+                                                </div>
+                                                
+                                                <div className="grid grid-cols-4 gap-2">
+                                                    {[
+                                                        { label: 'Kullanma', val: 0 },
+                                                        { label: '25 Puan', val: 25 },
+                                                        { label: '50 Puan', val: 50 },
+                                                        { label: 'Hepsini', val: checkoutCustomer.reward_points }
+                                                    ].map((preset, idx) => {
+                                                        const isSelected = Number(loyaltyRedeemPoints) === Number(preset.val);
+                                                        const isPossible = checkoutCustomer.reward_points >= preset.val;
+                                                        return (
+                                                            <button
+                                                                key={idx}
+                                                                type="button"
+                                                                disabled={!isPossible}
+                                                                onClick={() => {
+                                                                    const maxAllowedPoints = Math.floor((checkoutBillDetails.total + tipInput) * 10);
+                                                                    const pointsToRedeem = Math.min(preset.val, maxAllowedPoints);
+                                                                    setLoyaltyRedeemPoints(pointsToRedeem);
+                                                                }}
+                                                                className={`py-2 px-1 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                                                    !isPossible 
+                                                                        ? 'opacity-30 cursor-not-allowed bg-white/5 text-white/30'
+                                                                        : isSelected 
+                                                                            ? 'bg-indigo-600 text-white shadow-md border border-white/10'
+                                                                            : 'bg-white/5 hover:bg-white/10 text-white/70 border border-white/5'
+                                                                }`}
+                                                            >
+                                                                {preset.label}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row gap-4 mt-4">
+                                <button
+                                    type="button"
+                                    disabled={isCheckoutBusy}
+                                    onClick={() => void handleCheckoutTable('cash')}
+                                    className="flex-1 min-h-[56px] py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-2xl font-black text-xs sm:text-sm uppercase tracking-[0.2em] shadow-lg shadow-emerald-500/10 flex items-center justify-center gap-2 transition-all active:scale-[0.98] touch-manipulation cursor-pointer"
+                                >
+                                    {isCheckoutBusy ? '…' : (
+                                        <>
+                                            <FiDollarSign size={16} />
+                                            <span>{t('cart.payCash') || 'Nakit ile Kapat'}</span>
+                                        </>
+                                    )}
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={isCheckoutBusy}
+                                    onClick={() => void handleCheckoutTable('card')}
+                                    className="flex-1 min-h-[56px] py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-2xl font-black text-xs sm:text-sm uppercase tracking-[0.2em] shadow-lg shadow-indigo-500/10 flex items-center justify-center gap-2 transition-all active:scale-[0.98] touch-manipulation cursor-pointer"
+                                >
+                                    {isCheckoutBusy ? '…' : (
+                                        <>
+                                            <FiCreditCard size={16} />
+                                            <span>{t('cart.payCard') || 'Kart ile Kapat'}</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsCheckoutOpen(false)}
+                                className="w-full py-4 glass hover:bg-white/5 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] text-white/40 hover:text-white transition-all outline-none cursor-pointer"
+                            >
+                                {t('waiter.cancel_btn') || 'İptal'}
+                            </button>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };

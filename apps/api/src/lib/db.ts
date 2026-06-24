@@ -38,7 +38,7 @@ const pool = new Pool({
 export function mysqlParamsToPg(sql: string, params: any[] = []): { text: string; values: any[] } {
     let i = 0;
     let text = sql
-        .replace(/\bpublic\./g, '"public".')
+        .replace(/(?<!")\bpublic\./g, '"public".')
         .replace(/`public`/g, '"public"')
         .replace(/`([^`]+)`\.`([^`]+)`/g, '"$1"."$2"')
         .replace(/`([^`]+)`/g, '"$1"');
@@ -230,6 +230,8 @@ export async function listTenants(resellerId?: number | string) {
         address: t.address,
         reseller_id: t.resellerId,
         master_password: t.masterPassword,
+        created_by: t.createdBy,
+        created_by_role: t.createdByRole,
         settings: t.settings,
         created_at: t.createdAt,
         updated_at: t.updatedAt,
@@ -292,6 +294,8 @@ export async function createTenant(data: any) {
             resellerId: data.reseller_id != null ? Number(data.reseller_id) : null,
             masterPassword: data.master_password || null,
             status: initialStatus,
+            createdBy: data.created_by || null,
+            createdByRole: data.created_by_role || null,
             settings: data.settings != null ? (data.settings as object) : undefined,
         },
     });

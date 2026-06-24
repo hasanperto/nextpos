@@ -1,16 +1,30 @@
 import { create } from 'zustand';
+import {
+    appendCallsToHistory,
+    callRecordKey,
+    findBestMatchingOrder,
+    historyEntriesFromEndedOrders,
+    loadCallHistoryFromStorage,
+    normalizeCallerPhone,
+    resolveCallStatusFromOrder,
+    type CallerCallRecord,
+} from '../lib/callerIdUtils';
 
 interface UIState {
     isMenuOpen: boolean;
     isCartOpen: boolean;
     showKitchenStatus: boolean;
     showCallerId: boolean;
+    showCallerSelector: boolean;
+    callerSelectorData: { number: string; name: string; address?: string; customerId?: number } | null;
+    callerPaymentMethod: 'cash' | 'card' | 'online' | null;
     showCustomerModal: boolean;
     showWaOrder: boolean;
     showOnlineOrders: boolean;
     showStaffMenu: boolean;
     activeModal: 'product' | 'checkout' | 'kitchen' | 'caller' | 'customer' | 'wa' | 'online_orders' | 'staff_menu' | 'staff_panel' | null;
-    staffPanelTab: 'profile' | 'stats' | 'report' | null;
+    staffPanelTab: 'profile' | 'stats' | 'report' | 'help' | null;
+    preferredFloorView: 'grid' | 'visual';
 
     callerIdData: { number: string; name: string; address?: string; customerId?: number } | null;
     pendingOnlineOrders: number;
@@ -37,12 +51,15 @@ interface UIState {
     setCartOpen: (isOpen: boolean) => void;
     setKitchenStatus: (isOpen: boolean) => void;
     setCallerId: (isOpen: boolean, data?: UIState['callerIdData']) => void;
+    setCallerSelector: (isOpen: boolean, data?: UIState['callerSelectorData']) => void;
+    setCallerPaymentMethod: (method: 'cash' | 'card' | 'online' | null) => void;
     setCustomerModal: (isOpen: boolean) => void;
     setWaOrder: (isOpen: boolean) => void;
     setOnlineOrders: (isOpen: boolean) => void;
     setStaffMenu: (isOpen: boolean) => void;
     setStaffPanelTab: (tab: UIState['staffPanelTab']) => void;
     setActiveModal: (modal: UIState['activeModal']) => void;
+    setPreferredFloorView: (view: 'grid' | 'visual') => void;
 
 
     setActiveCustomer: (customer: any) => void;
@@ -56,7 +73,8 @@ interface UIState {
     addWhatsappOrder: (order: any) => void;
     removeWhatsappOrder: (id: string) => void;
     addRecentCall: (call: any) => void;
-    removeRecentCall: (number: string) => void;
+    removeRecentCall: (number: string, receivedAt?: string) => void;
+    checkAndMoveDeliveredCallsToHistory: (orders: any[]) => void;
     setOnlineOrderAlert: (isActive: boolean, type?: 'qr' | 'whatsapp' | null) => void;
 
     // Product Modal Actions
@@ -85,11 +103,15 @@ export const useUIStore = create<UIState>((set, get) => ({
     isCartOpen: false,
     showKitchenStatus: false,
     showCallerId: false,
+    showCallerSelector: false,
+    callerSelectorData: null,
+    callerPaymentMethod: null,
     showCustomerModal: false,
     showWaOrder: false,
     showOnlineOrders: false,
     showStaffMenu: false,
     staffPanelTab: null,
+    preferredFloorView: (localStorage.getItem('preferredFloorView') as 'grid' | 'visual') || 'grid',
     activeModal: null,
 
 
@@ -117,12 +139,18 @@ export const useUIStore = create<UIState>((set, get) => ({
     setCartOpen: (isOpen) => set({ isCartOpen: isOpen }),
     setKitchenStatus: (isOpen) => set({ showKitchenStatus: isOpen, activeModal: isOpen ? 'kitchen' : null }),
     setCallerId: (isOpen, data = null) => set({ showCallerId: isOpen, callerIdData: data, activeModal: isOpen ? 'caller' : null }),
+    setCallerSelector: (isOpen, data = null) => set({ showCallerSelector: isOpen, callerSelectorData: data, activeModal: isOpen ? 'caller' : null }),
+    setCallerPaymentMethod: (method) => set({ callerPaymentMethod: method }),
     setCustomerModal: (isOpen) => set({ showCustomerModal: isOpen, activeModal: isOpen ? 'customer' : null }),
     setWaOrder: (isOpen) => set({ showWaOrder: isOpen, activeModal: isOpen ? 'wa' : null }),
     setOnlineOrders: (isOpen) => set({ showOnlineOrders: isOpen, activeModal: isOpen ? 'online_orders' : null }),
     setStaffMenu: (isOpen) => set({ showStaffMenu: isOpen, activeModal: isOpen ? 'staff_menu' : null }),
     setStaffPanelTab: (tab) => set({ staffPanelTab: tab, activeModal: tab ? 'staff_panel' : null }),
     setActiveModal: (modal) => set({ activeModal: modal }),
+    setPreferredFloorView: (view) => {
+        localStorage.setItem('preferredFloorView', view);
+        set({ preferredFloorView: view });
+    },
 
 
     setActiveCustomer: (customer) => set({ activeCustomer: customer }),
@@ -154,14 +182,79 @@ export const useUIStore = create<UIState>((set, get) => ({
         whatsappOrders: s.whatsappOrders.filter(o => o.id !== id),
         pendingWaOrders: Math.max(0, s.pendingWaOrders - 1)
     })),
-    addRecentCall: (call) => set((s) => ({ 
-        recentCalls: [call, ...s.recentCalls.filter(c => c.number !== call.number)].slice(0, 20),
-        pendingCalls: s.pendingCalls + 1 
+    addRecentCall: (call) => set((s) => {
+        const key = callRecordKey(call);
+        const updatedCalls = [call, ...s.recentCalls.filter((c) => callRecordKey(c) !== key)].slice(0, 20);
+        return {
+            recentCalls: updatedCalls,
+            pendingCalls: s.pendingCalls + 1,
+        };
+    }),
+    removeRecentCall: (number, receivedAt?) => set((s) => ({
+        recentCalls: s.recentCalls.filter((c) =>
+            receivedAt != null
+                ? !(c.number === number && c.receivedAt === receivedAt)
+                : c.number !== number,
+        ),
+        pendingCalls: Math.max(0, s.pendingCalls - 1),
     })),
-    removeRecentCall: (number) => set((s) => ({ 
-        recentCalls: s.recentCalls.filter(c => c.number !== number),
-        pendingCalls: Math.max(0, s.pendingCalls - 1)
-    })),
+    checkAndMoveDeliveredCallsToHistory: (orders) => set((s) => {
+        if (!orders || orders.length === 0 || s.recentCalls.length === 0) return {};
+
+        const callsToMove: CallerCallRecord[] = [];
+        const remainingCalls = s.recentCalls.filter((call) => {
+            const callPhone = normalizeCallerPhone(call.number);
+            if (!callPhone) return true;
+
+            const matchingOrder = findBestMatchingOrder(call, orders, false);
+            if (!matchingOrder) return true;
+
+            const orderStatus = resolveCallStatusFromOrder(matchingOrder);
+            if (orderStatus !== 'delivered' && orderStatus !== 'cancelled') {
+                return true;
+            }
+
+            const status = orderStatus === 'delivered' ? 'delivered' : 'cancelled';
+            callsToMove.push({
+                ...call,
+                status,
+                isCancelled: status === 'cancelled',
+                orderId: matchingOrder.remoteId ?? matchingOrder.id,
+                orderNumber: matchingOrder.remoteId ?? matchingOrder.id,
+                deliveredAt:
+                    status === 'delivered' ? new Date().toISOString() : call.deliveredAt,
+                cancelledAt:
+                    status === 'cancelled' ? new Date().toISOString() : call.cancelledAt,
+            });
+            return false;
+        });
+
+        if (callsToMove.length > 0) {
+            appendCallsToHistory(callsToMove);
+        }
+
+        const fromOrders = historyEntriesFromEndedOrders(
+            orders,
+            [...loadCallHistoryFromStorage(), ...callsToMove],
+        );
+        if (fromOrders.length > 0) {
+            appendCallsToHistory(fromOrders);
+        }
+
+        if (callsToMove.length > 0 || fromOrders.length > 0) {
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('nextpos-call-history-updated'));
+            }
+        }
+
+        if (callsToMove.length > 0) {
+            return {
+                recentCalls: remainingCalls,
+                pendingCalls: Math.max(0, s.pendingCalls - callsToMove.length),
+            };
+        }
+        return {};
+    }),
     setOnlineOrderAlert: (isActive, type = null) => set({ 
         isOnlineOrderAlertActive: isActive, 
         onlineOrderType: type 

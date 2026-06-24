@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
+import { couponTenantScopeMiddleware } from '../middleware/couponTenantScope.js';
 import {
     createCampaignHandler,
     getCampaignsHandler,
@@ -22,6 +23,7 @@ import {
 export const couponsRouter = Router();
 
 couponsRouter.use(authMiddleware);
+couponsRouter.use(couponTenantScopeMiddleware);
 
 // ── Kampanyalar ──
 couponsRouter.post('/campaigns', createCampaignHandler);

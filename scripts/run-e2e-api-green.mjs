@@ -6,9 +6,9 @@ const npmCmd = isWin ? 'npm.cmd' : 'npm';
 const env = {
     ...process.env,
     DATABASE_URL: process.env.DATABASE_URL || 'postgresql://nextpos:nextpos@127.0.0.1:5433/nextpos',
-    REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
-    PORT: process.env.PORT || '3001',
-    API_BASE_URL: process.env.API_BASE_URL || 'http://127.0.0.1:3001',
+    REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6380',
+    PORT: process.env.PORT || '3101',
+    API_BASE_URL: process.env.API_BASE_URL || 'http://127.0.0.1:3101',
     PLAYWRIGHT_NO_WEBSERVER: '1',
 };
 

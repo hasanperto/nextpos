@@ -25,8 +25,10 @@ import {
     saveTablesCache,
 } from '../lib/menuCache';
 import { enqueuePendingSync, shouldQueueOfflineError } from '../lib/syncQueueClient';
+import { isOfflineLocked, markOnlineSuccess } from '../lib/offlinePolicy';
 import { useAuthStore } from './useAuthStore';
 import { useUIStore } from './useUIStore';
+import { syncCallerIdConfigToAgent } from '../lib/printerAgent';
 
 interface PosCategory {
     id: number;
@@ -53,6 +55,7 @@ export interface PosProduct {
     variants: PosProductVariant[];
     /** Ürüne atanmış modifikatörler (API `menu/products`) */
     modifiers?: PosModifier[];
+    isActive?: boolean;
 }
 
 interface CartItem {
@@ -81,10 +84,12 @@ interface Order {
     items: CartItem[];
     total: number;
     orderType: 'dine_in' | 'takeaway' | 'delivery';
-    status: 'pending' | 'preparing' | 'ready' | 'delivered' | 'cancelled';
+    status: 'pending' | 'preparing' | 'ready' | 'shipped' | 'delivered' | 'cancelled';
     customerName?: string;
+    customerPhone?: string;
     tableNumber?: string;
     createdAt: Date;
+    paymentStatus?: 'unpaid' | 'partial' | 'paid';
 }
 
 function mapApiOrderStatus(s: string | undefined): Order['status'] {
@@ -94,6 +99,8 @@ function mapApiOrderStatus(s: string | undefined): Order['status'] {
             return 'preparing';
         case 'ready':
             return 'ready';
+        case 'shipped':
+            return 'shipped';
         case 'served':
         case 'completed':
             return 'delivered';
@@ -104,15 +111,34 @@ function mapApiOrderStatus(s: string | undefined): Order['status'] {
     }
 }
 
-/** Sepette ürün adlarını katalog ile zenginleştirir (API sadece isim döndüğünde) */
+/** Sepette ürün adlarını katalog ile zenginleştirir (API sadece isim döndüğünde veya chatbot siparişlerinde) */
 function enrichCartItemsWithCatalog(items: CartItem[], products: PosProduct[]): CartItem[] {
     return items.map((item) => {
-        const p = products.find((pr) => pr.id === item.product.id);
+        let p = products.find((pr) => pr.id === item.product.id);
+        
+        // Chatbot siparişlerinde veya id'si 0 olan dış siparişlerde ürün adı ile katalogda eşleştirme yap
+        if (!p && (!item.product.id || item.product.id === 0)) {
+            const normalizedItemName = (item.product.displayName || '').toLowerCase().replace(/[^a-z0-9ıüşöçğ]/g, '');
+            if (normalizedItemName) {
+                p = products.find((pr) => {
+                    const normalizedPrName = pr.name.toLowerCase().replace(/[^a-z0-9ıüşöçğ]/g, '');
+                    const normalizedPrDispName = (pr.displayName || '').toLowerCase().replace(/[^a-z0-9ıüşöçğ]/g, '');
+                    return (
+                        normalizedPrName === normalizedItemName ||
+                        normalizedPrDispName === normalizedItemName ||
+                        normalizedPrName.includes(normalizedItemName) ||
+                        normalizedItemName.includes(normalizedPrName)
+                    );
+                });
+            }
+        }
+
         if (!p) return item;
         return {
             ...item,
             product: {
                 ...item.product,
+                id: p.id, // Gerçek veri tabanı ID'si ile eşleştiriyoruz
                 name: p.name,
                 displayName: p.displayName || item.product.displayName,
                 basePrice: p.basePrice,
@@ -122,6 +148,7 @@ function enrichCartItemsWithCatalog(items: CartItem[], products: PosProduct[]): 
         };
     });
 }
+
 
 function mapApiItemsToCart(raw: unknown): CartItem[] {
     let arr: unknown = raw;
@@ -159,6 +186,13 @@ function mapApiItemsToCart(raw: unknown): CartItem[] {
     }));
 }
 
+function rekeyCartItems(items: CartItem[], prefix: string): CartItem[] {
+    return items.map((item, idx) => ({
+        ...item,
+        cartId: `${prefix}-${idx}-${item.cartId}`,
+    }));
+}
+
 function mapApiRowToOrder(row: Record<string, unknown>): Order {
     const id = Number(row.id);
     const items = mapApiItemsToCart(row.items);
@@ -181,8 +215,10 @@ function mapApiRowToOrder(row: Record<string, unknown>): Order {
         orderType,
         status: mapApiOrderStatus(String(row.status)),
         customerName: nameRaw || `Sipariş #${id}`,
+        customerPhone: row.delivery_phone ? String(row.delivery_phone) : row.customer_phone ? String(row.customer_phone) : undefined,
         tableNumber: tableName,
         createdAt: new Date(String(row.created_at || Date.now())),
+        paymentStatus: row.payment_status as any,
     };
 }
 
@@ -195,10 +231,15 @@ export interface CashierTableInfo {
     active_session_id?: number | null;
     status?: string;
     opened_at?: string;
+    session_opened_at?: string;
     total_amount?: number;
     guest_count?: number;
     guest_name?: string;
     customer_name?: string;
+    /** Kasiyer açılışında atanan garson (GET /tables JOIN) */
+    waiter_id?: number | null;
+    waiter_name?: string | null;
+    waiter_role?: string | null;
     shape?: string;
     position_x?: number;
     position_y?: number;
@@ -232,7 +273,7 @@ interface PosState {
     tables: CashierTableInfo[];
     fetchTables: () => Promise<void>;
     /** Boş masa için oturum açar; API `POST /tables/:id/open` — dolu masada mevcut session döner */
-    openTableSession: (tableId: number, guestCount?: number, customerId?: number | null) => Promise<{ sessionId: number } | null>;
+    openTableSession: (tableId: number, guestCount?: number, customerId?: number | null) => Promise<{ sessionId: number; clientSessionId?: string } | null>;
     selectedTable: SelectedTableInfo | null;
     setSelectedTable: (t: SelectedTableInfo | null) => void;
 
@@ -286,6 +327,7 @@ interface PosState {
         courierId?: number;
         paymentMethodArrival?: 'cash' | 'card' | 'online';
         notes?: string;
+        skipPrint?: boolean;
     }) => Promise<{ ok: boolean; error?: string; queuedOffline?: boolean; orderId?: number; sessionId?: number }>;
     /** Sipariş + tam ödeme (nakit/kart) — tek akış */
     submitOrderAndPay: (
@@ -295,6 +337,8 @@ interface PosState {
             takeawayPhone?: string;
             courierId?: number;
             receivedAmount?: number;
+            skipPrint?: boolean;
+            tipAmount?: number;
         },
         skipSimulation?: boolean
     ) => Promise<{ ok: boolean; error?: string; queuedOffline?: boolean; simulated?: boolean; orderId?: number; sessionId?: number }>;
@@ -304,7 +348,11 @@ interface PosState {
         pinCode?: string
     ) => Promise<{ ok: boolean; error?: string; needsPin?: boolean }>;
     /** Mevcut siparişi sepete yükler; gel-al ödemesi için checkoutTargetRemoteId set eder */
-    loadOrderToCart: (orderId: string, externalOrder?: any) => Promise<boolean>;
+    loadOrderToCart: (
+        orderId: string,
+        externalOrder?: any,
+        options?: { append?: boolean }
+    ) => Promise<boolean>;
     /** Gel-al kasada ödeme: yeni POST /checkout yerine mevcut siparişe ödeme */
     checkoutTargetRemoteId: number | null;
     addFakeReadyOrder: () => void;
@@ -320,7 +368,7 @@ interface PosState {
 
     fetchOrders: () => Promise<void>;
     splitBill: (sessionId: number, items: { orderItemId: number; quantity: number }[], payment: { method: string; tipAmount?: number; receivedAmount?: number }) => Promise<{ ok: boolean; error?: string }>;
-    checkoutSession: (sessionId: number, payment: { method: string; tipAmount?: number; receivedAmount?: number }, skipSimulation?: boolean) => Promise<{ ok: boolean; error?: string; simulated?: boolean }>;
+    checkoutSession: (sessionId: number, payment: { method: string; tipAmount?: number; receivedAmount?: number; skipPrint?: boolean }, skipSimulation?: boolean) => Promise<{ ok: boolean; error?: string; simulated?: boolean }>;
     /** GET /users/couriers — paket kurye seçimi */
     couriers: { id: number; name: string }[];
     fetchCouriers: () => Promise<void>;
@@ -341,7 +389,11 @@ interface PosState {
     /** Masa başındaki yetkili bilgisini yerel state'de tutar (real-time sync) */
     tablePresence: Record<number, string | null>;
     setTablePresence: (tableId: number, waiterName: string | null) => void;
+    fetchCheckoutLink: (paymentHistoryId: number) => Promise<string | null>;
+    payInvoiceWithWallet: (paymentHistoryId: number) => Promise<boolean>;
 }
+
+const activeLoads = new Set<string>();
 
 export const usePosStore = create<PosState>()(
     persist(
@@ -356,10 +408,49 @@ export const usePosStore = create<PosState>()(
                     });
                     if (res.ok) {
                         const data = await res.json();
+                        markOnlineSuccess();
                         const raw = String(data?.language ?? 'tr').toLowerCase();
                         const posLang = raw === 'de' ? 'de' : raw === 'en' ? 'en' : 'tr';
+                        let userLockedLang: 'tr' | 'en' | 'de' | null = null;
+                        try {
+                            const saved = String(localStorage.getItem('pos-lang-user') || '').toLowerCase();
+                            if (saved === 'tr' || saved === 'en' || saved === 'de') {
+                                userLockedLang = saved;
+                            }
+                        } catch {
+                            /* ignore */
+                        }
                         set({ settings: data });
-                        if (get().lang !== posLang) {
+                        
+                        // Local agent'a Caller ID (agent kapalıysa istek atılmaz — 502 gürültüsü yok)
+                        void (async () => {
+                            const userRole = useAuthStore.getState().user?.role;
+                            const callerId = data?.integrations?.callerId;
+                            if (!callerId?.enabled || userRole === 'courier') return;
+                            const tenantId = useAuthStore.getState().tenantId;
+                            const webhookUrl = `${window.location.origin}/api/v1/integrations/caller-id?tenant=${tenantId}&key=${callerId?.androidKey || 'ANAHTAR-YOK'}`;
+                            await syncCallerIdConfigToAgent({
+                                enabled: true,
+                                source: callerId?.source || 'android',
+                                defaultCountryCode: callerId?.defaultCountryCode || '90',
+                                defaultAreaCode: callerId?.defaultAreaCode || '',
+                                usbCidPort: callerId?.usbCidPort || 'COM3',
+                                fritzBoxIP: callerId?.fritzBoxIP || '192.168.178.1',
+                                fritzBoxPort: Number(callerId?.fritzBoxPort) || 1012,
+                                webhookUrl,
+                            });
+                        })();
+
+                        const targetLang = userLockedLang ?? posLang;
+                        if (get().lang !== targetLang) {
+                            // Kullanıcı manuel dil seçtiyse settings dili üzerine yazmasın.
+                            if (userLockedLang) {
+                                set({ lang: targetLang });
+                                get().fetchCategories();
+                                get().fetchProducts();
+                                get().fetchModifiers();
+                                return;
+                            }
                             get().setLang(posLang);
                         }
                     }
@@ -411,6 +502,7 @@ export const usePosStore = create<PosState>()(
                     const tables = Array.isArray(data) ? data : [];
                     set({ tables });
                     void saveTablesCache(tables);
+                    markOnlineSuccess();
                 } catch (e) {
                     console.error('Masalar yüklenemedi:', e);
                     if (e instanceof Error && e.message.includes('Oturum')) {
@@ -423,6 +515,9 @@ export const usePosStore = create<PosState>()(
             },
 
             openTableSession: async (tableId, guestCount = 1, customerId = null) => {
+                if (isOfflineLocked()) {
+                    return null;
+                }
                 const clientSessionId = crypto.randomUUID();
                 
                 if (isOfflineNow()) {
@@ -487,6 +582,13 @@ export const usePosStore = create<PosState>()(
 
             setLang: (lang) => {
                 set({ lang });
+                try {
+                    if (lang === 'tr' || lang === 'en' || lang === 'de') {
+                        localStorage.setItem('pos-lang-user', lang);
+                    }
+                } catch {
+                    /* ignore */
+                }
                 // Dil değiştiğinde verileri tekrar çek
                 get().fetchCategories();
                 get().fetchProducts();
@@ -784,21 +886,26 @@ export const usePosStore = create<PosState>()(
             },
 
             submitRemoteOrder: async (ctx) => {
+                if (isOfflineLocked()) {
+                    return { ok: false, error: 'OFFLINE_LOCKED' };
+                }
                 const { cart, orderType, getCartTotal, orders, selectedTable } = get();
                 if (cart.length === 0) {
                     return { ok: false, error: 'Sepet boş' };
                 }
 
-                if (orderType === 'dine_in' && !selectedTable) {
+                let orderTypeForRequest = orderType;
+                if (orderTypeForRequest === 'dine_in' && !selectedTable) {
                     // Masada değilse ve masa seçili değilse otomatik Gel-Al (Hızlı Satış) moduna geç
                     set({ orderType: 'takeaway' });
+                    orderTypeForRequest = 'takeaway';
                 }
 
-                if (orderType === 'takeaway') {
+                if (orderTypeForRequest === 'takeaway') {
                     // Kasiyer için telefon opsiyonel hale getirildi (Hızlı Satış)
                 }
 
-                if (orderType === 'delivery') {
+                if (orderTypeForRequest === 'delivery') {
                     const phone = ctx.activeCustomer?.phone?.trim();
                     const addr = ctx.activeCustomer?.address?.trim();
                     if (!phone || !addr) {
@@ -820,29 +927,31 @@ export const usePosStore = create<PosState>()(
                 }));
 
                 const deliveryPhone =
-                    orderType === 'delivery'
+                    orderTypeForRequest === 'delivery'
                         ? ctx.activeCustomer?.phone || undefined
-                        : orderType === 'takeaway'
+                        : orderTypeForRequest === 'takeaway'
                           ? ctx.takeawayPhone?.trim() || ctx.activeCustomer?.phone?.trim()
                           : undefined;
 
+                const offlineId = crypto.randomUUID();
                 const body: Record<string, unknown> = {
-                    orderType,
-                    source: 'cashier',
+                    offlineId,
+                    orderType: orderTypeForRequest,
+                    source: (ctx.activeCustomer as any)?.source || 'cashier',
                     isUrgent: false,
                     items,
-                    tableId: orderType === 'dine_in' ? selectedTable?.id : undefined,
+                    tableId: orderTypeForRequest === 'dine_in' ? selectedTable?.id : undefined,
                     sessionId:
-                        orderType === 'dine_in' && selectedTable?.sessionId && Number(selectedTable.sessionId) > 0
+                        orderTypeForRequest === 'dine_in' && selectedTable?.sessionId && Number(selectedTable.sessionId) > 0
                             ? Number(selectedTable.sessionId)
                             : undefined,
                     deliveryAddress:
-                        orderType === 'delivery' ? ctx.activeCustomer?.address?.trim() : undefined,
+                        orderTypeForRequest === 'delivery' ? ctx.activeCustomer?.address?.trim() : undefined,
                     deliveryPhone,
                     customerName: ctx.activeCustomer?.name || undefined,
                     clientSessionId: selectedTable?.clientSessionId || undefined,
                     courierId:
-                        orderType === 'delivery' &&
+                        orderTypeForRequest === 'delivery' &&
                         ctx.courierId != null &&
                         Number.isFinite(Number(ctx.courierId))
                             ? Number(ctx.courierId)
@@ -884,11 +993,12 @@ export const usePosStore = create<PosState>()(
                         remoteId: oid != null ? oid : undefined,
                         items: [...cart],
                         total: getCartTotal().final_total,
-                        orderType,
+                        orderType: orderTypeForRequest,
                         status: 'pending',
                         customerName: ctx.activeCustomer?.name,
+                        customerPhone: deliveryPhone || undefined,
                         tableNumber:
-                            orderType === 'dine_in' && tableForPrint
+                            orderTypeForRequest === 'dine_in' && tableForPrint
                                 ? `${tableForPrint.name} (${tableForPrint.sectionName})`
                                 : undefined,
                         createdAt: new Date(),
@@ -902,19 +1012,29 @@ export const usePosStore = create<PosState>()(
                         loyaltyRedeemPoints: 0,
                     });
 
+                    const isNewCustomer = ctx.activeCustomer && (ctx.activeCustomer.id === 0 || !ctx.activeCustomer.id);
+                    const regMode = get().settings?.integrations?.callerId?.createCustomerMode;
+                    if (!(regMode === 'after_order' && isNewCustomer)) {
+                        useUIStore.getState().setActiveCustomer(null);
+                    }
+
                     await get().fetchTables();
                     await get().fetchOrders();
 
-                    if (oid != null) {
+                    if (oid != null && !ctx.skipPrint && !window.location.pathname.includes('/waiter')) {
                         const st = get().settings;
                         if (st && shouldAutoPrintKitchen(st)) {
                             const otLabel =
-                                orderType === 'dine_in' ? 'Masa' : orderType === 'takeaway' ? 'Gel-Al' : 'Paket';
+                                orderTypeForRequest === 'dine_in'
+                                    ? 'Masa'
+                                    : orderTypeForRequest === 'takeaway'
+                                      ? 'Gel-Al'
+                                      : 'Paket';
                             const snap: KitchenTicketSnapshot = {
                                 restaurantName: String(st.name || 'Restoran'),
                                 orderId: oid,
                                 tableLabel:
-                                    orderType === 'dine_in' && tableForPrint
+                                    orderTypeForRequest === 'dine_in' && tableForPrint
                                         ? `${tableForPrint.name} (${tableForPrint.sectionName})`
                                         : undefined,
                                 orderTypeLabel: otLabel,
@@ -952,6 +1072,9 @@ export const usePosStore = create<PosState>()(
             },
 
             submitOrderAndPay: async (method, ctx, skipSimulation = false) => {
+                if (isOfflineLocked()) {
+                    return { ok: false, error: 'OFFLINE_LOCKED' };
+                }
                 const { cart, orderType, getCartTotal, orders, selectedTable, settings, checkoutTargetRemoteId } = get();
 
                 /** Teslim ekranından yüklenen hazır gel-al: mevcut siparişe ödeme (yeni mutfak fişi yok) */
@@ -1000,7 +1123,14 @@ export const usePosStore = create<PosState>()(
                             checkoutTargetRemoteId: null,
                             selectedTable: null,
                             cashierView: 'floor',
+                            loyaltyRedeemPoints: 0,
                         });
+                        const stAfterOrder = get().settings;
+                        const isNewCustomer = ctx.activeCustomer && (ctx.activeCustomer.id === 0 || !ctx.activeCustomer.id);
+                        const regMode = stAfterOrder?.integrations?.callerId?.createCustomerMode;
+                        if (!(regMode === 'after_order' && isNewCustomer)) {
+                            useUIStore.getState().setActiveCustomer(null);
+                        }
                         await get().fetchOrders();
                         await get().fetchTables();
                         return { ok: true, orderId: checkoutTargetRemoteId };
@@ -1013,7 +1143,7 @@ export const usePosStore = create<PosState>()(
                 // Kredi kartı simülasyon kontrolü
                 if (method === 'card' && settings?.integrations?.payment?.simulationMode && !skipSimulation) {
                     const { setPaymentSimulation } = useUIStore.getState();
-                    const total = getCartTotal().final_total;
+                    const total = getCartTotal().final_total + (ctx.tipAmount || 0);
                     
                     setPaymentSimulation({ 
                         isOpen: true, 
@@ -1033,16 +1163,18 @@ export const usePosStore = create<PosState>()(
                     return { ok: false, error: 'Sepet boş' };
                 }
 
-                if (orderType === 'dine_in' && !selectedTable) {
+                let orderTypeForRequest = orderType;
+                if (orderTypeForRequest === 'dine_in' && !selectedTable) {
                     // Masada değilse ve masa seçili değilse otomatik Gel-Al (Hızlı Satış) moduna geç
                     set({ orderType: 'takeaway' });
+                    orderTypeForRequest = 'takeaway';
                 }
 
-                if (orderType === 'takeaway') {
+                if (orderTypeForRequest === 'takeaway') {
                     // Kasiyer için telefon opsiyonel hale getirildi (Hızlı Satış)
                 }
 
-                if (orderType === 'delivery') {
+                if (orderTypeForRequest === 'delivery') {
                     const phone = ctx.activeCustomer?.phone?.trim();
                     const addr = ctx.activeCustomer?.address?.trim();
                     if (!phone || !addr) {
@@ -1064,29 +1196,31 @@ export const usePosStore = create<PosState>()(
                 }));
 
                 const deliveryPhone =
-                    orderType === 'delivery'
+                    orderTypeForRequest === 'delivery'
                         ? ctx.activeCustomer?.phone || undefined
-                        : orderType === 'takeaway'
+                        : orderTypeForRequest === 'takeaway'
                           ? ctx.takeawayPhone?.trim() || ctx.activeCustomer?.phone?.trim()
                           : undefined;
 
+                const offlineId = crypto.randomUUID();
                 const body: Record<string, unknown> = {
-                    orderType,
+                    offlineId,
+                    orderType: orderTypeForRequest,
                     source: 'cashier',
                     isUrgent: false,
                     items,
-                    tableId: orderType === 'dine_in' ? selectedTable?.id : undefined,
+                    tableId: orderTypeForRequest === 'dine_in' ? selectedTable?.id : undefined,
                     sessionId:
-                        orderType === 'dine_in' && selectedTable?.sessionId
+                        orderTypeForRequest === 'dine_in' && selectedTable?.sessionId
                             ? Number(selectedTable.sessionId)
                             : undefined,
                     deliveryAddress:
-                        orderType === 'delivery' ? ctx.activeCustomer?.address?.trim() : undefined,
+                        orderTypeForRequest === 'delivery' ? ctx.activeCustomer?.address?.trim() : undefined,
                     deliveryPhone,
                     customerName: ctx.activeCustomer?.name || undefined,
                     clientSessionId: selectedTable?.clientSessionId || undefined,
                     courierId:
-                        orderType === 'delivery' &&
+                        orderTypeForRequest === 'delivery' &&
                         ctx.courierId != null &&
                         Number.isFinite(Number(ctx.courierId))
                             ? Number(ctx.courierId)
@@ -1110,7 +1244,7 @@ export const usePosStore = create<PosState>()(
                     ...body,
                     payment: {
                         method,
-                        tipAmount: 0,
+                        tipAmount: ctx.tipAmount || 0,
                         ...(method === 'cash' ? { receivedAmount: ctx.receivedAmount ?? cartTotal } : {}),
                     },
                 };
@@ -1148,11 +1282,15 @@ export const usePosStore = create<PosState>()(
                         remoteId: oid,
                         items: [...cart],
                         total: totals.final_total,
-                        orderType,
+                        orderType: orderTypeForRequest,
                         status: 'delivered',
                         customerName: ctx.activeCustomer?.name,
+                        customerPhone:
+                            orderTypeForRequest === 'delivery'
+                                ? ctx.activeCustomer?.phone?.trim() || undefined
+                                : ctx.takeawayPhone?.trim() || ctx.activeCustomer?.phone?.trim() || undefined,
                         tableNumber:
-                            orderType === 'dine_in' && tableForReceipt
+                            orderTypeForRequest === 'dine_in' && tableForReceipt
                                 ? `${tableForReceipt.name} (${tableForReceipt.sectionName})`
                                 : undefined,
                         createdAt: new Date(),
@@ -1165,12 +1303,17 @@ export const usePosStore = create<PosState>()(
                         cashierView: 'floor',
                         loyaltyRedeemPoints: 0,
                     });
+                    const isNewCustomer = ctx.activeCustomer && (ctx.activeCustomer.id === 0 || !ctx.activeCustomer.id);
+                    const regMode = settings?.integrations?.callerId?.createCustomerMode;
+                    if (!(regMode === 'after_order' && isNewCustomer)) {
+                        useUIStore.getState().setActiveCustomer(null);
+                    }
 
                     await get().fetchTables();
                     await get().fetchOrders();
 
                     const stAfter = get().settings;
-                    if (stAfter && shouldPrintReceiptOnPayment(stAfter)) {
+                    if (stAfter && shouldPrintReceiptOnPayment(stAfter) && !ctx.skipPrint && !window.location.pathname.includes('/waiter')) {
                         const lineTotals = cartSnapshot.map((ci) => {
                             const modSum = ci.modifiers.reduce((a, m) => a + Number(m.price || 0), 0);
                             return {
@@ -1184,9 +1327,9 @@ export const usePosStore = create<PosState>()(
                             address: stAfter.address,
                             phone: stAfter.phone,
                             orderId: oid,
-                            orderType,
+                            orderType: orderTypeForRequest,
                             tableLabel:
-                                orderType === 'dine_in' && tableForReceipt
+                                orderTypeForRequest === 'dine_in' && tableForReceipt
                                     ? `${tableForReceipt.name} (${tableForReceipt.sectionName})`
                                     : undefined,
                             methodLabel: method === 'cash' ? 'Nakit' : 'Kart',
@@ -1222,19 +1365,24 @@ export const usePosStore = create<PosState>()(
             },
 
             updateOrderStatus: async (orderId, status, pinCode) => {
-                const prev = get().orders.find((x) => x.id === orderId);
+                const numericOrderId = Number(String(orderId).replace('ORD-', '').replace(/[^0-9]/g, ''));
+                const prev = get().orders.find(
+                    (x) => x.id === orderId || (Number.isFinite(numericOrderId) && x.remoteId === numericOrderId)
+                );
                 const rid = prev?.remoteId;
 
                 const toApiStatus = (s: Order['status']): string =>
                     s === 'delivered'
                         ? 'completed'
-                        : s === 'cancelled'
-                          ? 'cancelled'
-                          : s === 'ready'
-                            ? 'ready'
-                            : s === 'preparing'
-                              ? 'preparing'
-                              : 'pending';
+                        : s === 'shipped'
+                          ? 'shipped'
+                          : s === 'cancelled'
+                            ? 'cancelled'
+                            : s === 'ready'
+                              ? 'ready'
+                              : s === 'preparing'
+                                ? 'preparing'
+                                : 'pending';
 
                 /** İptal: önce API (PIN gerekebilir), başarıda yerel güncelle */
                 if (status === 'cancelled' && rid != null) {
@@ -1272,6 +1420,7 @@ export const usePosStore = create<PosState>()(
                                 o.id === orderId ? { ...o, status: 'cancelled' } : o
                             ),
                         });
+                        useUIStore.getState().checkAndMoveDeliveredCallsToHistory(get().orders);
                         await get().fetchOrders();
                         return { ok: true };
                     } catch {
@@ -1286,12 +1435,17 @@ export const usePosStore = create<PosState>()(
                             o.id === orderId ? { ...o, status: 'cancelled' } : o
                         ),
                     });
+                    useUIStore.getState().checkAndMoveDeliveredCallsToHistory(get().orders);
                     return { ok: true };
                 }
 
                 set({
                     orders: get().orders.map((o) => (o.id === orderId ? { ...o, status } : o)),
                 });
+
+                if (status === 'delivered' || status === 'cancelled') {
+                    useUIStore.getState().checkAndMoveDeliveredCallsToHistory(get().orders);
+                }
 
                 if (rid == null) return { ok: true };
 
@@ -1318,64 +1472,142 @@ export const usePosStore = create<PosState>()(
                 }
             },
 
-            loadOrderToCart: async (orderId, externalOrder) => {
-                await get().fetchOrders();
-                const { orders, tables, products } = get();
-
-                let order = orders.find((o) => o.id === orderId || o.remoteId === Number(orderId));
-
-                if (!order && externalOrder) {
-                    const numericId = Number(String(externalOrder.id || '').replace('ORD-', '').replace(/[^0-9]/g, ''));
-                    order = orders.find((o) => o.id === `ORD-${numericId}` || o.remoteId === numericId);
-                }
-
-                if (!order && externalOrder) {
-                    order = {
-                        id: String(externalOrder.id || ''),
-                        remoteId: Number(externalOrder.id) || undefined,
-                        sessionId: undefined,
-                        items: mapApiItemsToCart(externalOrder.items || []),
-                        total: Number(externalOrder.total_amount || externalOrder.total || 0),
-                        orderType: (externalOrder.order_type === 'delivery' ? 'delivery' : 'takeaway') as Order['orderType'],
-                        status: mapApiOrderStatus(String(externalOrder.status || 'pending')),
-                        customerName: String(externalOrder.customer_name || externalOrder.customerName || 'Müşteri'),
-                        tableNumber: undefined,
-                        createdAt: new Date(String(externalOrder.created_at || Date.now())),
-                    };
-                }
-
-                if (!order) {
-                    set({ checkoutTargetRemoteId: null });
+            loadOrderToCart: async (orderId, externalOrder, options) => {
+                const loadKey = String(orderId);
+                if (activeLoads.has(loadKey)) {
                     return false;
                 }
-
-                let foundTable: SelectedTableInfo | null = null;
-                if (order.orderType === 'dine_in' && order.sessionId) {
-                    const tableRow = tables.find((t) => Number(t.active_session_id) === Number(order.sessionId));
-                    if (tableRow) {
-                        foundTable = {
-                            id: tableRow.id,
-                            name: tableRow.name,
-                            sectionName: tableRow.section_name || '',
-                            sessionId: tableRow.active_session_id,
+                activeLoads.add(loadKey);
+                try {
+                    let order = null;
+                    if (externalOrder) {
+                        order = {
+                            id: String(externalOrder.id || ''),
+                            remoteId: Number(externalOrder.id) || undefined,
+                            sessionId: undefined,
+                            items: mapApiItemsToCart(externalOrder.items || []),
+                            total: Number(externalOrder.total_amount || externalOrder.total || 0),
+                            orderType: (externalOrder.order_type === 'delivery' ? 'delivery' : 'takeaway') as Order['orderType'],
+                            status: mapApiOrderStatus(String(externalOrder.status || 'ready')),
+                            customerName: String(externalOrder.customer_name || externalOrder.customerName || 'Müşteri'),
+                            tableNumber: undefined,
+                            createdAt: new Date(String(externalOrder.created_at || Date.now())),
+                            paymentStatus: externalOrder.payment_status as any,
                         };
+                    } else {
+                        order = get().orders.find((o: any) => o.id === orderId || o.remoteId === Number(orderId));
                     }
+
+                    if (!order) {
+                        const numericId = Number(String(orderId).replace('ORD-', '').replace(/[^0-9]/g, ''));
+                        if (Number.isFinite(numericId) && numericId > 0) {
+                            try {
+                                const headers = useAuthStore.getState().getAuthHeaders();
+                                const res = await fetch(`/api/v1/orders/${numericId}`, { headers });
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    if (data && data.id) {
+                                        order = {
+                                            id: String(data.id || ''),
+                                            remoteId: Number(data.id) || undefined,
+                                            sessionId: undefined,
+                                            items: mapApiItemsToCart(data.items || []),
+                                            total: Number(data.total_amount || data.total || 0),
+                                            orderType: (data.order_type === 'delivery' ? 'delivery' : 'takeaway') as Order['orderType'],
+                                            status: mapApiOrderStatus(String(data.status || 'ready')),
+                                            customerName: String(data.customer_name || data.customerName || 'Müşteri'),
+                                            tableNumber: undefined,
+                                            createdAt: new Date(String(data.created_at || Date.now())),
+                                            paymentStatus: data.payment_status as any,
+                                        };
+                                        externalOrder = data;
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('Failed to fetch single order:', e);
+                            }
+                        }
+                    }
+
+                    if (!order) {
+                        set({ checkoutTargetRemoteId: null });
+                        return false;
+                    }
+
+                    // Müşteri bilgilerini otomatik olarak POS sepetine bağla
+                    const custName = order.customerName || 'Müşteri';
+                    const custPhone = externalOrder?.delivery_phone || externalOrder?.deliveryPhone || '';
+                    const custAddress = externalOrder?.delivery_address || externalOrder?.deliveryAddress || '';
+                    if (custName && custPhone) {
+                        useUIStore.getState().setActiveCustomer({
+                            name: custName,
+                            phone: custPhone,
+                            address: custAddress,
+                        });
+                    }
+
+                    let foundTable: SelectedTableInfo | null = null;
+                    if (order.orderType === 'dine_in' && order.sessionId) {
+                        const tableRow = get().tables.find((t: any) => Number(t.active_session_id) === Number(order.sessionId));
+                        if (tableRow) {
+                            foundTable = {
+                                id: tableRow.id,
+                                name: tableRow.name,
+                                sectionName: tableRow.section_name || '',
+                                sessionId: tableRow.active_session_id,
+                            };
+                        }
+                    }
+
+                    const merged = enrichCartItemsWithCatalog([...order.items], get().products);
+                    const useExistingPay =
+                        order.remoteId != null &&
+                        order.orderType === 'takeaway' &&
+                        order.status === 'ready';
+                    const append = options?.append === true;
+                    const remoteId = order.remoteId != null ? Number(order.remoteId) : null;
+                    const appendPrefix = `append-${remoteId ?? Date.now()}`;
+                    if (append && remoteId != null) {
+                        // Aynı hazır siparişi tekrar eklemeyi engelle
+                        const cartNow = get().cart;
+                        const alreadyAppended = cartNow.some((ci) => String(ci.cartId || '').startsWith(`append-${remoteId}-`));
+                        const alreadyLoadedForPay = get().checkoutTargetRemoteId === remoteId;
+                        if (alreadyAppended || alreadyLoadedForPay) {
+                            return false;
+                        }
+                    }
+                    const incomingItems = rekeyCartItems(merged, appendPrefix);
+                    const existingCart = append ? [...get().cart] : [];
+                    const hasExistingCart = existingCart.length > 0;
+                    const hasSameBillItems =
+                        append && remoteId != null
+                            ? existingCart.some((ci) => String(ci.cartId || '').startsWith(`append-${remoteId}-`))
+                            : true;
+
+                    // Eğer sepette başka bir kaynaktan gelen (hazır olmayan / farklı adisyon) ürün varsa,
+                    // gel-al "Adisyona ekle" akışını karıştırmamak için engelliyoruz.
+                    if (append && remoteId != null && hasExistingCart && !hasSameBillItems) {
+                        return false;
+                    }
+
+                    const nextCart = append && hasExistingCart && hasSameBillItems ? [...existingCart, ...incomingItems] : incomingItems;
+
+                    set({
+                        cart: nextCart,
+                        orderType: order.orderType,
+                        selectedTable: foundTable,
+                        cashierView: 'menu',
+                        checkoutTargetRemoteId:
+                            append && remoteId != null
+                                ? remoteId
+                                : useExistingPay
+                                  ? order.remoteId!
+                                  : null,
+                    });
+                    return true;
+                } finally {
+                    activeLoads.delete(loadKey);
                 }
-
-                const merged = enrichCartItemsWithCatalog([...order.items], products);
-                const useExistingPay =
-                    order.remoteId != null &&
-                    order.orderType === 'takeaway' &&
-                    order.status === 'ready';
-
-                set({
-                    cart: merged,
-                    orderType: order.orderType,
-                    selectedTable: foundTable,
-                    cashierView: 'menu',
-                    checkoutTargetRemoteId: useExistingPay ? order.remoteId! : null,
-                });
-                return true;
             },
 
             addFakeReadyOrder: () => {
@@ -1397,8 +1629,9 @@ export const usePosStore = create<PosState>()(
             getCartTotal: () => {
                 const { cart, appliedCoupon, settings, loyaltyRedeemPoints } = get();
                 const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-                // VAT oranı: API'den gelen taxRate veya %19 varsayılan
-                const vatRate = (settings?.taxRate ?? 19) / 100;
+                // VAT oranı: API'den gelen taxRate veya env/Vite varsayılanı (varsayılan %19)
+                const defaultVatRate = Number(import.meta.env.VITE_DEFAULT_VAT_RATE) || 19;
+                const vatRate = (settings?.taxRate ?? defaultVatRate) / 100;
                 const subtotal = total / (1 + vatRate);
                 const tax = total - subtotal;
 
@@ -1444,6 +1677,7 @@ export const usePosStore = create<PosState>()(
                     const rows = Array.isArray(data) ? data : [];
                     const mapped = rows.map((r) => mapApiRowToOrder(r as Record<string, unknown>));
                     set({ orders: mapped });
+                    useUIStore.getState().checkAndMoveDeliveredCallsToHistory(mapped);
                 } catch (e) {
                     console.error('Siparişler yüklenemedi:', e);
                 }
@@ -1492,7 +1726,8 @@ export const usePosStore = create<PosState>()(
                     const { setPaymentSimulation } = useUIStore.getState();
                     const tables = get().tables;
                     const table = tables.find(t => Number(t.active_session_id) === Number(sessionId));
-                    const amount = table?.total_amount || 0;
+                    const loyaltyDiscount = get().loyaltyRedeemPoints > 0 ? (get().loyaltyRedeemPoints / 10) : 0;
+                    const amount = Math.max(0, Number(table?.total_amount || 0) + Number(payment.tipAmount || 0) - loyaltyDiscount);
                     
                     setPaymentSimulation({ 
                         isOpen: true, 
@@ -1533,7 +1768,9 @@ export const usePosStore = create<PosState>()(
                         stCs &&
                         shouldPrintReceiptOnSessionClose(stCs) &&
                         Number.isFinite(totalPaid) &&
-                        totalPaid > 0
+                        totalPaid > 0 &&
+                        !payment.skipPrint &&
+                        !window.location.pathname.includes('/waiter')
                     ) {
                         const tables = get().tables;
                         const table = tables.find((t) => Number(t.active_session_id) === Number(sessionId));
@@ -1670,6 +1907,52 @@ export const usePosStore = create<PosState>()(
                         [tableId]: waiterName
                     }
                 }));
+            },
+            fetchCheckoutLink: async (paymentHistoryId: number) => {
+                try {
+                    const headers = {
+                        ...useAuthStore.getState().getAuthHeaders(),
+                        'Content-Type': 'application/json',
+                    };
+                    const res = await fetch(`/api/v1/billing/payments/${paymentHistoryId}/checkout-link`, {
+                        method: 'POST',
+                        headers,
+                    });
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        throw new Error(data?.error || `HTTP ${res.status}`);
+                    }
+                    const data = await res.json();
+                    return data.paymentUrl;
+                } catch (e: any) {
+                    console.error('fetchCheckoutLink error:', e);
+                    toast.error(e.message || 'Ödeme bağlantısı oluşturulamadı');
+                    return null;
+                }
+            },
+            payInvoiceWithWallet: async (paymentHistoryId: number) => {
+                try {
+                    const headers = {
+                        ...useAuthStore.getState().getAuthHeaders(),
+                        'Content-Type': 'application/json',
+                    };
+                    const res = await fetch(`/api/v1/billing/payments/${paymentHistoryId}/pay-with-tenant-wallet`, {
+                        method: 'POST',
+                        headers,
+                    });
+                    const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string; newBalance?: number };
+                    if (!res.ok) {
+                        throw new Error(data?.error || `HTTP ${res.status}`);
+                    }
+                    markOnlineSuccess();
+                    toast.success(data.message || 'Ödeme cüzdan bakiyeniz ile başarıyla tamamlandı.');
+                    return true;
+                } catch (e: unknown) {
+                    const msg = e instanceof Error ? e.message : 'Cüzdanla ödeme işlemi başarısız.';
+                    console.error('payInvoiceWithWallet error:', e);
+                    toast.error(msg);
+                    return false;
+                }
             },
         }),
         {

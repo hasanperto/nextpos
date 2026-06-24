@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { withTenant, withTenantTransaction } from '../lib/db.js';
 import { WhatsAppService } from '../services/whatsapp.service.js';
+import { closeTableSessionIfNoActiveOrders } from '../lib/table-session-auto-close.js';
 
 export const getKitchenTicketsHandler = async (req: Request, res: Response) => {
     try {
@@ -194,10 +195,14 @@ export const updateTicketStatusHandler = async (req: Request, res: Response) => 
 
             // orders tablosunu senkronize et
             // Bir fiş 'completed' (mutfaktan çıktı) olduğunda sipariş durumu 'ready' (teslimat bekliyor) olur.
-            // Sadece 'delivery' değil, 'takeaway' ve 'dine_in' için de geçerli.
+            // Geri alma (Undo) durumunda sipariş durumunu da zincirleme olarak geri çekiyoruz.
             let orderStatus = status; 
             if (status === 'completed') {
                 orderStatus = 'ready'; 
+            } else if (status === 'preparing') {
+                orderStatus = 'preparing';
+            } else if (status === 'waiting') {
+                orderStatus = 'confirmed';
             }
 
             await connection.query(
@@ -205,7 +210,16 @@ export const updateTicketStatusHandler = async (req: Request, res: Response) => 
                 [orderStatus, ticket.order_id]
             );
 
-            return { ticket, order, mergedToId };
+            let autoSession: { closed: boolean; tableId?: number } = { closed: false };
+            if (
+                status === 'cancelled' &&
+                String(order.order_type) === 'dine_in' &&
+                order.session_id != null
+            ) {
+                autoSession = await closeTableSessionIfNoActiveOrders(connection, Number(order.session_id));
+            }
+
+            return { ticket, order, mergedToId, autoSession };
         });
 
         const io = req.app.get('io');
@@ -233,8 +247,12 @@ export const updateTicketStatusHandler = async (req: Request, res: Response) => 
                 orderId: result.ticket.order_id,
                 status: status === 'completed' ? 'ready' : status
             });
+            io.to(room).emit('order:status_changed', {
+                orderId: result.ticket.order_id,
+                status: status === 'completed' ? 'ready' : status
+            });
 
-            if (status === 'ready') {
+            if (status === 'ready' || status === 'completed') {
                 // ── HEDEFLI BİLDİRİM AKIŞI ──
                 // order_type'a göre doğru kişilere bildirim gönder
                 const orderType = result.order.order_type;
@@ -245,7 +263,8 @@ export const updateTicketStatusHandler = async (req: Request, res: Response) => 
                     orderId: result.ticket.order_id,
                     orderType: orderType,
                     tableName: tableName,
-                    customerName: result.order.customer_name
+                    customerName: result.order.customer_name,
+                    tableId: result.order.table_id
                 });
 
                 if (orderType === 'dine_in') {
@@ -322,6 +341,10 @@ export const updateTicketStatusHandler = async (req: Request, res: Response) => 
                     orderType: orderType,
                     tableName: result.ticket.table_name,
                 });
+            }
+
+            if ((result as { autoSession?: { closed?: boolean } }).autoSession?.closed) {
+                io.to(room).emit('tables:updated');
             }
         }
 

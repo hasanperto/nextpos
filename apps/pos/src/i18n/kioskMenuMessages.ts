@@ -76,6 +76,7 @@ export type KioskMessages = {
     waiterOnWayToast: string;
     networkError: string;
     orderFailed: string;
+    orderQueuedOffline: string;
     extras: string;
     qty: string;
     sizeSelect: string;
@@ -179,6 +180,7 @@ const tr: KioskMessages = {
     waiterOnWayToast: 'Bir garson birazdan sizinle ilgilenecek.',
     networkError: 'Bağlantı hatası',
     orderFailed: 'Sipariş gönderilemedi',
+    orderQueuedOffline: 'Çevrimdışı: Sipariş kaydedildi. İnternet gelince garsona iletilecek.',
     extras: 'Ekstralar',
     qty: 'Adet',
     sizeSelect: 'Boyut',
@@ -278,6 +280,7 @@ const en: KioskMessages = {
     waiterOnWayToast: 'A server will be with you shortly.',
     networkError: 'Network error',
     orderFailed: 'Could not place order',
+    orderQueuedOffline: 'Offline: Order saved. Will reach staff when back online.',
     extras: 'Extras',
     qty: 'Qty',
     sizeSelect: 'Size',
@@ -377,6 +380,7 @@ const de: KioskMessages = {
     waiterOnWayToast: 'Ein Kellner kümmert sich gleich um Sie.',
     networkError: 'Netzwerkfehler',
     orderFailed: 'Bestellung fehlgeschlagen',
+    orderQueuedOffline: 'Offline: Bestellung gespeichert. Wird bei Internet an Service gesendet.',
     extras: 'Extras',
     qty: 'Menge',
     sizeSelect: 'Größe',

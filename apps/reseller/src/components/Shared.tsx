@@ -19,7 +19,20 @@ export function MenuItem({ icon, label, active, onClick, badge }: {
     );
 }
 
-export function StatCard({ label, value, icon, color = 'blue' }: { label: string; value: string | number; icon: React.ReactNode; color?: string }) {
+export function StatCard({
+    label,
+    value,
+    icon,
+    color = 'blue',
+    hint,
+}: {
+    label: string;
+    value: string | number;
+    icon: React.ReactNode;
+    color?: string;
+    /** Alt satır — örn. tahmini tekrarlayan komisyon */
+    hint?: string;
+}) {
     const cls: Record<string, string> = {
         blue: 'from-blue-600/15 border-blue-500/20 text-blue-400',
         emerald: 'from-emerald-600/15 border-emerald-500/20 text-emerald-400',
@@ -33,6 +46,7 @@ export function StatCard({ label, value, icon, color = 'blue' }: { label: string
             <div className="absolute top-3 right-3 opacity-10 scale-150">{icon}</div>
             <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">{label}</div>
             <div className={`text-2xl font-black ${accent}`}>{value}</div>
+            {hint ? <p className="text-[10px] text-slate-500 mt-2 leading-snug font-medium normal-case">{hint}</p> : null}
         </div>
     );
 }

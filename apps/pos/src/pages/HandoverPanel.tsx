@@ -106,52 +106,54 @@ const HandoverPanel: React.FC = () => {
     }, [readyOrders]);
 
     return (
-        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-50">
-            <header className="shrink-0 border-b border-slate-200 bg-white px-6 py-4">
+        <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#020617] text-slate-100 font-sans relative">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-[120px] pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-80 h-80 bg-indigo-500/10 rounded-full blur-[150px] pointer-events-none" />
+            <header className="shrink-0 border-b border-white/5 bg-[#0f172a]/95 backdrop-blur-md px-6 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                        <h1 className="text-3xl font-black text-slate-800 tracking-tight leading-none">
+                        <h1 className="text-3xl font-black text-white tracking-tight leading-none">
                             {t('handover.title_lead')}
                         </h1>
-                        <p className="text-slate-500 font-medium mt-1">
+                        <p className="text-slate-400 font-medium mt-1">
                             {t('handover.title_sub')}
                         </p>
                     </div>
                     <button
                         type="button"
                         onClick={() => void loadStats()}
-                        className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-slate-600 font-semibold hover:bg-slate-50 transition-colors"
+                        className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-slate-400 font-semibold hover:bg-white/5 transition-colors"
                     >
                         <FiRefreshCcw className={loading ? 'animate-spin' : ''} />
                         {t('handover.refresh')}
                     </button>
                 </div>
                 <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
-                        <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-500">
+                    <div className="bg-white/[0.02] border border-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4">
+                        <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-400">
                             <FiCheckCircle size={24} />
                         </div>
                         <div className="flex flex-col">
-                            <span className="text-2xl font-bold text-emerald-600 leading-none">{readyOrders.length}</span>
-                            <span className="text-[10px] font-bold text-emerald-500/80 uppercase tracking-wider">{t('handover.ready_order_label')}</span>
+                            <span className="text-2xl font-bold text-emerald-400 leading-none">{readyOrders.length}</span>
+                            <span className="text-[10px] font-bold text-emerald-400/80 uppercase tracking-wider">{t('handover.ready_order_label')}</span>
                         </div>
                     </div>
-                    <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
-                        <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-amber-500">
+                    <div className="bg-white/[0.02] border border-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4">
+                        <div className="w-12 h-12 bg-amber-500/10 rounded-xl flex items-center justify-center text-amber-400">
                             <FiClock size={24} />
                         </div>
                         <div className="flex flex-col">
-                            <span className="text-2xl font-bold text-amber-600 leading-none">{preparingOrders.length}</span>
-                            <span className="text-[10px] font-bold text-amber-500/80 uppercase tracking-wider">{t('handover.preparing_label')}</span>
+                            <span className="text-2xl font-bold text-amber-400 leading-none">{preparingOrders.length}</span>
+                            <span className="text-[10px] font-bold text-amber-400/80 uppercase tracking-wider">{t('handover.preparing_label')}</span>
                         </div>
                     </div>
-                    <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-4 shadow-sm">
-                        <div className="w-12 h-12 bg-rose-50 rounded-xl flex items-center justify-center text-rose-500">
+                    <div className="bg-white/[0.02] border border-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4">
+                        <div className="w-12 h-12 bg-rose-500/10 rounded-xl flex items-center justify-center text-rose-400">
                             <FiAlertTriangle size={24} />
                         </div>
                         <div className="flex flex-col">
-                            <span className="text-2xl font-bold text-rose-600 leading-none">{lateReadyCount}</span>
-                            <span className="text-[10px] font-bold text-rose-500/80 uppercase tracking-wider">{t('handover.late_label')}</span>
+                            <span className="text-2xl font-bold text-rose-400 leading-none">{lateReadyCount}</span>
+                            <span className="text-[10px] font-bold text-rose-400/80 uppercase tracking-wider">{t('handover.late_label')}</span>
                         </div>
                     </div>
                 </div>

@@ -114,13 +114,13 @@ export const FinanceTab: React.FC = () => {
                         icon={<FiPieChart />}
                         color="cyan"
                     />
-                    <div className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-6 rounded-[32px] relative overflow-hidden group">
+                    <div className="bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-800 p-6 rounded-2xl relative overflow-hidden group">
                         <div className="absolute -right-4 -top-4 w-24 h-24 bg-orange-500/5 rounded-full blur-3xl group-hover:bg-orange-500/10 transition-all duration-500" />
                         <div className="w-12 h-12 rounded-2xl bg-orange-500/10 flex items-center justify-center text-orange-400 mb-4">
                             <FiCalendar size={24} />
                         </div>
                         <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">{t('finance.pendingCollections')}</span>
-                        <span className="text-2xl font-black text-white">
+                        <span className="text-2xl font-black text-slate-800 dark:text-white">
                             {currency}{Number(financialSummary?.pendingRevenue ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
                         </span>
                         <div className="mt-3 flex flex-col gap-1">
@@ -149,9 +149,9 @@ export const FinanceTab: React.FC = () => {
                             {['iyzico', 'paytr', 'stripe'].map((gw) => {
                                 const isActive = useSaaSStore.getState().settings?.active_gateway === gw;
                                 return (
-                                    <div key={gw} className={`p-8 rounded-[40px] border transition-all relative overflow-hidden group ${isActive ? 'bg-indigo-600/10 border-indigo-500/20 shadow-2xl shadow-indigo-500/10' : 'bg-white/[0.02] border-white/5 opacity-40'}`}>
+                                    <div key={gw} className={`p-8 rounded-2xl border transition-all relative overflow-hidden group ${isActive ? 'bg-indigo-600/10 border-indigo-500/20 shadow-sm shadow-indigo-500/10' : 'bg-white/[0.02] border-slate-200 dark:border-slate-800 opacity-40'}`}>
                                         <div className="flex items-center justify-between mb-8">
-                                            <div className="p-4 rounded-[20px] bg-white/5 text-white group-hover:scale-110 transition-transform"><FiCreditCard size={24} /></div>
+                                            <div className="p-4 rounded-xl bg-white/5 text-slate-800 dark:text-white group-hover:scale-110 transition-transform"><FiCreditCard size={24} /></div>
                                             {isActive && (
                                                 <div className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center gap-2">
                                                     <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
@@ -160,7 +160,7 @@ export const FinanceTab: React.FC = () => {
                                             )}
                                         </div>
                                         <div className="mb-6">
-                                            <h4 className="text-xl font-black text-white italic tracking-tighter uppercase">{gw} CORE</h4>
+                                            <h4 className="text-xl font-black text-slate-800 dark:text-white italic tracking-tighter uppercase">{gw} CORE</h4>
                                             <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mt-2 italic">Infrastructure Layer v4.2</p>
                                         </div>
                                         <div className="space-y-4">
@@ -168,7 +168,7 @@ export const FinanceTab: React.FC = () => {
                                                 <span>Uptime Pulse</span>
                                                 <span className={isActive ? 'text-emerald-400' : 'text-slate-600'}>{isActive ? '99.99%' : 'OFFLINE'}</span>
                                             </div>
-                                            <div className="h-1.5 w-full bg-black/40 rounded-full overflow-hidden border border-white/5">
+                                            <div className="h-1.5 w-full bg-black/40 rounded-full overflow-hidden border border-slate-200 dark:border-slate-800">
                                                 <motion.div 
                                                     initial={{ width: 0 }}
                                                     animate={{ width: isActive ? '95%' : '0%' }}
@@ -178,7 +178,7 @@ export const FinanceTab: React.FC = () => {
                                             <div className="flex justify-between items-center pt-2">
                                                 <div className="flex flex-col">
                                                     <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-1 italic">Monthly Volume</span>
-                                                    <span className="text-sm font-black text-white italic">{currency}{isActive ? Number(financialSummary?.totalRevenue || 0).toLocaleString() : '0.00'}</span>
+                                                    <span className="text-sm font-black text-slate-800 dark:text-white italic">{currency}{isActive ? Number(financialSummary?.totalRevenue || 0).toLocaleString() : '0.00'}</span>
                                                 </div>
                                                 <FiArrowUpRight className={isActive ? 'text-emerald-500' : 'text-slate-700'} size={20} />
                                             </div>
@@ -201,11 +201,11 @@ export const FinanceTab: React.FC = () => {
                                         <motion.div 
                                             key={row.month} 
                                             variants={itemVariants}
-                                            className="bg-white/5 rounded-2xl p-4 border border-white/5 hover:bg-white/10 transition-colors cursor-default"
+                                            className="bg-white/5 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 hover:bg-white/10 transition-colors cursor-default"
                                         >
                                             <div className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">{row.month}</div>
-                                            <div className="text-sm font-black text-white mt-1">{currency}{Number(row.total).toLocaleString('tr-TR', { maximumFractionDigits: 0 })}</div>
-                                            <div className="mt-2 h-1 w-full bg-slate-800 rounded-full overflow-hidden">
+                                            <div className="text-sm font-black text-slate-800 dark:text-white mt-1">{currency}{Number(row.total).toLocaleString('tr-TR', { maximumFractionDigits: 0 })}</div>
+                                            <div className="mt-2 h-1 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                                                 <motion.div 
                                                     initial={{ width: 0 }}
                                                     animate={{ width: `${Math.min(100, (Number(row.total) / (financialSummary.totalRevenue || 1)) * 500)}%` }}
@@ -230,7 +230,7 @@ export const FinanceTab: React.FC = () => {
                         >
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left min-w-[600px]">
-                                    <thead className="border-b border-white/5">
+                                    <thead className="border-b border-slate-200 dark:border-slate-800">
                                         <tr>
                                             <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('finance.colDesc')}</th>
                                             <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">{t('finance.colType')}</th>
@@ -247,12 +247,12 @@ export const FinanceTab: React.FC = () => {
                                             payments.map((p) => (
                                                 <tr key={p.id} className="hover:bg-white/5 transition-colors group">
                                                     <td className="px-6 py-5">
-                                                        <div className="font-bold text-white text-sm group-hover:text-blue-400 transition-colors">{p.description}</div>
+                                                        <div className="font-bold text-slate-800 dark:text-white text-sm group-hover:text-blue-400 transition-colors">{p.description}</div>
                                                         <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest mt-1">{p.tenant_name || t('finance.systemDef')}</div>
                                                     </td>
                                                     <td className="px-6 py-5">
                                                         <div className="flex justify-center">
-                                                            <span className="px-3 py-1 rounded-lg text-[10px] font-black uppercase bg-slate-800 text-slate-400 border border-white/5 group-hover:border-blue-500/20 transition-all">
+                                                            <span className="px-3 py-1 rounded-lg text-[10px] font-black uppercase bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 group-hover:border-blue-500/20 transition-all">
                                                                 {paymentTypeLabel(t, p.payment_type)}
                                                             </span>
                                                         </div>
@@ -296,7 +296,7 @@ export const FinanceTab: React.FC = () => {
                         {/* Commission Breakdown Card */}
                         <motion.div 
                             variants={itemVariants}
-                            className="bg-gradient-to-br from-indigo-600 to-blue-700 p-8 rounded-[40px] text-white shadow-2xl shadow-blue-900/30 relative overflow-hidden group"
+                            className="bg-gradient-to-br from-indigo-600 to-blue-700 p-8 rounded-2xl text-slate-800 dark:text-white shadow-sm shadow-blue-900/30 relative overflow-hidden group"
                         >
                             <div className="absolute -right-10 -bottom-10 opacity-10 rotate-12 group-hover:rotate-0 transition-all duration-500">
                                 <FiPieChart size={240} />
@@ -304,14 +304,14 @@ export const FinanceTab: React.FC = () => {
                             <div className="relative z-10">
                                 <div className="flex items-center gap-2 mb-6">
                                     <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center">
-                                        <FiPercent className="text-white" size={14} />
+                                        <FiPercent className="text-slate-800 dark:text-white" size={14} />
                                     </div>
                                     <span className="text-[10px] font-black text-blue-100 uppercase tracking-widest">{t('finance.commissionTitle')}</span>
                                 </div>
                                 <div className="space-y-5">
                                     <div className="flex items-center justify-between">
                                         <span className="text-xs font-bold text-blue-100/70">{t('finance.restaurantSales')}</span>
-                                        <span className="text-sm font-black text-white">{currency}{Number(bd?.restaurantTenantPaid ?? 0).toLocaleString('tr-TR')}</span>
+                                        <span className="text-sm font-black text-slate-800 dark:text-white">{currency}{Number(bd?.restaurantTenantPaid ?? 0).toLocaleString('tr-TR')}</span>
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <span className="text-xs font-bold text-blue-100/70">{t('finance.resellerChannel')}</span>
@@ -327,7 +327,7 @@ export const FinanceTab: React.FC = () => {
                                         <span className="text-sm font-black text-rose-300">{currency}{Number(bd?.commissionPaidToResellers ?? 0).toLocaleString('tr-TR')}</span>
                                     </div>
                                 </div>
-                                <div className="mt-8 p-4 bg-white/5 rounded-2xl border border-white/5">
+                                <div className="mt-8 p-4 bg-white/5 rounded-2xl border border-slate-200 dark:border-slate-800">
                                     <p className="text-[10px] text-blue-100/80 font-medium italic leading-relaxed">
                                         {t('finance.commissionNote')}
                                     </p>
@@ -350,17 +350,17 @@ export const FinanceTab: React.FC = () => {
                                         <motion.div 
                                             key={p.id} 
                                             whileHover={{ x: 5 }}
-                                            className="p-4 bg-white/5 rounded-[24px] border border-white/5 hover:border-orange-500/30 transition-all cursor-pointer group"
+                                            className="p-4 bg-white/5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-orange-500/30 transition-all cursor-pointer group"
                                         >
                                             <div className="flex justify-between items-start mb-2">
-                                                <span className="text-xs font-black text-white group-hover:text-orange-400 transition-colors">{p.tenant_name || paymentTypeLabel(t, p.payment_type)}</span>
+                                                <span className="text-xs font-black text-slate-800 dark:text-white group-hover:text-orange-400 transition-colors">{p.tenant_name || paymentTypeLabel(t, p.payment_type)}</span>
                                                 <span className="text-[10px] font-black text-orange-400 uppercase tracking-tighter">{t('finance.due')}</span>
                                             </div>
                                             <div className="flex items-center gap-2 text-[10px] text-slate-500 font-bold mb-4">
                                                 <FiCalendar size={12} /> {new Date(p.created_at).toLocaleDateString('tr-TR')}
                                             </div>
                                             <div className="flex items-center justify-between">
-                                                <span className="text-sm font-black text-white">{currency}{p.amount.toLocaleString()}</span>
+                                                <span className="text-sm font-black text-slate-800 dark:text-white">{currency}{p.amount.toLocaleString()}</span>
                                                 <button className="text-[10px] font-black text-blue-400 hover:text-blue-300 transition-all uppercase tracking-widest">{t('finance.remind')}</button>
                                             </div>
                                         </motion.div>
@@ -392,13 +392,13 @@ export const FinanceTab: React.FC = () => {
                     color="emerald"
                 />
                 
-                <div className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-6 rounded-[32px] relative overflow-hidden group">
+                <div className="bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-800 p-6 rounded-2xl relative overflow-hidden group">
                     <div className="absolute -right-4 -top-4 w-24 h-24 bg-blue-500/5 rounded-full blur-3xl group-hover:bg-blue-500/10 transition-all duration-500" />
                     <div className="w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-400 mb-4 group-hover:scale-110 transition-transform">
                         <FiShoppingBag size={24} />
                     </div>
                     <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">{t('finance.walletBalance')}</span>
-                    <span className="text-2xl font-black text-white">{currency}{Number(admin?.wallet_balance ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
+                    <span className="text-2xl font-black text-slate-800 dark:text-white">{currency}{Number(admin?.wallet_balance ?? 0).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</span>
                     <button className="mt-3 text-[10px] font-black text-blue-400 uppercase tracking-widest bg-blue-400/5 px-3 py-1.5 rounded-lg border border-blue-400/10 hover:bg-blue-400/10 transition-all">
                         {t('finance.withdrawReq')}
                     </button>
@@ -413,13 +413,13 @@ export const FinanceTab: React.FC = () => {
                     color="orange"
                 />
 
-                <div className="bg-slate-900/40 backdrop-blur-xl border border-white/5 p-6 rounded-[32px] relative overflow-hidden group">
+                <div className="bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-800 p-6 rounded-2xl relative overflow-hidden group">
                     <div className="absolute -right-4 -top-4 w-24 h-24 bg-purple-500/5 rounded-full blur-3xl group-hover:bg-purple-500/10 transition-all duration-500" />
                     <div className="w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center text-purple-400 mb-4 group-hover:scale-110 transition-transform">
                         <FiPieChart size={24} />
                     </div>
                     <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">{t('finance.activeLicenses')}</span>
-                    <span className="text-2xl font-black text-white">{admin?.available_licenses || '0'} {t('finance.units')}</span>
+                    <span className="text-2xl font-black text-slate-800 dark:text-white">{admin?.available_licenses || '0'} {t('finance.units')}</span>
                     <button className="mt-3 text-[10px] font-black text-purple-400 uppercase tracking-widest bg-purple-400/5 px-3 py-1.5 rounded-lg border border-purple-400/10 hover:bg-purple-400/10 transition-all">
                         {t('finance.licenseMarket')}
                     </button>
@@ -437,9 +437,9 @@ export const FinanceTab: React.FC = () => {
                             </button>
                         }
                     >
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto hidden md:block">
                             <table className="w-full text-left min-w-[600px]">
-                                <thead className="border-b border-white/5">
+                                <thead className="border-b border-slate-200 dark:border-slate-800">
                                     <tr>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('finance.colDesc')}</th>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">{t('finance.colType')}</th>
@@ -456,7 +456,7 @@ export const FinanceTab: React.FC = () => {
                                         payments.map((p) => (
                                             <tr key={p.id} className="hover:bg-white/5 transition-colors group">
                                                 <td className="px-6 py-5">
-                                                    <div className="font-bold text-white text-sm group-hover:text-blue-400 transition-colors">{p.description}</div>
+                                                    <div className="font-bold text-slate-800 dark:text-white text-sm group-hover:text-blue-400 transition-colors">{p.description}</div>
                                                     <div className="text-[10px] text-slate-500 uppercase font-black tracking-widest mt-1">{p.tenant_name || t('finance.systemDef')}</div>
                                                 </td>
                                                 <td className="px-6 py-5">
@@ -497,6 +497,44 @@ export const FinanceTab: React.FC = () => {
                                 </tbody>
                             </table>
                         </div>
+
+                        {/* Mobile View */}
+                        <div className="block md:hidden space-y-3 px-2">
+                            {payments.length === 0 ? (
+                                <div className="p-8 text-center text-slate-500 font-bold italic text-sm">{t('finance.emptyMovements')}</div>
+                            ) : (
+                                payments.map((p) => (
+                                    <div key={p.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-3 shadow-sm">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] text-slate-400 font-bold uppercase">{new Date(p.created_at).toLocaleDateString('tr-TR')}</span>
+                                            <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase ${
+                                                p.status === 'paid' ? 'bg-emerald-500/10 text-emerald-400'
+                                                    : p.status === 'pending'
+                                                        ? 'bg-orange-500/10 text-orange-400 border-orange-500/10'
+                                                        : 'bg-red-500/10 text-red-400 border border-red-500/10'
+                                            }`}>
+                                                {p.status === 'paid' ? t('finance.statusPaid') : p.status === 'pending' ? t('finance.statusPending') : t('finance.statusCancelled')}
+                                            </span>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="font-bold text-slate-800 dark:text-white text-xs">{p.description}</div>
+                                            <div className="text-[9px] text-slate-500 uppercase font-black tracking-widest">{p.tenant_name || t('finance.systemDef')}</div>
+                                        </div>
+                                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800/60">
+                                            <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                                                p.payment_type === 'reseller_income' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-blue-500/10 text-blue-400'
+                                            }`}>
+                                                {p.payment_type === 'reseller_income' ? t('finance.typeIncome') : t('finance.typeExpense')}
+                                            </span>
+                                            <div className={`text-sm font-black flex items-center gap-0.5 ${p.payment_type === 'reseller_income' ? 'text-emerald-400' : 'text-blue-400'}`}>
+                                                {p.payment_type === 'reseller_income' ? <FiArrowUpRight size={12} /> : <FiArrowDownLeft size={12} />}
+                                                {currency}{p.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </SectionCard>
                 </div>
 
@@ -504,7 +542,7 @@ export const FinanceTab: React.FC = () => {
                     {/* Reseller Commission breakdown visualization */}
                     <motion.div 
                         variants={itemVariants}
-                        className="bg-gradient-to-br from-blue-600 to-indigo-700 p-8 rounded-[40px] text-white shadow-2xl relative overflow-hidden group"
+                        className="bg-gradient-to-br from-blue-600 to-indigo-700 p-8 rounded-2xl text-slate-800 dark:text-white shadow-sm relative overflow-hidden group"
                     >
                         <div className="absolute -right-8 -bottom-8 opacity-10 rotate-12 group-hover:rotate-0 transition-all duration-700">
                             <FiPieChart size={180} />
@@ -512,20 +550,20 @@ export const FinanceTab: React.FC = () => {
                         <div className="relative z-10">
                             <span className="text-[10px] font-black text-blue-100 uppercase tracking-widest block mb-6">{t('finance.commissionRules')}</span>
                             <div className="space-y-4">
-                                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
                                     <span className="text-xs font-bold text-blue-100/70">{t('finance.prepaidDiscount')}</span>
-                                    <span className="text-sm font-black text-white">%15</span>
+                                    <span className="text-sm font-black text-slate-800 dark:text-white">%15</span>
                                 </div>
-                                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
                                     <span className="text-xs font-bold text-blue-100/70">{t('finance.resellerShare')}</span>
                                     <span className="text-sm font-black text-emerald-400">%35</span>
                                 </div>
                                 <div className="flex items-center justify-between pb-1">
                                     <span className="text-xs font-bold text-blue-100/70">{t('finance.systemShare')}</span>
-                                    <span className="text-sm font-black text-white">%50</span>
+                                    <span className="text-sm font-black text-slate-800 dark:text-white">%50</span>
                                 </div>
                             </div>
-                            <div className="mt-8 p-4 bg-white/5 rounded-2xl border border-white/5">
+                            <div className="mt-8 p-4 bg-white/5 rounded-2xl border border-slate-200 dark:border-slate-800">
                                 <p className="text-[10px] text-blue-100/80 font-medium italic leading-relaxed">
                                     {t('finance.commissionNote')}
                                 </p>
@@ -547,17 +585,17 @@ export const FinanceTab: React.FC = () => {
                                     <motion.div 
                                         key={p.id} 
                                         whileHover={{ x: 5 }}
-                                        className="p-4 bg-white/5 rounded-[24px] border border-white/5 hover:border-orange-500/30 transition-all cursor-pointer group"
+                                        className="p-4 bg-white/5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-orange-500/30 transition-all cursor-pointer group"
                                     >
                                         <div className="flex justify-between items-start mb-2">
-                                            <span className="text-xs font-black text-white group-hover:text-orange-400 transition-colors">{p.tenant_name}</span>
+                                            <span className="text-xs font-black text-slate-800 dark:text-white group-hover:text-orange-400 transition-colors">{p.tenant_name}</span>
                                             <span className="text-[10px] font-black text-orange-400 uppercase tracking-tighter">{t('finance.due')}</span>
                                         </div>
                                         <div className="flex items-center gap-2 text-[10px] text-slate-500 font-bold mb-4">
                                             <FiCalendar size={12} /> {new Date(p.created_at).toLocaleDateString('tr-TR')}
                                         </div>
                                         <div className="flex items-center justify-between">
-                                            <span className="text-sm font-black text-white">{currency}{p.amount.toLocaleString()}</span>
+                                            <span className="text-sm font-black text-slate-800 dark:text-white">{currency}{p.amount.toLocaleString()}</span>
                                             <button className="text-[10px] font-black text-blue-400 hover:text-blue-300 transition-all uppercase tracking-widest">{t('finance.remind')}</button>
                                         </div>
                                     </motion.div>

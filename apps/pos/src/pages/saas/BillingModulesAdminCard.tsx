@@ -215,7 +215,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                             type="button"
                             onClick={() => void handleRefresh()}
                             disabled={loading}
-                            className="text-xs bg-white/10 text-white px-3 py-2.5 rounded-xl font-bold flex items-center gap-1.5 hover:bg-white/15 transition-all disabled:opacity-50"
+                            className="text-xs bg-white/10 text-slate-800 dark:text-white px-3 py-2.5 rounded-xl font-bold flex items-center gap-1.5 hover:bg-white/15 transition-all disabled:opacity-50"
                             title={t('billingModules.refresh')}
                         >
                             <FiRefreshCw size={12} className={loading ? 'animate-spin' : ''} />
@@ -226,7 +226,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                                 setCreateForm(emptyCreate);
                                 setShowCreate(true);
                             }}
-                            className="text-xs bg-violet-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-1.5 hover:bg-violet-500 transition-all"
+                            className="text-xs bg-violet-600 text-slate-800 dark:text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-1.5 hover:bg-violet-500 transition-all"
                         >
                             <FiPlus size={12} /> {t('billingModules.newModule')}
                         </button>
@@ -241,10 +241,10 @@ export const BillingModulesAdminCard: React.FC = () => {
                 </p>
 
                 {waitingToken && (
-                    <p className="text-slate-400 text-sm">{t('billingModules.sessionLoading')}</p>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">{t('billingModules.sessionLoading')}</p>
                 )}
                 {!waitingToken && listBusy && (
-                    <p className="text-slate-400 text-sm">{t('billingModules.listLoading')}</p>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">{t('billingModules.listLoading')}</p>
                 )}
                 {!waitingToken && !listBusy && billingModulesAdminError && (
                     <p className="text-amber-300/95 text-sm rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3">
@@ -255,14 +255,14 @@ export const BillingModulesAdminCard: React.FC = () => {
                     <div className="space-y-3 sm:space-y-4">
                         {/* Kategori sekmeleri — mobilde yatay kaydırma */}
                         <div className="-mx-1 sm:mx-0 overflow-x-auto overflow-y-hidden pb-1 [scrollbar-width:thin]">
-                            <div className="flex flex-nowrap sm:flex-wrap gap-1.5 p-1 rounded-2xl bg-black/25 border border-white/10 min-w-min">
+                            <div className="flex flex-nowrap sm:flex-wrap gap-1.5 p-1 rounded-2xl bg-black/25 border border-slate-200 dark:border-slate-800 min-w-min">
                                 <button
                                     type="button"
                                     onClick={() => setCategoryTab('all')}
                                     className={`shrink-0 px-2.5 sm:px-3 py-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all whitespace-nowrap ${
                                         categoryTab === 'all'
-                                            ? 'bg-violet-600 text-white shadow-lg shadow-violet-900/30'
-                                            : 'text-slate-400 hover:text-white hover:bg-white/5'
+                                            ? 'bg-violet-600 text-slate-800 dark:text-white shadow-lg shadow-violet-900/30'
+                                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white hover:bg-white/5'
                                     }`}
                                 >
                                     {t('billingModules.all')}
@@ -275,8 +275,8 @@ export const BillingModulesAdminCard: React.FC = () => {
                                         onClick={() => setCategoryTab(key)}
                                         className={`shrink-0 px-2.5 sm:px-3 py-2 rounded-xl text-[11px] sm:text-xs font-bold transition-all whitespace-nowrap ${
                                             categoryTab === key
-                                                ? 'bg-violet-600 text-white shadow-lg shadow-violet-900/30'
-                                                : 'text-slate-400 hover:text-white hover:bg-white/5'
+                                                ? 'bg-violet-600 text-slate-800 dark:text-white shadow-lg shadow-violet-900/30'
+                                                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white hover:bg-white/5'
                                         }`}
                                     >
                                         {categoryLabels[key]}
@@ -295,7 +295,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                                     value={listFilter}
                                     onChange={(e) => setListFilter(e.target.value)}
                                     placeholder={t('billingModules.searchPh')}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-3 py-2.5 text-sm text-white placeholder:text-slate-600 outline-none focus:border-violet-500/40"
+                                    className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl pl-10 pr-3 py-2.5 text-sm text-slate-800 dark:text-white placeholder:text-slate-600 outline-none focus:border-violet-500/40"
                                 />
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
@@ -313,8 +313,8 @@ export const BillingModulesAdminCard: React.FC = () => {
                                         onClick={() => setStatusFilter(val)}
                                         className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition-all ${
                                             statusFilter === val
-                                                ? 'bg-white/15 text-white ring-1 ring-white/20'
-                                                : 'text-slate-500 hover:text-slate-300'
+                                                ? 'bg-white/15 text-slate-800 dark:text-white ring-1 ring-white/20'
+                                                : 'text-slate-500 hover:text-slate-600 dark:text-slate-500 dark:text-slate-400'
                                         }`}
                                     >
                                         {label}
@@ -324,7 +324,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                         </div>
 
                         {filteredModules.length === 0 ? (
-                            <p className="text-slate-500 text-sm py-6 sm:py-8 text-center rounded-2xl border border-dashed border-white/10">
+                            <p className="text-slate-500 text-sm py-6 sm:py-8 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
                                 {t('billingModules.filteredEmpty')}
                             </p>
                         ) : (
@@ -334,7 +334,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                                     {filteredModules.map((row) => (
                                         <div
                                             key={row.id}
-                                            className={`rounded-xl border border-white/10 bg-white/[0.04] p-3 space-y-2 ${row.is_active ? '' : 'opacity-70'}`}
+                                            className={`rounded-xl border border-slate-200 dark:border-slate-800 bg-white/[0.04] p-3 space-y-2 ${row.is_active ? '' : 'opacity-70'}`}
                                         >
                                             <div className="flex justify-between items-start gap-2">
                                                 <span className="font-mono text-[11px] text-violet-300 break-all">{row.code}</span>
@@ -348,19 +348,19 @@ export const BillingModulesAdminCard: React.FC = () => {
                                                     {row.is_active ? t('billingModules.statusActive') : t('billingModules.statusInactive')}
                                                 </span>
                                             </div>
-                                            <p className="text-white text-sm font-medium leading-snug">{row.name}</p>
+                                            <p className="text-slate-800 dark:text-white text-sm font-medium leading-snug">{row.name}</p>
                                             <p className="text-[11px] text-slate-500">
                                                 {(categoryLabels[row.category as keyof typeof categoryLabels] || row.category)} · {t('billingModules.orderLower')} {row.sort_order}
                                             </p>
-                                            <div className="flex justify-between items-center pt-1 border-t border-white/5">
-                                                <span className="text-xs text-slate-400 tabular-nums">
+                                            <div className="flex justify-between items-center pt-1 border-t border-slate-200 dark:border-slate-800">
+                                                <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                                                     {t('billingModules.setupLower')} {row.setup_price} {currency} · {t('billingModules.monthlyLower')} {row.monthly_price} {currency}
                                                 </span>
                                                 <div className="flex gap-1">
                                                     <button
                                                         type="button"
                                                         onClick={() => openEdit(row)}
-                                                        className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10"
+                                                        className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white hover:bg-white/10"
                                                         title={t('billingModules.edit')}
                                                     >
                                                         <FiEdit2 size={16} />
@@ -380,10 +380,10 @@ export const BillingModulesAdminCard: React.FC = () => {
                                 </div>
 
                                 {/* md+: tablo */}
-                                <div className="hidden md:block overflow-x-auto rounded-2xl border border-white/10 max-h-[min(50vh,26rem)] lg:max-h-[min(58vh,720px)] overflow-y-auto">
+                                <div className="hidden md:block overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 max-h-[min(50vh,26rem)] lg:max-h-[min(58vh,720px)] overflow-y-auto">
                                 <table className="w-full text-sm text-left min-w-[640px]">
                                     <thead className="sticky top-0 z-[1] bg-[#121a2e] shadow-sm shadow-black/40">
-                                        <tr className="border-b border-white/10 text-[10px] uppercase tracking-wider text-slate-500">
+                                        <tr className="border-b border-slate-200 dark:border-slate-800 text-[10px] uppercase tracking-wider text-slate-500">
                                             <th className="px-4 py-3 font-black">{t('billingModules.colCode')}</th>
                                             <th className="px-4 py-3 font-black">{t('billingModules.colName')}</th>
                                             <th className="px-4 py-3 font-black hidden md:table-cell">{t('billingModules.category')}</th>
@@ -398,15 +398,15 @@ export const BillingModulesAdminCard: React.FC = () => {
                                         {filteredModules.map((row) => (
                                             <tr
                                                 key={row.id}
-                                                className={`border-b border-white/5 hover:bg-white/[0.03] ${row.is_active ? '' : 'opacity-65'}`}
+                                                className={`border-b border-slate-200 dark:border-slate-800 hover:bg-white/[0.03] ${row.is_active ? '' : 'opacity-65'}`}
                                             >
                                                 <td className="px-4 py-2.5 font-mono text-xs text-violet-300 align-top">
                                                     {row.code}
                                                 </td>
-                                                <td className="px-4 py-2.5 text-white font-medium align-top max-w-[200px]">
+                                                <td className="px-4 py-2.5 text-slate-800 dark:text-white font-medium align-top max-w-[200px]">
                                                     <span className="line-clamp-2">{row.name}</span>
                                                 </td>
-                                                <td className="px-4 py-2.5 text-slate-400 hidden md:table-cell align-top text-xs">
+                                                <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 hidden md:table-cell align-top text-xs">
                                                     {categoryLabels[row.category as keyof typeof categoryLabels] || row.category}
                                                 </td>
                                                 <td className="px-4 py-2.5 text-right tabular-nums align-top">
@@ -415,7 +415,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                                                 <td className="px-4 py-2.5 text-right tabular-nums align-top">
                                                     {row.monthly_price}
                                                 </td>
-                                                <td className="px-4 py-2.5 text-center tabular-nums text-slate-400 hidden sm:table-cell align-top">
+                                                <td className="px-4 py-2.5 text-center tabular-nums text-slate-500 dark:text-slate-400 hidden sm:table-cell align-top">
                                                     {row.sort_order}
                                                 </td>
                                                 <td className="px-4 py-2.5 text-center align-top">
@@ -433,7 +433,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                                                     <button
                                                         type="button"
                                                         onClick={() => openEdit(row)}
-                                                        className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 inline-flex"
+                                                        className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white hover:bg-white/10 inline-flex"
                                                         title={t('billingModules.edit')}
                                                     >
                                                         <FiEdit2 size={16} />
@@ -457,7 +457,7 @@ export const BillingModulesAdminCard: React.FC = () => {
 
                         <p className="text-[11px] text-slate-600">
                             {t('billingModules.shown')}:{' '}
-                            <span className="text-slate-400 font-mono tabular-nums">{filteredModules.length}</span> /{' '}
+                            <span className="text-slate-500 dark:text-slate-400 font-mono tabular-nums">{filteredModules.length}</span> /{' '}
                             <span className="text-slate-500 font-mono tabular-nums">{sorted.length}</span> {t('billingModules.moduleLower')}
                         </p>
                     </div>
@@ -466,7 +466,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                     <p className="text-slate-500 text-sm">
                         {t('billingModules.emptyHintStart')}{' '}
                         <code className="text-violet-400 font-mono text-xs">npm run billing:seed</code> {t('billingModules.runAndRefresh')}
-                        {t('billingModules.emptyHintEnd')} <strong className="text-slate-300">{t('billingModules.newModule')}</strong> {t('billingModules.emptyHintTail')}
+                        {t('billingModules.emptyHintEnd')} <strong className="text-slate-600 dark:text-slate-500 dark:text-slate-400">{t('billingModules.newModule')}</strong> {t('billingModules.emptyHintTail')}
                     </p>
                 )}
 
@@ -489,12 +489,12 @@ export const BillingModulesAdminCard: React.FC = () => {
                         onChange={(v) => setCreateForm((f) => ({ ...f, name: v }))}
                     />
                     <div>
-                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('billingModules.description')}</label>
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">{t('billingModules.description')}</label>
                         <textarea
                             value={createForm.description ?? ''}
                             onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))}
                             rows={2}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-violet-500/50 resize-y min-h-[60px]"
+                            className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-slate-800 dark:text-white text-sm outline-none focus:border-violet-500/50 resize-y min-h-[60px]"
                         />
                     </div>
                     <SelectGroup
@@ -519,7 +519,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">
+                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">
                                 {t('billingModules.icon')}
                             </label>
                             <div className="flex gap-3 items-center">
@@ -530,7 +530,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                                             onChange={(e) =>
                                                 setCreateForm((f) => ({ ...f, icon: e.target.value || '' }))
                                             }
-                                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-violet-500/50 transition-all appearance-none"
+                                            className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-slate-800 dark:text-white outline-none focus:border-violet-500/50 transition-all appearance-none"
                                         >
                                             {iconSelectOptions.map((o) => (
                                                 <option key={o.value || 'none'} value={o.value} className="bg-[#1E293B]">
@@ -557,7 +557,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                     </div>
                     <button
                         type="submit"
-                        className="w-full bg-violet-600 py-3.5 rounded-xl text-white font-black text-sm"
+                        className="w-full bg-violet-600 py-3.5 rounded-xl text-slate-800 dark:text-white font-black text-sm"
                     >
                         {t('billingModules.create')}
                     </button>
@@ -567,17 +567,17 @@ export const BillingModulesAdminCard: React.FC = () => {
             <Modal show={!!editRow} onClose={() => setEditRow(null)} title={t('billingModules.editModalTitle')} maxWidth="max-w-xl">
                 {editRow && (
                     <form onSubmit={(e) => void submitEdit(e)} className="space-y-4">
-                        <p className="text-xs font-mono text-violet-400 bg-white/5 px-3 py-2 rounded-lg border border-white/10">
+                        <p className="text-xs font-mono text-violet-400 bg-white/5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800">
                             {editRow.code}
                         </p>
                         <InputGroup label={t('billingModules.visibleName')} value={editName} onChange={setEditName} />
                         <div>
-                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('billingModules.description')}</label>
+                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">{t('billingModules.description')}</label>
                             <textarea
                                 value={editDesc}
                                 onChange={(e) => setEditDesc(e.target.value)}
                                 rows={2}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-violet-500/50 resize-y min-h-[60px]"
+                                className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-slate-800 dark:text-white text-sm outline-none focus:border-violet-500/50 resize-y min-h-[60px]"
                             />
                         </div>
                         <SelectGroup label={t('billingModules.category')} value={editCat} onChange={setEditCat} options={CATEGORY_OPTS} />
@@ -587,7 +587,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">
+                                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">
                                     {t('billingModules.icon')}
                                 </label>
                                 <div className="flex gap-3 items-center">
@@ -596,7 +596,7 @@ export const BillingModulesAdminCard: React.FC = () => {
                                             <select
                                                 value={editIcon}
                                                 onChange={(e) => setEditIcon(e.target.value)}
-                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-violet-500/50 transition-all appearance-none"
+                                                className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-slate-800 dark:text-white outline-none focus:border-violet-500/50 transition-all appearance-none"
                                             >
                                                 {mergeIconSelectOptions(editIcon, t).map((o) => (
                                                     <option key={o.value || 'none'} value={o.value} className="bg-[#1E293B]">
@@ -623,10 +623,10 @@ export const BillingModulesAdminCard: React.FC = () => {
                                 onChange={(e) => setEditActive(e.target.checked)}
                                 className="rounded border-white/20 bg-white/5 accent-violet-500 w-4 h-4"
                             />
-                            <span className="text-sm text-slate-300">{t('billingModules.activeHelp')}</span>
+                            <span className="text-sm text-slate-600 dark:text-slate-500 dark:text-slate-400">{t('billingModules.activeHelp')}</span>
                         </label>
-                        <div className="flex flex-col gap-2 pt-2 border-t border-white/10">
-                            <button type="submit" className="w-full bg-violet-600 py-3.5 rounded-xl text-white font-black text-sm">
+                        <div className="flex flex-col gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                            <button type="submit" className="w-full bg-violet-600 py-3.5 rounded-xl text-slate-800 dark:text-white font-black text-sm">
                                 {t('billingModules.save')}
                             </button>
                             <button

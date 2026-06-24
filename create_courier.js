@@ -9,9 +9,8 @@ async function createCourier() {
     
     await pool.query(`SET search_path TO "${SCHEMA}", public`);
     
-    // Check if role 'courier' exists in user_role enum
-    // Actually it's probably the schema-local enum
-    // We already checked it exists.
+    // Sync sequence to avoid duplicate key error on id serial
+    await pool.query(`SELECT setval('users_id_seq', COALESCE((SELECT MAX(id) FROM users), 1))`);
 
     await pool.query(
       `INSERT INTO users (username, password_hash, name, role, pin_code, branch_id) 

@@ -43,12 +43,12 @@ export const PaymentLinkModal: React.FC<Props> = ({ tenantId, tenantName, onClos
     return (
         <Modal show={true} onClose={onClose} title="Dinamik Ödeme Linki" maxWidth="max-w-xl">
             <div className="space-y-8">
-                <div className="p-6 bg-blue-600/10 border border-blue-500/20 rounded-[32px] flex items-center gap-4">
+                <div className="p-6 bg-blue-600/10 border border-blue-500/20 rounded-2xl flex items-center gap-4">
                     <div className="w-12 h-12 bg-blue-500/20 rounded-2xl flex items-center justify-center text-blue-400">
                         <FiCreditCard size={24} />
                     </div>
                     <div>
-                        <h4 className="text-white font-black text-sm uppercase tracking-tighter italic">{tenantName}</h4>
+                        <h4 className="text-slate-800 dark:text-white font-black text-sm uppercase tracking-tighter italic">{tenantName}</h4>
                         <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Virtual POS Checkout v2</p>
                     </div>
                 </div>
@@ -75,7 +75,7 @@ export const PaymentLinkModal: React.FC<Props> = ({ tenantId, tenantName, onClos
                             type="button"
                             onClick={handleGenerate}
                             disabled={loading || Number(amount) <= 0 || !description}
-                            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-white font-black py-4 rounded-[24px] shadow-2xl shadow-blue-900/40 transition-all active:scale-95 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
+                            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-slate-800 dark:text-white font-black py-4 rounded-xl shadow-sm shadow-blue-900/40 transition-all active:scale-95 flex items-center justify-center gap-3 uppercase tracking-widest text-xs"
                         >
                             {loading ? (
                                 <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
@@ -91,17 +91,17 @@ export const PaymentLinkModal: React.FC<Props> = ({ tenantId, tenantName, onClos
                         className="space-y-6"
                     >
                         <div className="text-center py-6">
-                            <div className="w-16 h-16 bg-emerald-500/20 rounded-[32px] flex items-center justify-center text-emerald-400 mx-auto mb-4 border border-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.2)]">
+                            <div className="w-16 h-16 bg-emerald-500/20 rounded-2xl flex items-center justify-center text-emerald-400 mx-auto mb-4 border border-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.2)]">
                                 <FiCheck size={32} />
                             </div>
-                            <h5 className="text-white font-black text-lg uppercase tracking-tighter italic">Ödeme linkiniz hazır:</h5>
+                            <h5 className="text-slate-800 dark:text-white font-black text-lg uppercase tracking-tighter italic">Ödeme linkiniz hazır:</h5>
                             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-2">{result.gateway.toUpperCase()} GATEWAY ACTIVE</p>
                         </div>
 
-                        <div className="bg-black/40 border border-white/5 p-6 rounded-[32px] relative group overflow-hidden">
+                        <div className="bg-black/40 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl relative group overflow-hidden">
                             <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
                             <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-3 px-1">GÜVENLİ ÖDEME URL</div>
-                            <div className="text-xs font-mono text-blue-400 break-all bg-white/5 p-4 rounded-2xl border border-white/5 mb-6 group-hover:border-blue-500/30 transition-all font-bold">
+                            <div className="text-xs font-mono text-blue-400 break-all bg-white/5 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 mb-6 group-hover:border-blue-500/30 transition-all font-bold">
                                 {result.url}
                             </div>
                             
@@ -109,7 +109,7 @@ export const PaymentLinkModal: React.FC<Props> = ({ tenantId, tenantName, onClos
                                 <button
                                     type="button"
                                     onClick={copyToClipboard}
-                                    className="flex-1 bg-white/10 hover:bg-white/20 text-white font-black py-4 rounded-[20px] transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-[10px] border border-white/10"
+                                    className="flex-1 bg-white/10 hover:bg-white/20 text-slate-800 dark:text-white font-black py-4 rounded-xl transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-[10px] border border-slate-200 dark:border-slate-800"
                                 >
                                     {copied ? <><FiCheck /> KOPYALANDI</> : <><FiCopy /> KOPYALA</>}
                                 </button>
@@ -121,7 +121,7 @@ export const PaymentLinkModal: React.FC<Props> = ({ tenantId, tenantName, onClos
                                             toast.error('Ödeme linki açılamadı — tarayıcı açılır pencere engelini kaldırın', { icon: '🔒', duration: 6000 });
                                         }
                                     }}
-                                    className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-[20px] transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-[10px] shadow-lg shadow-blue-900/40"
+                                    className="flex-1 bg-blue-600 hover:bg-blue-500 text-slate-800 dark:text-white font-black py-4 rounded-xl transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-[10px] shadow-lg shadow-blue-900/40"
                                 >
                                     <FiSend /> ŞİMDİ GİT
                                 </button>
@@ -131,7 +131,7 @@ export const PaymentLinkModal: React.FC<Props> = ({ tenantId, tenantName, onClos
                         <button 
                             type="button"
                             onClick={() => setResult(null)}
-                            className="w-full text-slate-500 hover:text-white font-black text-[10px] uppercase tracking-widest py-2 transition-all mt-4"
+                            className="w-full text-slate-500 hover:text-slate-800 dark:text-white font-black text-[10px] uppercase tracking-widest py-2 transition-all mt-4"
                         >
                             YENİ LİNK OLUŞTUR
                         </button>

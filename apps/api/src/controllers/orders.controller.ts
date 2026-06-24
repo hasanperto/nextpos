@@ -14,8 +14,47 @@ import {
     ensureStockRecipeSchema,
 } from '../services/stock-inventory.service.js';
 import { getEffectiveMaxDevices, getEffectiveMaxPrinters } from '../services/billing.service.js';
+import { closeTableSessionIfNoActiveOrders } from '../lib/table-session-auto-close.js';
+
+/** Paket servis durum geçişleri: ready → shipped → delivered|failed */
+export const DELIVERY_VALID_TRANSITIONS: Record<string, string[]> = {
+    ready: ['shipped'],
+    shipped: ['delivered', 'failed'],
+};
+
+function deliveryTransitionLabel(status: string): string {
+    if (status === 'completed') return 'delivered';
+    return status;
+}
+
+/** Geçerli paket servis durum geçişi mi — unit test için export */
+export function validateDeliveryTransition(currentStatus: string, nextStatus: string, orderType: string): boolean {
+    if (String(orderType) !== 'delivery') return true;
+
+    const current = deliveryTransitionLabel(String(currentStatus));
+    let next = deliveryTransitionLabel(String(nextStatus));
+
+    if (nextStatus === 'cancelled' && current !== 'shipped') return true;
+    if (nextStatus === 'cancelled' && current === 'shipped') next = 'failed';
+
+    const allowed = DELIVERY_VALID_TRANSITIONS[current];
+    return Boolean(allowed?.includes(next));
+}
+
+function assertDeliveryTransition(currentStatus: string, nextStatus: string, orderType: string): void {
+    if (!validateDeliveryTransition(currentStatus, nextStatus, orderType)) {
+        throw new Error('INVALID_DELIVERY_TRANSITION');
+    }
+}
+
+function normalizeDeliveryStatusForDb(status: string): string {
+    if (status === 'delivered') return 'completed';
+    if (status === 'failed') return 'cancelled';
+    return status;
+}
 
 export const createOrderSchema = z.object({
+    offlineId: z.string().optional(),
     sessionId: z.number().optional(),
     clientSessionId: z.string().optional(),
     tableId: z.number().optional(),
@@ -26,7 +65,7 @@ export const createOrderSchema = z.object({
     /** Paket siparişinde kasiyerin seçtiği kurye (users.id) */
     courierId: z.number().optional(),
     orderType: z.enum(['dine_in', 'takeaway', 'delivery', 'web', 'phone', 'qr_menu']).default('dine_in'),
-    source: z.enum(['cashier', 'waiter', 'customer_qr', 'web', 'phone']).default('cashier'),
+    source: z.enum(['cashier', 'waiter', 'customer_qr', 'web', 'phone', 'whatsapp', 'qr_portal']).default('cashier'),
     notes: z.string().optional(),
     deliveryAddress: z.string().optional(),
     deliveryPhone: z.string().optional(),
@@ -196,6 +235,16 @@ export async function createOrderCore(connection: any, data: CreateOrderPayload,
     const userId = req.user?.userId ?? null;
     const userRole = req.user?.role ?? 'unknown';
 
+    if (data.offlineId) {
+        const [existing]: any = await connection.query(
+            `SELECT * FROM orders WHERE offline_id = ? LIMIT 1`,
+            [data.offlineId]
+        );
+        if (existing.length > 0) {
+            return existing[0];
+        }
+    }
+
     await validateCreateOrderPayload(connection, data);
 
     let grossTotal = 0;
@@ -258,8 +307,8 @@ export async function createOrderCore(connection: any, data: CreateOrderPayload,
     const [orderResult]: any = await connection.query(
         `INSERT INTO orders (session_id, table_id, customer_id, customer_name, waiter_id, cashier_id,
             order_type, source, subtotal, tax_amount, total_amount, is_urgent, notes,
-            delivery_address, delivery_phone, branch_id, courier_id, payment_method_arrival, loyalty_redeem_points)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            delivery_address, delivery_phone, branch_id, courier_id, payment_method_arrival, loyalty_redeem_points, offline_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             actualSessionId,
             data.tableId || null,
@@ -282,6 +331,7 @@ export async function createOrderCore(connection: any, data: CreateOrderPayload,
             data.orderType === 'delivery' && data.courierId ? data.courierId : null,
             data.orderType === 'dine_in' ? null : (data.paymentMethodArrival || 'cash'),
             loyaltyRedeemPointsUsed,
+            data.offlineId || null,
         ]
     );
 
@@ -299,13 +349,22 @@ export async function createOrderCore(connection: any, data: CreateOrderPayload,
         );
     }
 
+    let fallbackProductId: number | null = null;
+    if (data.items.some(it => !it.productId || it.productId === 0)) {
+        const [prows]: any = await connection.query('SELECT id FROM products LIMIT 1');
+        fallbackProductId = prows?.[0]?.id || null;
+    }
+
     for (const item of data.items) {
+        const pid = item.productId && item.productId > 0 ? item.productId : fallbackProductId;
+        if (!pid) continue; // Skip if no products at all in DB
+
         await connection.query(
             `INSERT INTO order_items (order_id, product_id, variant_id, quantity, unit_price, total_price, modifiers, notes)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 newOrderId,
-                item.productId,
+                pid,
                 item.variantId || null,
                 item.quantity,
                 item.unitPrice,
@@ -401,10 +460,26 @@ export async function runTenantCheckout(
 
         const cashierId = req.user?.userId ?? null;
 
+        if (data.offlineId) {
+            const [existingPayment]: any = await connection.query(
+                `SELECT * FROM payments WHERE offline_id = ? LIMIT 1`,
+                [data.offlineId]
+            );
+            if (existingPayment.length > 0) {
+                const [orderRows]: any = await connection.query('SELECT * FROM orders WHERE id = ?', [order.id]);
+                return {
+                    order: orderRows[0],
+                    payment: existingPayment[0],
+                    paymentStatus: 'paid' as const,
+                    sessionClosed: order.order_type === 'dine_in' && order.session_id != null
+                };
+            }
+        }
+
         const [paymentResult]: any = await connection.query(
             `INSERT INTO payments (order_id, session_id, amount, method, tip_amount,
-                change_amount, received_amount, reference, cashier_id, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                change_amount, received_amount, reference, cashier_id, notes, offline_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 order.id,
                 sid || null,
@@ -416,6 +491,7 @@ export async function runTenantCheckout(
                 null,
                 cashierId,
                 null,
+                data.offlineId || null,
             ]
         );
 
@@ -468,10 +544,12 @@ const DELIVERY_QUEUE_ROLES = new Set(['courier', 'admin', 'cashier']);
 export const getOrdersHandler = async (req: Request, res: Response) => {
     try {
         const tenantId = req.tenantId!;
-        const { status, tableId, orderType, deliveryQueue, source, limit = '50', offset = '0' } =
+        const { status, tableId, orderType, deliveryQueue, historyMode, source, limit = '50', offset = '0' } =
             req.query;
 
-        if (deliveryQueue === '1' || deliveryQueue === 'true') {
+        const useDeliveryQueue = deliveryQueue === '1' || deliveryQueue === 'true';
+        const useHistoryMode = historyMode === '1' || historyMode === 'true';
+        if (useDeliveryQueue || useHistoryMode) {
             const role = req.user?.role;
             if (!role || !DELIVERY_QUEUE_ROLES.has(role)) {
                 return res.status(403).json({ error: 'Teslimat kuyruğu için yetkiniz yok' });
@@ -500,7 +578,16 @@ export const getOrdersHandler = async (req: Request, res: Response) => {
             `;
             const params: any[] = [];
 
-            if (status) {
+            // historyMode: kurye geçmiş siparişleri (completed + cancelled)
+            if (useHistoryMode) {
+                const uid = Number(req.user?.userId);
+                if (Number.isFinite(uid)) {
+                    params.push(uid);
+                    query += ` AND o.order_type = 'delivery' AND o.status IN ('completed', 'cancelled') AND o.courier_id = ?`;
+                } else {
+                    query += ` AND o.order_type = 'delivery' AND o.status IN ('completed', 'cancelled')`;
+                }
+            } else if (status) {
                 params.push(status);
                 query += ` AND o.status = ?`;
             }
@@ -550,14 +637,14 @@ export const getOrdersHandler = async (req: Request, res: Response) => {
                 query += ` AND o.source = ?`;
             }
 
-            if (deliveryQueue === '1' || deliveryQueue === 'true') {
-                const uid = Number(req.user?.userId);
-                if (!Number.isFinite(uid)) {
-                    throw new Error('NO_USER');
-                }
-                params.push(uid);
+            if (useDeliveryQueue) {
                 // Kurye paneli: sadece paket servisi (delivery). Kasiyer/admin: ayrıca hazır gel-al (takeaway) kuyruğu.
                 if (req.user?.role === 'courier') {
+                    const uid = Number(req.user?.userId);
+                    if (!Number.isFinite(uid)) {
+                        throw new Error('NO_USER');
+                    }
+                    params.push(uid);
                     query += ` AND (
                         o.order_type = 'delivery'
                         AND o.status NOT IN ('completed', 'cancelled')
@@ -565,7 +652,7 @@ export const getOrdersHandler = async (req: Request, res: Response) => {
                     )`;
                 } else {
                     query += ` AND (
-                        (o.order_type = 'delivery' AND o.status NOT IN ('completed', 'cancelled') AND (o.courier_id IS NULL OR o.courier_id = ?))
+                        (o.order_type = 'delivery' AND o.status NOT IN ('cancelled'))
                         OR
                         (o.order_type = 'takeaway' AND o.status = 'ready')
                     )`;
@@ -578,7 +665,9 @@ export const getOrdersHandler = async (req: Request, res: Response) => {
             }
 
             // MySQL Limit/Offset
-            query += ` ORDER BY o.created_at DESC LIMIT ? OFFSET ?`;
+            // deliveryQueue gerçek-zaman akışı olduğu için updated_at ile sırala
+            const orderByCol = useDeliveryQueue ? 'updated_at' : 'created_at';
+            query += ` ORDER BY o.${orderByCol} DESC LIMIT ? OFFSET ?`;
             params.push(Number(limit));
             params.push(Number(offset));
 
@@ -609,6 +698,65 @@ export const getOrdersHandler = async (req: Request, res: Response) => {
         }
         console.error('❌ Siparişler hatası:', error);
         res.status(500).json({ error: 'Siparişler yüklenemedi' });
+    }
+};
+
+export const getOrderByIdHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const orderId = Number(req.params.id);
+
+        const orderDetail = await withTenant(tenantId, async (connection) => {
+            // 1. Get the order
+            const [orderRows]: any = await connection.query(
+                `SELECT o.*, 
+                        t.name as table_name,
+                        u.name as waiter_name,
+                        cu.name as courier_name,
+                        cust.name as customer_name
+                 FROM orders o
+                 LEFT JOIN tables t ON o.table_id = t.id
+                 LEFT JOIN users u ON o.waiter_id = u.id
+                 LEFT JOIN users cu ON o.courier_id = cu.id
+                 LEFT JOIN customers cust ON o.customer_id = cust.id
+                 WHERE o.id = ?`,
+                [orderId]
+            );
+
+            const order = orderRows[0];
+            if (!order) return null;
+
+            // 2. Get order items with product details
+            const [itemRows]: any = await connection.query(
+                `SELECT oi.*, p.name as product_name
+                 FROM order_items oi
+                 LEFT JOIN products p ON oi.product_id = p.id
+                 WHERE oi.order_id = ?
+                 ORDER BY oi.id ASC`,
+                [orderId]
+            );
+
+            // 3. Get payments for this order
+            const [paymentRows]: any = await connection.query(
+                `SELECT * FROM payments WHERE order_id = ? ORDER BY created_at ASC`,
+                [orderId]
+            );
+
+            return {
+                ...order,
+                items: itemRows,
+                payments: paymentRows
+            };
+        });
+
+        if (!orderDetail) {
+            return res.status(404).json({ error: 'Sipariş bulunamadı' });
+        }
+
+        res.json(orderDetail);
+    } catch (error) {
+        console.error('❌ Sipariş detay hatası:', error);
+        res.status(500).json({ error: 'Sipariş detayları yüklenemedi' });
     }
 };
 
@@ -702,6 +850,7 @@ export const courierPickupHandler = async (req: Request, res: Response) => {
 
             if (o.status !== 'ready') throw new Error(`Sipariş durumu uygun değil: ${o.status}`);
             if (o.order_type !== 'delivery') throw new Error('Sadece paket servis siparişleri teslim alınabilir');
+            assertDeliveryTransition(o.status, 'shipped', o.order_type);
             if (o.courier_id && o.courier_id !== uid) throw new Error('Bu sipariş zaten başka bir kuryeye atanmış');
 
             // 2. Orders tablosunu guncelle (Kurye bende değilse ata + durumu 'shipped' yap)
@@ -737,12 +886,18 @@ export const courierPickupHandler = async (req: Request, res: Response) => {
 
         const io = req.app.get('io');
         if (io) {
-            io.to(tenantId).emit('order:status_changed', { orderId, status: 'shipped', courierId: uid });
-            io.to(tenantId).emit('order:courier_assigned', { orderId, courierId: uid });
+            io.to(`tenant:${tenantId}`).emit('order:status_changed', { orderId, status: 'shipped', courierId: uid });
+            io.to(`tenant:${tenantId}`).emit('order:courier_assigned', { orderId, courierId: uid });
         }
 
         res.json({ success: true, message: 'Paket yola çıktı (Status: Shipped)', order });
     } catch (error: any) {
+        if (error.message === 'INVALID_DELIVERY_TRANSITION') {
+            return res.status(400).json({
+                error: 'Geçersiz paket servis durum geçişi',
+                code: 'INVALID_DELIVERY_TRANSITION',
+            });
+        }
         console.error('courierPickupHandler Error:', error.message);
         res.status(400).json({ success: false, error: error.message });
     }
@@ -902,7 +1057,8 @@ export const createOrderHandler = async (req: Request, res: Response) => {
         console.error('❌ Sipariş oluşturma hatası:', error);
         res.status(500).json({
             error: 'Sipariş oluşturulamadı',
-            detail: process.env.NODE_ENV === 'development' ? String(error?.message || error) : undefined,
+            detail: String(error?.message || error),
+            stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined
         });
     }
 };
@@ -1094,9 +1250,10 @@ export const updateOrderStatusHandler = async (req: Request, res: Response) => {
     try {
         const tenantId = req.tenantId!;
         const orderId = Number(req.params.id);
-        const { status, pinCode } = req.body;
+        const { pinCode } = req.body;
+        let { status } = req.body;
 
-        const validStatuses = ['pending', 'confirmed', 'preparing', 'ready', 'served', 'completed', 'cancelled'];
+        const validStatuses = ['pending', 'confirmed', 'preparing', 'ready', 'served', 'shipped', 'delivered', 'failed', 'completed', 'cancelled'];
         if (!validStatuses.includes(status)) {
             return res.status(400).json({ error: 'Geçersiz sipariş durumu' });
         }
@@ -1113,6 +1270,9 @@ export const updateOrderStatusHandler = async (req: Request, res: Response) => {
 
             const order = orderRows[0];
 
+            assertDeliveryTransition(order.status, status, order.order_type);
+            status = normalizeDeliveryStatusForDb(status);
+
             await connection.query(`CREATE TABLE IF NOT EXISTS z_business_day_locks (
                 business_date DATE NOT NULL,
                 branch_id INTEGER NOT NULL DEFAULT 1,
@@ -1121,10 +1281,15 @@ export const updateOrderStatusHandler = async (req: Request, res: Response) => {
                 PRIMARY KEY (business_date, branch_id)
             )`);
             const branchForLock = Number(order.branch_id ?? req.branchId ?? 1);
-            const bizDate =
-                order.created_at != null
-                    ? String(order.created_at).slice(0, 10)
-                    : new Date().toISOString().slice(0, 10);
+            const toIsoDate = (v: unknown): string => {
+                if (v == null) return new Date().toISOString().slice(0, 10);
+                const d = new Date(String(v));
+                if (Number.isNaN(d.getTime())) {
+                    return new Date().toISOString().slice(0, 10);
+                }
+                return d.toISOString().slice(0, 10);
+            };
+            const bizDate = toIsoDate(order.created_at);
             const [lck]: any = await connection.query(
                 `SELECT 1 FROM z_business_day_locks WHERE business_date = ?::date AND branch_id = ? LIMIT 1`,
                 [bizDate, branchForLock]
@@ -1133,14 +1298,23 @@ export const updateOrderStatusHandler = async (req: Request, res: Response) => {
                 throw new Error('BUSINESS_DAY_LOCKED');
             }
 
-            if (status === 'cancelled' && ['preparing', 'ready'].includes(order.status)) {
+            const requireAdminPinForCancel =
+                status === 'cancelled' &&
+                (
+                    ['preparing', 'ready', 'shipped'].includes(String(order.status || '')) ||
+                    req.body?.requireAdminPin === true
+                );
+            if (requireAdminPinForCancel) {
                 if (!pinCode) {
                     throw new Error('PIN_REQUIRED');
                 }
-                const [pinRows]: any = await connection.query(
-                    `SELECT role FROM users WHERE pin_code = ? AND role IN ('admin', 'kitchen', 'cashier') AND status = 'active'`,
-                    [pinCode]
-                );
+                let query = `SELECT role FROM users WHERE pin_code = ? AND role = 'admin' AND status = 'active'`;
+                let params = [pinCode];
+                if (req.user?.role === 'courier') {
+                    query = `SELECT role FROM users WHERE pin_code = ? AND (role = 'admin' OR (id = ? AND role = 'courier')) AND status = 'active'`;
+                    params = [pinCode, req.user?.userId];
+                }
+                const [pinRows]: any = await connection.query(query, params);
                 if (pinRows.length === 0) {
                     throw new Error('INVALID_PIN');
                 }
@@ -1149,10 +1323,13 @@ export const updateOrderStatusHandler = async (req: Request, res: Response) => {
             // 🛡️ Self-healing: Ensure columns exist
             await connection.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS courier_settled BOOLEAN DEFAULT FALSE`);
             await connection.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tip_amount DECIMAL(10,2) DEFAULT 0`);
+            await connection.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tip_owner_type VARCHAR(16) DEFAULT 'courier'`);
+            await connection.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tip_split_json JSONB`);
             await connection.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS picked_up_at TIMESTAMP NULL`);
             await connection.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS picked_up_by VARCHAR(255) NULL`);
+            await connection.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_signature TEXT NULL`);
 
-            const updates: string[] = ['status = ?', 'updated_at = CURRENT_TIMESTAMP'];
+            const updates: string[] = ['status = ?::order_status', 'updated_at = CURRENT_TIMESTAMP'];
             const values: any[] = [status];
 
             // Traceability: Log who picked up the order
@@ -1163,8 +1340,12 @@ export const updateOrderStatusHandler = async (req: Request, res: Response) => {
             }
 
             if (req.body.payment_status) {
-                updates.push('payment_status = ?');
+                updates.push('payment_status = ?::payment_status');
                 values.push(req.body.payment_status);
+            }
+            if (req.body.delivery_signature) {
+                updates.push('delivery_signature = ?');
+                values.push(req.body.delivery_signature);
             }
             if (req.body.courier_settled !== undefined) {
                 updates.push('courier_settled = ?');
@@ -1174,9 +1355,41 @@ export const updateOrderStatusHandler = async (req: Request, res: Response) => {
                 updates.push('tip_amount = ?');
                 values.push(req.body.tip_amount);
             }
+            if (req.body.tip_owner_type !== undefined) {
+                updates.push('tip_owner_type = ?');
+                values.push(req.body.tip_owner_type);
+            }
+            if (req.body.tip_split_json !== undefined) {
+                updates.push('tip_split_json = ?::jsonb');
+                values.push(typeof req.body.tip_split_json === 'string' ? req.body.tip_split_json : JSON.stringify(req.body.tip_split_json));
+            }
             if (req.body.payment_method_arrival) {
                 updates.push('payment_method_arrival = ?');
                 values.push(req.body.payment_method_arrival);
+            }
+
+            // İptal nedeni (kurye veya kasiyer tarafından girilir)
+            if (status === 'cancelled') {
+                const cancelReason = req.body.reason || req.body.delete_reason || req.body.cancelReason || null;
+                if (cancelReason) {
+                    updates.push('delete_reason = ?');
+                    values.push(String(cancelReason).slice(0, 500));
+                }
+            }
+
+            // Kurye kapıda teslimi tamamlıyorsa ve bahşiş geldiyse, varsayılan dağıtım:
+            // bahşiş öncelikle kuryeye yazılır (Model B için başlangıç kuralı).
+            if (
+                status === 'completed' &&
+                String(order.order_type) === 'delivery' &&
+                String(req.user?.role) === 'courier' &&
+                Number(req.body?.tip_amount ?? 0) > 0 &&
+                req.body?.tip_owner_type === undefined
+            ) {
+                updates.push('tip_owner_type = ?');
+                values.push('courier');
+                updates.push('tip_split_json = ?::jsonb');
+                values.push(JSON.stringify({ courier: 100, pool: 0 }));
             }
 
             values.push(orderId);
@@ -1222,7 +1435,16 @@ export const updateOrderStatusHandler = async (req: Request, res: Response) => {
                 }
             }
 
-            return { ...order, status };
+            let autoSession: { closed: boolean; tableId?: number } = { closed: false };
+            if (
+                status === 'cancelled' &&
+                String(order.order_type) === 'dine_in' &&
+                order.session_id != null
+            ) {
+                autoSession = await closeTableSessionIfNoActiveOrders(connection, Number(order.session_id));
+            }
+
+            return { ...order, status, autoSession };
         });
 
         const io = req.app.get('io');
@@ -1241,6 +1463,10 @@ export const updateOrderStatusHandler = async (req: Request, res: Response) => {
                     customerName: result.customer_name,
                     tableName: result.table_name || result.id
                 });
+            }
+
+            if ((result as { autoSession?: { closed?: boolean } }).autoSession?.closed) {
+                io.to(`tenant:${tenantId}`).emit('tables:updated');
             }
         }
 
@@ -1297,6 +1523,12 @@ export const updateOrderStatusHandler = async (req: Request, res: Response) => {
                 code: 'BUSINESS_DAY_LOCKED',
             });
         }
+        if (error.message === 'INVALID_DELIVERY_TRANSITION') {
+            return res.status(400).json({
+                error: 'Geçersiz paket servis durum geçişi',
+                code: 'INVALID_DELIVERY_TRANSITION',
+            });
+        }
         console.error('❌ Sipariş güncelleme hatası:', error);
         res.status(500).json({ error: 'Sipariş güncellenemedi' });
     }
@@ -1343,6 +1575,10 @@ export const pickupOrderHandler = async (req: Request, res: Response) => {
                 throw new Error('Sipariş hazır durumda değil (Ready değil).');
             }
 
+            if (order.order_type === 'delivery') {
+                assertDeliveryTransition(order.status, 'shipped', order.order_type);
+            }
+
             // 3. PIN Doğrulama
             let pickedUpBy = req.user?.userId;
             if (requirePin) {
@@ -1373,11 +1609,12 @@ export const pickupOrderHandler = async (req: Request, res: Response) => {
             await connection.query(
                 `UPDATE orders SET 
                     status = ?, 
+                    courier_id = CASE WHEN ? = 'delivery' THEN ? ELSE courier_id END,
                     picked_up_at = CURRENT_TIMESTAMP, 
                     picked_up_by = ?,
                     updated_at = CURRENT_TIMESTAMP 
                  WHERE id = ?`,
-                [nextStatus, String(pickedUpBy), orderId]
+                [nextStatus, String(order.order_type), Number(pickedUpBy), String(pickedUpBy), orderId]
             );
 
             // delivery ise teslimat tablosunu da güncelle
@@ -1413,6 +1650,12 @@ export const pickupOrderHandler = async (req: Request, res: Response) => {
         res.json({ success: true, message: 'Sipariş teslim alındı.', order: result });
     } catch (error: any) {
         if (error.message === 'NOT_FOUND') return res.status(404).json({ error: 'Sipariş bulunamadı' });
+        if (error.message === 'INVALID_DELIVERY_TRANSITION') {
+            return res.status(400).json({
+                error: 'Geçersiz paket servis durum geçişi',
+                code: 'INVALID_DELIVERY_TRANSITION',
+            });
+        }
         if (error.message === 'GEL_AL_PICKUP_FORBIDDEN') {
             return res.status(403).json({
                 error: 'Gel-al teslimi yalnızca kasiyer veya yönetici tarafından yapılabilir',
@@ -1485,8 +1728,24 @@ export const approveQrOrderHandler = async (req: Request, res: Response) => {
 
             const prevSid = o.session_id != null && Number(o.session_id) > 0 ? Number(o.session_id) : null;
             let nextSid = prevSid;
-            if (prevSid == null && activeSessionId != null) {
-                nextSid = activeSessionId;
+            if (prevSid == null) {
+                if (activeSessionId != null) {
+                    nextSid = activeSessionId;
+                } else {
+                    // Create new table session automatically for QR order approval
+                    const guestName = extras.guestName?.trim() || (o.customer_id ? `Müşteri #${o.customer_id}` : 'QR Misafir');
+                    const [sessionResult]: any = await connection.query(
+                        `INSERT INTO table_sessions (table_id, customer_id, guest_name, guest_count, waiter_id)
+                         VALUES (?, ?, ?, 1, NULL)`,
+                        [o.table_id, o.customer_id || null, guestName]
+                    );
+                    nextSid = Number(sessionResult.insertId);
+
+                    await connection.query(
+                        `UPDATE tables SET status = 'occupied', current_session_id = ? WHERE id = ?`,
+                        [nextSid, o.table_id]
+                    );
+                }
             }
             const notesChanged = mergedNotes !== baseNotes;
             const sessionChanged = nextSid !== prevSid;
@@ -1502,6 +1761,7 @@ export const approveQrOrderHandler = async (req: Request, res: Response) => {
             const io = req.app.get('io');
             if (io) {
                 io.to(`tenant:${tenantId}`).emit('kitchen:ticket_new', { orderId });
+                io.to(`tenant:${tenantId}`).emit('tables:updated');
             }
             await connection.query(
                 `UPDATE orders SET status = 'confirmed', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -1523,7 +1783,12 @@ export const approveQrOrderHandler = async (req: Request, res: Response) => {
                 status: 'confirmed',
                 waiterId: orderAfter.waiter_id,
             });
+            io.to(`tenant:${tenantId}`).emit('order:status_update', { orderId, status: 'confirmed' });
             if (orderAfter.table_id) {
+                io.to(`tenant:${tenantId}:table:${orderAfter.table_id}`).emit('order:status_update', {
+                    orderId,
+                    status: 'confirmed',
+                });
                 io.to(`tenant:${tenantId}:table:${orderAfter.table_id}`).emit('customer:order_approved', {
                     tenantId,
                     orderId,
@@ -1590,7 +1855,12 @@ export const rejectQrOrderHandler = async (req: Request, res: Response) => {
                 status: 'cancelled',
                 waiterId: meta.waiterId,
             });
+            io.to(`tenant:${tenantId}`).emit('order:status_update', { orderId, status: 'cancelled' });
             if (meta.tableId) {
+                io.to(`tenant:${tenantId}:table:${meta.tableId}`).emit('order:status_update', {
+                    orderId,
+                    status: 'cancelled',
+                });
                 io.to(`tenant:${tenantId}:table:${meta.tableId}`).emit('customer:order_rejected', {
                     tenantId,
                     orderId,
@@ -1626,6 +1896,7 @@ export const splitCheckoutSchema = z.object({
         tipAmount: z.number().min(0).default(0),
         receivedAmount: z.number().optional(),
     }),
+    loyaltyPointsToRedeem: z.number().int().min(0).max(1_000_000).optional(),
 });
 
 export const splitCheckoutHandler = async (req: Request, res: Response) => {
@@ -1784,6 +2055,22 @@ export const checkoutSessionHandler = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Oturum ID (sessionId) gerekli' });
         }
 
+        // 🛡️ Security Check: Prevent waiters from collecting payments if disabled in settings
+        if (req.user?.role === 'waiter') {
+            const settings = await withTenant(tenantId, async (connection) => {
+                const [branchRows]: any = await connection.query(
+                    'SELECT settings FROM branches WHERE id = ?',
+                    [req.branchId || 1]
+                );
+                const branch = branchRows[0] || {};
+                return typeof branch.settings === 'string' ? JSON.parse(branch.settings) : branch.settings || {};
+            });
+
+            if (!settings?.waiterPayment?.allowPayment) {
+                return res.status(403).json({ error: 'Garsonların ödeme alması yetkisi kapalıdır.' });
+            }
+        }
+
         const result = await withTenantTransaction(tenantId, async (connection) => {
             // 1. Seansın ödenmemiş tüm siparişlerini bul
             const [unpaidOrders]: any = await connection.query(
@@ -1874,3 +2161,144 @@ export const checkoutSessionHandler = async (req: Request, res: Response) => {
         res.status(500).json({ error: error.message || 'Masa hesabı kapatılamadı' });
     }
 };
+
+export const applyLoyaltyHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const orderId = parseInt(req.params.id, 10);
+        const { points, customerId } = req.body;
+
+        if (isNaN(orderId)) {
+            return res.status(400).json({ error: 'Geçersiz sipariş ID' });
+        }
+
+        const wantRedeem = Math.floor(Number(points ?? 0));
+        if (wantRedeem < 0) {
+            return res.status(400).json({ error: 'Geçersiz sadakat puanı' });
+        }
+
+        const result = await withTenantTransaction(tenantId, async (connection) => {
+            const [orderRows]: any = await connection.query(
+                'SELECT * FROM orders WHERE id = ? FOR UPDATE',
+                [orderId]
+            );
+            const order = orderRows[0];
+            if (!order) {
+                throw new Error('ORDER_NOT_FOUND');
+            }
+
+            if (order.status === 'completed' || order.status === 'cancelled' || order.payment_status === 'paid') {
+                throw new Error('ORDER_ALREADY_CLOSED');
+            }
+
+            const activeCustomerId = customerId ? parseInt(customerId, 10) : order.customer_id;
+            if (!activeCustomerId) {
+                throw new Error('LOYALTY_CUSTOMER_REQUIRED');
+            }
+
+            if (order.loyalty_redeem_points > 0 && order.customer_id) {
+                await connection.query(
+                    'UPDATE customers SET reward_points = reward_points + ? WHERE id = ?',
+                    [order.loyalty_redeem_points, order.customer_id]
+                );
+                await connection.query(
+                    `INSERT INTO customer_point_history (customer_id, order_id, base_points, bonus_points, multiplier, type)
+                     VALUES (?, ?, ?, 0, 1.00, 'reversal')`,
+                    [order.customer_id, orderId, order.loyalty_redeem_points]
+                );
+            }
+
+            const [sumRows]: any = await connection.query(
+                'SELECT SUM(total_price) as gross FROM order_items WHERE order_id = ?',
+                [orderId]
+            );
+            const grossTotal = Number(sumRows[0]?.gross || 0);
+            if (grossTotal <= 0) {
+                throw new Error('LOYALTY_ZERO_TOTAL');
+            }
+
+            let loyaltyRedeemPointsUsed = 0;
+            let finalGross = grossTotal;
+
+            if (wantRedeem > 0) {
+                const [crow]: any = await connection.query(
+                    'SELECT reward_points FROM customers WHERE id = ? FOR UPDATE',
+                    [activeCustomerId]
+                );
+                const avail = Number(crow?.[0]?.reward_points ?? 0);
+                if (wantRedeem > avail) {
+                    throw new Error('LOYALTY_POINTS_INSUFFICIENT');
+                }
+
+                const maxDiscount = wantRedeem / 10;
+                const discount = Math.min(grossTotal, maxDiscount);
+                if (discount > 0) {
+                    loyaltyRedeemPointsUsed = Math.min(wantRedeem, Math.ceil(discount * 10 - 1e-9));
+                    finalGross = Math.round((grossTotal - discount) * 100) / 100;
+
+                    await connection.query(
+                        'UPDATE customers SET reward_points = GREATEST(0, reward_points - ?) WHERE id = ?',
+                        [loyaltyRedeemPointsUsed, activeCustomerId]
+                    );
+                    await connection.query(
+                        `INSERT INTO customer_point_history (customer_id, order_id, base_points, bonus_points, multiplier, type)
+                         VALUES (?, ?, ?, 0, 1.00, 'redeem')`,
+                        [activeCustomerId, orderId, loyaltyRedeemPointsUsed]
+                    );
+                }
+            }
+
+            const vat = await resolveDefaultVatRateDecimal(connection, order.branch_id);
+            const { net, tax, gross } = grossToNetAndTax(finalGross, vat);
+
+            await connection.query(
+                `UPDATE orders 
+                 SET customer_id = ?, loyalty_redeem_points = ?, subtotal = ?, tax_amount = ?, total_amount = ? 
+                 WHERE id = ?`,
+                [activeCustomerId, loyaltyRedeemPointsUsed, net, tax, gross, orderId]
+            );
+
+            return {
+                orderId,
+                sessionId: order.session_id,
+                customerId: activeCustomerId,
+                loyaltyRedeemPoints: loyaltyRedeemPointsUsed,
+                subtotal: net,
+                taxAmount: tax,
+                totalAmount: gross
+            };
+        });
+
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`tenant:${tenantId}`).emit('orders:updated', { sessionId: result.sessionId, orderId });
+            io.to(`tenant:${tenantId}`).emit('tables:updated');
+        }
+
+        res.json({ message: 'Sadakat puanı başarıyla uygulandı', data: result });
+    } catch (error: any) {
+        console.error('❌ Apply Loyalty Error:', error);
+        let statusCode = 500;
+        let errorMessage = 'Sadakat puanı uygulanamadı';
+
+        if (error.message === 'ORDER_NOT_FOUND') {
+            statusCode = 404;
+            errorMessage = 'Sipariş bulunamadı';
+        } else if (error.message === 'ORDER_ALREADY_CLOSED') {
+            statusCode = 400;
+            errorMessage = 'Tamamlanmış veya iptal edilmiş siparişe puan uygulanamaz';
+        } else if (error.message === 'LOYALTY_CUSTOMER_REQUIRED') {
+            statusCode = 400;
+            errorMessage = 'Sadakat puanı kullanabilmek için müşteri seçilmelidir';
+        } else if (error.message === 'LOYALTY_POINTS_INSUFFICIENT') {
+            statusCode = 400;
+            errorMessage = 'Müşterinin sadakat puanı yetersiz';
+        } else if (error.message === 'LOYALTY_ZERO_TOTAL') {
+            statusCode = 400;
+            errorMessage = 'Siparişte ürün bulunmuyor veya tutar sıfır';
+        }
+
+        res.status(statusCode).json({ error: errorMessage });
+    }
+};
+

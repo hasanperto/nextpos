@@ -9,17 +9,45 @@ import {
 import { useUIStore } from '../../../store/useUIStore';
 import { useAuthStore } from '../../../store/useAuthStore';
 import { usePosLocale } from '../../../contexts/PosLocaleContext';
+import toast from 'react-hot-toast';
 
 export const StaffMenu: React.FC = () => {
     const { showStaffMenu, setStaffMenu, setStaffPanelTab } = useUIStore();
     const { user, logout } = useAuthStore();
     const { t } = usePosLocale();
+    const [isNightMode, setIsNightMode] = React.useState(false);
+
+    React.useEffect(() => {
+        if (typeof document === 'undefined') return;
+        setIsNightMode(document.documentElement.classList.contains('dark'));
+    }, [showStaffMenu]);
+
+    const toggleNightMode = () => {
+        if (typeof document === 'undefined') return;
+        const root = document.documentElement;
+        const next = !root.classList.contains('dark');
+        root.classList.toggle('dark', next);
+        try {
+            localStorage.setItem('pos-theme', next ? 'dark' : 'light');
+        } catch {
+            /* ignore */
+        }
+        setIsNightMode(next);
+        toast.success(next ? 'Gece modu aktif' : 'Gece modu kapandi');
+    };
 
     const handleAction = (tabId: string) => {
         setStaffMenu(false);
-        if (['profile', 'stats', 'daily_report'].includes(tabId)) {
-            const finalTab = tabId === 'daily_report' ? 'report' : tabId;
-            setStaffPanelTab(finalTab as any);
+        if (['profile', 'stats', 'daily_report', 'settings', 'help'].includes(tabId)) {
+            let finalTab: 'profile' | 'stats' | 'report' | 'help' = 'profile';
+            if (tabId === 'daily_report') {
+                finalTab = 'report';
+            } else if (tabId === 'settings' || tabId === 'help') {
+                finalTab = 'help';
+            } else {
+                finalTab = tabId as any;
+            }
+            setStaffPanelTab(finalTab);
         }
     };
 
@@ -88,7 +116,7 @@ export const StaffMenu: React.FC = () => {
                     animate={{ x: 0 }}
                     exit={{ x: '100%' }}
                     transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                    className="relative w-full max-w-[320px] h-full bg-[#0a0e1a] border-l border-white/5 flex flex-col shadow-2xl"
+                    className="theme-staff-menu relative w-full max-w-[320px] h-full bg-[#0a0e1a] border-l border-white/5 flex flex-col shadow-2xl"
                 >
                     {/* Header */}
                     <div className="p-6 flex items-center justify-between border-b border-white/5">
@@ -120,19 +148,33 @@ export const StaffMenu: React.FC = () => {
                                 <div className="p-2 rounded-xl bg-orange-500/10 text-orange-500 group-hover:scale-110 transition-all">
                                     <FiLock size={20} />
                                 </div>
-                                <span className="text-[10px] font-black uppercase text-slate-400 group-hover:text-white transition-all">Kilitle</span>
+                                <span className="text-[10px] font-black uppercase text-slate-400 group-hover:text-white transition-all">
+                                    {t('staff.quick_lock') || 'Kilitle'}
+                                </span>
                             </button>
-                            <button className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-all group">
+                            <button
+                                type="button"
+                                onClick={toggleNightMode}
+                                className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition-all group ${
+                                    isNightMode
+                                        ? 'bg-blue-500/15 border-blue-500/30'
+                                        : 'bg-white/5 border-white/5 hover:bg-white/10'
+                                }`}
+                            >
                                 <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500 group-hover:scale-110 transition-all">
                                     <FiMoon size={20} />
                                 </div>
-                                <span className="text-[10px] font-black uppercase text-slate-400 group-hover:text-white transition-all">Gece Modu</span>
+                                <span className="text-[10px] font-black uppercase text-slate-400 group-hover:text-white transition-all">
+                                    {t('staff.quick_night_mode') || 'Gece Modu'}
+                                </span>
                             </button>
                         </div>
 
                         {/* Navigation Menu */}
                         <div className="space-y-1">
-                            <h4 className="px-3 mb-3 text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">Personel Paneli</h4>
+                            <h4 className="px-3 mb-3 text-[10px] font-black text-slate-600 uppercase tracking-[0.2em]">
+                                {t('staff.panel_title') || 'Personel Paneli'}
+                            </h4>
                             {menuItems.map((item) => (
                                 <button
                                     key={item.id}
@@ -153,7 +195,9 @@ export const StaffMenu: React.FC = () => {
                         {/* Status Bar */}
                         <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/10">
                             <div className="flex items-center justify-between mb-2">
-                                <span className="text-[10px] font-black text-emerald-500/60 uppercase tracking-widest">Sistem Durumu</span>
+                                <span className="text-[10px] font-black text-emerald-500/60 uppercase tracking-widest">
+                                    {t('staff.system_status') || 'Sistem Durumu'}
+                                </span>
                                 <span className="text-[10px] font-black px-1.5 py-0.5 bg-emerald-500 text-white rounded uppercase tracking-wider animate-pulse">Online</span>
                             </div>
                             <div className="h-1 w-full bg-emerald-500/10 rounded-full overflow-hidden">

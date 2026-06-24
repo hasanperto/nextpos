@@ -4,15 +4,18 @@ import {
     FiSettings, FiPrinter,
     FiSave, FiTrash2, FiCheckCircle, FiAlertCircle,
     FiEye, FiLock, FiCreditCard, FiPhoneCall, FiMessageCircle, FiHardDrive, FiCopy, FiTablet,
-    FiRefreshCw, FiPackage, FiZap, FiX,
+    FiRefreshCw, FiPackage, FiZap, FiX, FiPhone, FiUser, FiMapPin, FiFileText,
 } from 'react-icons/fi';
 import { useAuthStore } from '../store/useAuthStore';
+import { usePosStore } from '../store/usePosStore';
 import { fetchLocalPrinterList } from '../lib/printerAgent';
 import { TenantModulesModal } from './saas/TenantModulesModal';
 import { SaaSLocaleProvider } from '../contexts/SaaSLocaleContext';
 import { BranchesTab } from './admin-settings/BranchesTab';
 import { usePosLocale } from '../contexts/PosLocaleContext';
 import { printTestReceipt } from '../lib/posPrint';
+import { applyMask } from '../components/ui/Input';
+import type { MaskType } from '../components/ui/Input';
 
 interface PosSettings {
     /** GET /admin/settings — abonelik yazıcı kotası */
@@ -60,12 +63,17 @@ interface PosSettings {
         };
         callerId: {
             enabled: boolean;
-            source: 'voip' | 'android' | 'modem';
+            source: 'voip' | 'android' | 'modem' | 'fritzbox' | 'usbcid';
             androidKey?: string;
-            createCustomerMode: 'before' | 'after' | 'callback';
+            createCustomerMode: 'before' | 'after' | 'callback' | 'after_order';
             voipUsername?: string;
             voipPassword?: string;
             voipDomain?: string;
+            defaultCountryCode?: string;
+            defaultAreaCode?: string;
+            usbCidPort?: string;
+            fritzBoxIP?: string;
+            fritzBoxPort?: number;
         };
         hardware: {
             drawerOpenCommand: string;
@@ -84,6 +92,8 @@ interface PosSettings {
         applyFloorPlanTo?: 'cashier' | 'waiter' | 'both';
         /** Masa bu dakikadan uzun doluysa kırmızı “uzun süre” uyarısı (garson/kasiyer masa planı) */
         longOccupiedMinutes?: number;
+        /** Garson çağrısı yanıt yoksa eskalasyon / devralma eşiği (saniye), admin ayarı */
+        serviceCallEscalationSeconds?: number;
         pickupSecurity?: {
             requirePIN: boolean;
         };
@@ -119,10 +129,23 @@ interface PosSettings {
     pickupSecurity?: {
         requirePIN: boolean;
     };
+    offlineSecurity?: {
+        maxOfflineHours?: number;
+        requirePinOnOffline?: boolean;
+        strictHeartbeat?: boolean;
+        heartbeatFailBeforeSuspicious?: number;
+        pinUnlockHours?: number;
+    };
     applyFloorPlanTo?: string;
     longOccupiedMinutes?: number;
     idleTimeout?: number;
     floorPlanMode?: string;
+    customers?: {
+        requireCustomerApproval?: boolean;
+    };
+    waiterPayment?: {
+        allowPayment?: boolean;
+    };
 }
 
 const defaultKioskSettings = (): NonNullable<PosSettings['integrations']['kiosk']> => ({
@@ -167,8 +190,8 @@ export const AdminSettings: React.FC = () => {
     const [agentHint, setAgentHint] = useState<string | null>(null);
     const [showModulesModal, setShowModulesModal] = useState(false);
     const [seedingDemo, setSeedingDemo] = useState(false);
-    const [demoConfirmed, setDemoConfirmed] = useState(false);
-    const [demoConfirmText, setDemoConfirmText] = useState('');
+    const [clearingData, setClearingData] = useState(false);
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [resettingDevices, setResettingDevices] = useState(false);
     const [billingStatus, setBillingStatus] = useState<{
         planCode: string | null;
@@ -199,7 +222,16 @@ export const AdminSettings: React.FC = () => {
         integrations: {
             payment: { provider: 'manual', apiKey: '', terminalId: '', simulationMode: false },
             whatsapp: { enabled: false, phoneNumberId: '', phoneNumber: '', apiKey: '', webhookKey: '', sendWelcomeMessage: true, sendOrderReadyMessage: true },
-            callerId: { enabled: false, source: 'android', createCustomerMode: 'after' },
+            callerId: { 
+                enabled: false, 
+                source: 'android', 
+                createCustomerMode: 'after',
+                defaultCountryCode: '90',
+                defaultAreaCode: '',
+                usbCidPort: 'COM3',
+                fritzBoxIP: '192.168.178.1',
+                fritzBoxPort: 1012
+            },
             hardware: { drawerOpenCommand: '27,112,0,25,250', primaryPrinter: 'Default' },
             onlineOrder: {
                 enabled: false,
@@ -211,6 +243,7 @@ export const AdminSettings: React.FC = () => {
             },
             idleTimeout: 300,
             longOccupiedMinutes: 45,
+            serviceCallEscalationSeconds: 60,
             pickupSecurity: {
                 requirePIN: false
             },
@@ -234,7 +267,10 @@ export const AdminSettings: React.FC = () => {
             },
         }
         ,
-        accountingVisibility: { hideCancelled: false, hideDeleted: false }
+        accountingVisibility: { hideCancelled: false, hideDeleted: false },
+        customers: {
+            requireCustomerApproval: false
+        }
     });
 
     useEffect(() => {
@@ -310,6 +346,7 @@ export const AdminSettings: React.FC = () => {
                         printStations: int.printStations || settings.integrations.printStations,
                     },
                     accountingVisibility: data.accountingVisibility || { hideCancelled: false, hideDeleted: false },
+                    customers: data.customers || { requireCustomerApproval: false },
                     receipt: data.receipt || settings.receipt,
                     vat: data.vat || []
                 });
@@ -335,6 +372,10 @@ export const AdminSettings: React.FC = () => {
             });
             if (res.ok) {
                 setStatus({ type: 'success', msg: 'Sistem yapılandırması başarıyla güncellendi.' });
+                // Global dil durumunu güncelle ve yerel depolamaya yaz
+                if (settings.language === 'tr' || settings.language === 'en' || settings.language === 'de') {
+                    usePosStore.getState().setLang(settings.language);
+                }
                 await fetchSettings();
             } else {
                 let errMsg = 'Ayarlar kaydedilirken bir hata oluştu.';
@@ -354,10 +395,8 @@ export const AdminSettings: React.FC = () => {
     };
 
     const handleSeedDemo = async () => {
-        const expected = 'DEMO YUKLE';
-        const normalized = demoConfirmText.trim().toUpperCase().replace('Ü', 'U');
-        if (!demoConfirmed || normalized !== expected) {
-            setStatus({ type: 'error', msg: 'Lütfen kutuyu işaretleyin ve "DEMO YÜKLE" yazarak onay verin.' });
+        if (!confirmPassword) {
+            setStatus({ type: 'error', msg: 'Lütfen şifrenizi veya PIN kodunuzu girin.' });
             return;
         }
         setSeedingDemo(true);
@@ -372,6 +411,8 @@ export const AdminSettings: React.FC = () => {
                 body: JSON.stringify({
                     confirmReset: true,
                     preset: 'restaurant_courier',
+                    password: confirmPassword,
+                    pinCode: /^\d{1,6}$/.test(confirmPassword) ? confirmPassword : undefined,
                 }),
             });
             const payload = await res.json().catch(() => ({}));
@@ -382,8 +423,7 @@ export const AdminSettings: React.FC = () => {
                     msg: `Demo içerik yüklendi. Bölge:${s.sections || 0}, Masa:${s.tables || 0}, Kategori:${s.categories || 0}, Ürün:${s.products || 0}`,
                 });
                 toast.success('Demo veriler başarıyla yüklendi');
-                setDemoConfirmed(false);
-                setDemoConfirmText('');
+                setConfirmPassword('');
             } else {
                 const err = payload?.error || 'Demo veri yükleme başarısız.';
                 setStatus({ type: 'error', msg: err });
@@ -394,6 +434,46 @@ export const AdminSettings: React.FC = () => {
             toast.error('Demo veri yüklenemedi');
         } finally {
             setSeedingDemo(false);
+        }
+    };
+
+    const handleClearData = async () => {
+        if (!confirmPassword) {
+            setStatus({ type: 'error', msg: 'Lütfen şifrenizi veya PIN kodunuzu girin.' });
+            return;
+        }
+        setClearingData(true);
+        setStatus(null);
+        try {
+            const res = await fetch('/api/v1/admin/settings/clear', {
+                method: 'POST',
+                headers: {
+                    ...getAuthHeaders(),
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    password: confirmPassword,
+                    pinCode: /^\d{1,6}$/.test(confirmPassword) ? confirmPassword : undefined,
+                }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (res.ok) {
+                setStatus({
+                    type: 'success',
+                    msg: payload?.message || 'Tüm menü, masa ve sipariş verileri silindi.',
+                });
+                toast.success('Tüm veriler başarıyla silindi');
+                setConfirmPassword('');
+            } else {
+                const err = payload?.error || 'Veri silme başarısız.';
+                setStatus({ type: 'error', msg: err });
+                toast.error(err);
+            }
+        } catch {
+            setStatus({ type: 'error', msg: 'Sunucuya ulaşılamadı. Veriler silinemedi.' });
+            toast.error('Veriler silinemedi');
+        } finally {
+            setClearingData(false);
         }
     };
 
@@ -454,60 +534,72 @@ export const AdminSettings: React.FC = () => {
 
     return (
         <div className="flex h-screen flex-col overflow-hidden bg-[#020617] font-sans text-slate-100">
-            <header className="flex h-20 shrink-0 items-center justify-between border-b border-white/5 bg-[#0f172a]/95 backdrop-blur-md px-10 z-50">
-                <div className="flex items-center gap-4">
-                    <div className="p-3 bg-blue-600/20 rounded-xl">
-                        <FiSettings className="w-8 h-8 text-blue-400" />
+            <header className="flex h-16 md:h-20 shrink-0 items-center justify-between border-b border-white/5 bg-[#0f172a]/95 backdrop-blur-md px-4 md:px-10 z-20">
+                <div className="flex items-center gap-3 md:gap-4 min-w-0">
+                    <div className="p-2 md:p-3 bg-blue-600/20 rounded-xl shrink-0">
+                        <FiSettings className="w-5 h-5 md:w-8 md:h-8 text-blue-400" />
                     </div>
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight text-white">
+                    <div className="min-w-0">
+                        <h1 className="text-lg md:text-3xl font-bold tracking-tight text-white truncate">
                             {t('settings.title')}
                         </h1>
-                        <p className="text-blue-400/60 font-medium">
+                        <p className="text-[10px] md:text-xs text-blue-400/60 font-medium truncate">
                             {tpl(t, 'settings.subtitleActive', { version: '2.4.1' })}
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 md:gap-3 shrink-0">
                     <button
                         onClick={() => setShowPreview(true)}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded-xl transition-all border border-slate-700/50 font-medium"
+                        className="flex items-center justify-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded-xl transition-all border border-slate-700/50 font-medium text-xs md:text-sm md:px-5 md:py-2.5 cursor-pointer"
                     >
-                        <FiEye className="w-4 h-4" />
-                        {t('settings.btn.previewReceipt')}
+                        <FiEye className="w-4 h-4 shrink-0" />
+                        <span className="hidden sm:inline-block">{t('settings.btn.previewReceipt')}</span>
                     </button>
                     <button
                         onClick={handleSave}
                         disabled={saving}
-                        className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white rounded-xl transition-all shadow-lg shadow-blue-600/20 font-semibold"
+                        className="flex items-center justify-center gap-2 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white rounded-xl transition-all shadow-lg shadow-blue-600/20 font-semibold text-xs md:text-sm md:px-6 md:py-2.5 cursor-pointer"
                     >
-                        <FiSave className={`w-5 h-5 ${saving ? 'animate-spin' : ''}`} />
-                        {saving ? t('settings.btn.updating') : t('settings.btn.updateSystem')}
+                        <FiSave className={`w-4 h-4 shrink-0 ${saving ? 'animate-spin' : ''}`} />
+                        <span className="hidden sm:inline-block">
+                            {saving ? t('settings.btn.updating') : t('settings.btn.updateSystem')}
+                        </span>
+                        <span className="sm:hidden">{saving ? '...' : ''}</span>
                     </button>
                 </div>
             </header>
 
             {/* Nav Tabs */}
-            <div className="flex items-center gap-1 p-1 bg-slate-900/50 border border-slate-800/50 rounded-2xl mb-8 overflow-x-auto no-scrollbar">
-                {[
-                    { id: 'general', icon: FiHardDrive, label: t('settings.tabs.general') },
-                    { id: 'integrations', icon: FiZap, label: t('settings.tabs.integrations') },
-                    { id: 'online-order', icon: FiMessageCircle, label: t('settings.tabs.onlineOrder') },
-                    { id: 'receipt', icon: FiPrinter, label: t('settings.tabs.receipt') },
-                    { id: 'tax', icon: FiCreditCard, label: t('settings.tabs.tax') },
-                    { id: 'kiosk', icon: FiTablet, label: t('settings.tabs.kiosk') },
-                    { id: 'printing', icon: FiSettings, label: t('settings.tabs.printing') },
-                    { id: 'demo', icon: FiRefreshCw, label: t('settings.tabs.demo') },
-                    { id: 'branches', icon: FiPackage, label: t('settings.tabs.branches') },
-                    { id: 'modules', icon: FiSettings, label: t('settings.tabs.modules') },
-                ].map((tab) => (
-                    <TabBtn key={tab.id} id={tab.id} label={tab.label} active={activeTab} onClick={setActiveTab} />
-                ))}
+            <div className="px-4 md:px-10 mt-6 shrink-0 z-40 max-w-full">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 p-1.5 bg-[#0f172a]/65 border border-white/5 rounded-2xl shadow-inner backdrop-blur-md w-full">
+                    {[
+                        { id: 'general', icon: FiHardDrive, label: t('settings.tabs.general') },
+                        { id: 'integrations', icon: FiZap, label: t('settings.tabs.integrations') },
+                        { id: 'online_order', icon: FiMessageCircle, label: t('settings.tabs.onlineOrder') },
+                        { id: 'receipt', icon: FiPrinter, label: t('settings.tabs.receipt') },
+                        { id: 'tax', icon: FiCreditCard, label: t('settings.tabs.tax') },
+                        { id: 'kiosk', icon: FiTablet, label: t('settings.tabs.kiosk') },
+                        { id: 'printing', icon: FiSettings, label: t('settings.tabs.printing') },
+                        { id: 'demo', icon: FiRefreshCw, label: t('settings.tabs.demo') },
+                        { id: 'branches', icon: FiPackage, label: t('settings.tabs.branches') },
+                        { id: 'modules', icon: FiSettings, label: t('settings.tabs.modules') },
+                    ].map((tab) => (
+                        <TabBtn
+                            key={tab.id}
+                            id={tab.id}
+                            icon={tab.icon}
+                            label={tab.label}
+                            active={activeTab}
+                            onClick={setActiveTab}
+                        />
+                    ))}
+                </div>
             </div>
 
             <div className="flex-1 overflow-hidden flex">
-                <div className="flex-1 overflow-y-auto p-10 pos-scrollbar">
+                <div className="flex-1 overflow-y-auto p-4 md:p-10 pos-scrollbar">
                     <div className="max-w-5xl space-y-10 pb-20">
                         {status && (
                             <div className={`p-5 rounded-2xl flex items-center gap-3 font-bold text-sm ${status.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-rose-50 text-rose-700 border border-rose-100'}`}>
@@ -532,54 +624,38 @@ export const AdminSettings: React.FC = () => {
                                         </h3>
                                     </div>
                                     <div className="space-y-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
-                                                {t('settings.labels.companyName')}
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={settings.registration.name || ""}
-                                                onChange={(e) => setSettings({ ...settings, registration: { ...settings.registration, name: e.target.value } })}
-                                                className="w-full bg-slate-900/50 border border-slate-800 text-white px-4 py-2.5 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all"
-                                                placeholder={t('settings.placeholder.companyName')}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
-                                                {t('settings.labels.legalAddress')}
-                                            </label>
-                                            <textarea
-                                                value={settings.registration.address || ""}
-                                                onChange={(e) => setSettings({ ...settings, registration: { ...settings.registration, address: e.target.value } })}
-                                                className="w-full bg-slate-900/50 border border-slate-800 text-white px-4 py-2.5 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all h-20 resize-none"
-                                                placeholder={t('settings.placeholder.address')}
-                                            />
-                                        </div>
+                                        <InputField
+                                            label={t('settings.labels.companyName')}
+                                            value={settings.registration.name || ""}
+                                            placeholder={t('settings.placeholder.companyName')}
+                                            onChange={(v) => setSettings({ ...settings, registration: { ...settings.registration, name: v } })}
+                                            icon={<FiUser />}
+                                        />
+                                        <InputField
+                                            label={t('settings.labels.legalAddress')}
+                                            value={settings.registration.address || ""}
+                                            placeholder={t('settings.placeholder.address')}
+                                            type="textarea"
+                                            onChange={(v) => setSettings({ ...settings, registration: { ...settings.registration, address: v } })}
+                                            icon={<FiMapPin />}
+                                        />
                                         <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
-                                                    {t('settings.labels.contactLine')}
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={settings.registration.phone || ""}
-                                                    onChange={(e) => setSettings({ ...settings, registration: { ...settings.registration, phone: e.target.value } })}
-                                                    className="w-full bg-slate-900/50 border border-slate-800 text-white px-4 py-2.5 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all"
-                                                    placeholder={t('settings.placeholder.phone')}
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
-                                                    {t('settings.labels.taxOfficeNo')}
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={settings.registration.taxNumber || ""}
-                                                    onChange={(e) => setSettings({ ...settings, registration: { ...settings.registration, taxNumber: e.target.value } })}
-                                                    className="w-full bg-slate-900/50 border border-slate-800 text-white px-4 py-2.5 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all"
-                                                    placeholder={t('settings.placeholder.taxNo')}
-                                                />
-                                            </div>
+                                            <InputField
+                                                label={t('settings.labels.contactLine')}
+                                                value={settings.registration.phone || ""}
+                                                placeholder={t('settings.placeholder.phone')}
+                                                onChange={(v) => setSettings({ ...settings, registration: { ...settings.registration, phone: v } })}
+                                                icon={<FiPhone />}
+                                                mask="phone"
+                                            />
+                                            <InputField
+                                                label={t('settings.labels.taxOfficeNo')}
+                                                value={settings.registration.taxNumber || ""}
+                                                placeholder={t('settings.placeholder.taxNo')}
+                                                onChange={(v) => setSettings({ ...settings, registration: { ...settings.registration, taxNumber: v } })}
+                                                icon={<FiFileText />}
+                                                mask="tax"
+                                            />
                                         </div>
                                     </div>
                                 </section>
@@ -657,6 +733,28 @@ export const AdminSettings: React.FC = () => {
                                                 {t('settings.desc.longOccupied')}
                                             </p>
                                         </div>
+                                        <div className="space-y-2">
+                                            <InputField
+                                                label={t('settings.labels.serviceCallEscalationSeconds')}
+                                                type="number"
+                                                value={settings.integrations?.serviceCallEscalationSeconds ?? 60}
+                                                onChange={(v) =>
+                                                    setSettings((s) => ({
+                                                        ...s,
+                                                        integrations: {
+                                                            ...s.integrations,
+                                                            serviceCallEscalationSeconds: Math.min(
+                                                                600,
+                                                                Math.max(15, parseInt(v, 10) || 60)
+                                                            ),
+                                                        },
+                                                    }))
+                                                }
+                                            />
+                                            <p className="text-[10px] text-slate-500 italic">
+                                                {t('settings.desc.serviceCallEscalationSeconds')}
+                                            </p>
+                                        </div>
                                     </div>
                                 </section>
 
@@ -680,17 +778,87 @@ export const AdminSettings: React.FC = () => {
 
                                 <section className="bg-white/5 rounded-3xl border border-white/5 p-8 shadow-sm">
                                     <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-8 flex items-center gap-3">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-violet-500"></div> CRM & Müşteri Kuralları
+                                    </h3>
+                                    <div className="space-y-6">
+                                        <ToggleOption 
+                                            label="Yeni Kaydolan Müşteriler Kasiyer Onayından Geçsin" 
+                                            active={settings.customers?.requireCustomerApproval || false} 
+                                            onChange={(val) => setSettings({ ...settings, customers: { ...settings.customers, requireCustomerApproval: val } })} 
+                                        />
+                                        <p className="text-[10px] text-violet-400/70 font-medium italic">
+                                            Aktif edildiğinde, yeni kaydolan tüm müşteriler 'Beklemede (pending)' durumunda açılır ve kasiyer tarafından onaylanana kadar siparişlerde sadakat puanı kazanamaz veya kullanamazlar.
+                                        </p>
+                                    </div>
+                                </section>
+
+                                <section className="bg-white/5 rounded-3xl border border-white/5 p-8 shadow-sm">
+                                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-8 flex items-center gap-3">
                                         <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> {t('settings.labels.security')}
                                     </h3>
-                                    <div className="space-y-4">
-                                        <ToggleOption 
-                                            label={t('settings.labels.requirePinForPickup')} 
-                                            active={settings.pickupSecurity?.requirePIN || false} 
-                                            onChange={(val) => setSettings({ ...settings, pickupSecurity: { requirePIN: val } })} 
-                                        />
-                                        <p className="text-[10px] text-emerald-400/70 font-medium italic">
-                                            {t('settings.desc.securityPin')}
-                                        </p>
+                                    <div className="space-y-6">
+                                        <div>
+                                            <ToggleOption 
+                                                label={t('settings.labels.requirePinForPickup')} 
+                                                active={settings.pickupSecurity?.requirePIN || false} 
+                                                onChange={(val) => setSettings({ ...settings, pickupSecurity: { ...settings.pickupSecurity, requirePIN: val } })} 
+                                            />
+                                            <p className="text-[10px] text-emerald-400/70 font-medium italic mt-2">
+                                                {t('settings.desc.securityPin')}
+                                            </p>
+                                        </div>
+
+                                        <div className="border-t border-white/5 pt-4">
+                                            <ToggleOption 
+                                                label="Garsonların Cihazlarından Ödeme Almasına İzin Ver" 
+                                                active={settings.waiterPayment?.allowPayment || false} 
+                                                onChange={(val) => setSettings({ ...settings, waiterPayment: { ...settings.waiterPayment, allowPayment: val } })} 
+                                            />
+                                            <p className="text-[10px] text-emerald-400/70 font-medium italic mt-2">
+                                                Aktif edildiğinde, garsonlar Garson Panelinde masaları kapatırken doğrudan nakit veya kart ödemesi tahsil edebilirler.
+                                             </p>
+                                         </div>
+
+                                        <div className="border-t border-white/5 pt-4 space-y-4">
+                                            <p className="text-[10px] font-black text-rose-400/80 uppercase tracking-widest">Offline POS Güvenliği</p>
+                                            <ToggleOption
+                                                label="Offline modda yönetici PIN zorunlu"
+                                                active={settings.offlineSecurity?.requirePinOnOffline !== false}
+                                                onChange={(val) =>
+                                                    setSettings({
+                                                        ...settings,
+                                                        offlineSecurity: {
+                                                            maxOfflineHours: 48,
+                                                            strictHeartbeat: true,
+                                                            heartbeatFailBeforeSuspicious: 3,
+                                                            pinUnlockHours: 12,
+                                                            ...settings.offlineSecurity,
+                                                            requirePinOnOffline: val,
+                                                        },
+                                                    })
+                                                }
+                                            />
+                                            <ToggleOption
+                                                label="Sunucu heartbeat zorunlu (sahte bağlantı koruması)"
+                                                active={settings.offlineSecurity?.strictHeartbeat !== false}
+                                                onChange={(val) =>
+                                                    setSettings({
+                                                        ...settings,
+                                                        offlineSecurity: {
+                                                            maxOfflineHours: 48,
+                                                            requirePinOnOffline: true,
+                                                            heartbeatFailBeforeSuspicious: 3,
+                                                            pinUnlockHours: 12,
+                                                            ...settings.offlineSecurity,
+                                                            strictHeartbeat: val,
+                                                        },
+                                                    })
+                                                }
+                                            />
+                                            <p className="text-[10px] text-rose-400/70 font-medium italic">
+                                                Bağlantı kesildiğinde veya sunucu doğrulanamadığında admin PIN ile onay gerekir. Grace süresi sunucu jetonu ile sınırlanır.
+                                            </p>
+                                        </div>
                                     </div>
                                 </section>
 
@@ -717,9 +885,9 @@ export const AdminSettings: React.FC = () => {
                         {activeTab === 'integrations' && (
                             <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
                                 {/* CALLER ID & VOIP */}
-                                <section className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
-                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest mb-10 flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center"><FiPhoneCall/></div>
+                                <section className="bg-white/5 rounded-3xl border border-white/5 p-8 shadow-sm">
+                                    <h3 className="text-xs font-black text-white uppercase tracking-widest mb-10 flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center"><FiPhoneCall/></div>
                                         {t('settings.labels.callerIdVoip')}
                                     </h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -737,7 +905,9 @@ export const AdminSettings: React.FC = () => {
                                             options={[
                                                 {v: 'android', l: t('settings.options.androidGateway')},
                                                 {v: 'voip', l: t('settings.options.voipSip')},
-                                                {v: 'modem', l: t('settings.options.usbModem')}
+                                                {v: 'modem', l: t('settings.options.usbModem')},
+                                                {v: 'fritzbox', l: t('settings.options.fritzBoxCallMonitor')},
+                                                {v: 'usbcid', l: t('settings.options.usbCidBox')}
                                             ]}
                                             onChange={v => setSettings(s => ({ ...s, integrations: { ...s.integrations, callerId: { ...s.integrations.callerId, source: v as any } } }))}
                                         />
@@ -747,19 +917,41 @@ export const AdminSettings: React.FC = () => {
                                             value={settings.integrations.callerId.createCustomerMode}
                                             options={[
                                                 {v: 'before', l: t('settings.options.regBefore')},
+                                                {v: 'after_order', l: t('settings.options.regAfterOrder')},
                                                 {v: 'after', l: t('settings.options.regAuto')},
                                                 {v: 'callback', l: t('settings.options.regManual')}
                                             ]}
                                             onChange={v => setSettings(s => ({ ...s, integrations: { ...s.integrations, callerId: { ...s.integrations.callerId, createCustomerMode: v as any } } }))}
                                         />
                                         
+                                        {settings.integrations.callerId.enabled && (
+                                            <>
+                                                <InputField 
+                                                    label={t('settings.labels.defaultCountryCode')} 
+                                                    type="select" 
+                                                    value={settings.integrations.callerId.defaultCountryCode || '90'}
+                                                    options={[
+                                                        {v: '90', l: 'Türkiye (+90)'},
+                                                        {v: '49', l: 'Deutschland (+49)'}
+                                                    ]}
+                                                    onChange={v => setSettings(s => ({ ...s, integrations: { ...s.integrations, callerId: { ...s.integrations.callerId, defaultCountryCode: v } } }))}
+                                                />
+                                                <InputField 
+                                                    label={t('settings.labels.defaultAreaCode')} 
+                                                    value={settings.integrations.callerId.defaultAreaCode || ''} 
+                                                    placeholder="e.g. 212, 30"
+                                                    onChange={v => setSettings(s => ({ ...s, integrations: { ...s.integrations, callerId: { ...s.integrations.callerId, defaultAreaCode: v } } }))} 
+                                                />
+                                            </>
+                                        )}
+
                                         {settings.integrations.callerId.source === 'android' && (
                                             <>
                                                 <InputField label={t('settings.labels.androidSyncKey')} value={settings.integrations.callerId.androidKey || ''} placeholder={t('settings.placeholder.complexKey')} onChange={v => setSettings(s => ({ ...s, integrations: { ...s.integrations, callerId: { ...s.integrations.callerId, androidKey: v } } }))} />
-                                                <div className="col-span-2 p-5 bg-blue-50 border border-blue-100 rounded-2xl relative group">
+                                                <div className="col-span-2 p-5 bg-blue-600/10 border border-blue-500/20 rounded-2xl relative group">
                                                     <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest block mb-2">{t('settings.labels.androidWebhookUrl')}</label>
                                                     <div className="flex items-center gap-3">
-                                                        <code className="text-[10px] font-bold text-blue-900 break-all flex-1">
+                                                        <code className="text-[10px] font-bold text-blue-200 break-all flex-1">
                                                             {window.location.origin}/api/v1/integrations/caller-id?tenant={useAuthStore.getState().tenantId}&key={settings.integrations.callerId.androidKey || 'ANAHTAR-YOK'}
                                                         </code>
                                                         <button 
@@ -768,7 +960,7 @@ export const AdminSettings: React.FC = () => {
                                                                 navigator.clipboard.writeText(url);
                                                                 toast.success(t('settings.toast.webhookCopied'));
                                                             }}
-                                                            className="p-3 bg-white border border-blue-100 rounded-xl text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm active:scale-95"
+                                                            className="p-3 bg-blue-600/20 border border-blue-500/35 rounded-xl text-blue-400 hover:bg-blue-600 hover:text-white transition-all shadow-sm active:scale-95 cursor-pointer"
                                                             title={t('settings.btn.copy')}
                                                         >
                                                             <FiCopy size={16} />
@@ -788,13 +980,39 @@ export const AdminSettings: React.FC = () => {
                                                 <InputField label={t('settings.labels.voipPass')} value={settings.integrations.callerId.voipPassword || ''} onChange={v => setSettings(s => ({ ...s, integrations: { ...s.integrations, callerId: { ...s.integrations.callerId, voipPassword: v } } }))} />
                                             </>
                                         )}
+
+                                        {settings.integrations.callerId.source === 'fritzbox' && (
+                                            <>
+                                                <InputField 
+                                                    label={t('settings.labels.fritzBoxIP')} 
+                                                    value={settings.integrations.callerId.fritzBoxIP || ''} 
+                                                    placeholder="192.168.178.1"
+                                                    onChange={v => setSettings(s => ({ ...s, integrations: { ...s.integrations, callerId: { ...s.integrations.callerId, fritzBoxIP: v } } }))} 
+                                                />
+                                                <InputField 
+                                                    label={t('settings.labels.fritzBoxPort')} 
+                                                    type="number"
+                                                    value={settings.integrations.callerId.fritzBoxPort || 1012} 
+                                                    onChange={v => setSettings(s => ({ ...s, integrations: { ...s.integrations, callerId: { ...s.integrations.callerId, fritzBoxPort: parseInt(v) || 1012 } } }))} 
+                                                />
+                                            </>
+                                        )}
+
+                                        {settings.integrations.callerId.source === 'usbcid' && (
+                                            <InputField 
+                                                label={t('settings.labels.usbCidPort')} 
+                                                value={settings.integrations.callerId.usbCidPort || ''} 
+                                                placeholder="COM3"
+                                                onChange={v => setSettings(s => ({ ...s, integrations: { ...s.integrations, callerId: { ...s.integrations.callerId, usbCidPort: v } } }))} 
+                                            />
+                                        )}
                                     </div>
                                 </section>
 
                                 {/* PAYMENT GATEWAYS */}
-                                <section className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
-                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest mb-10 flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><FiCreditCard/></div>
+                                <section className="bg-white/5 rounded-3xl border border-white/5 p-8 shadow-sm">
+                                    <h3 className="text-xs font-black text-white uppercase tracking-widest mb-10 flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center"><FiCreditCard/></div>
                                         {t('settings.labels.paymentTerminal')}
                                     </h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -826,9 +1044,9 @@ export const AdminSettings: React.FC = () => {
                                 </section>
 
                                 {/* WHATSAPP API */}
-                                <section className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
-                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest mb-10 flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-xl bg-green-50 text-green-600 flex items-center justify-center"><FiMessageCircle/></div>
+                                <section className="bg-white/5 rounded-3xl border border-white/5 p-8 shadow-sm">
+                                    <h3 className="text-xs font-black text-white uppercase tracking-widest mb-10 flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-green-600/20 text-green-400 flex items-center justify-center"><FiMessageCircle/></div>
                                         {t('settings.labels.whatsappAutomation')}
                                     </h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -843,10 +1061,10 @@ export const AdminSettings: React.FC = () => {
                                         <InputField label={t('settings.labels.cloudApiToken')} value={settings.integrations.whatsapp.apiKey} onChange={v => setSettings(s => ({ ...s, integrations: { ...s.integrations, whatsapp: { ...s.integrations.whatsapp, apiKey: v } } }))} />
                                         <InputField label={t('settings.labels.whatsappBusNo')} value={settings.integrations.whatsapp.phoneNumber} placeholder="+905..." onChange={v => setSettings(s => ({ ...s, integrations: { ...s.integrations, whatsapp: { ...s.integrations.whatsapp, phoneNumber: v } } }))} />
                                         <InputField label={t('settings.labels.webhookKey')} value={settings.integrations.whatsapp.webhookKey || ''} placeholder={t('settings.placeholder.randomKey')} onChange={v => setSettings(s => ({ ...s, integrations: { ...s.integrations, whatsapp: { ...s.integrations.whatsapp, webhookKey: v } } }))} />
-                                        <div className="col-span-2">
+                                        <div className="col-span-2 bg-black/20 p-4 rounded-xl border border-white/5">
                                             <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-2">{t('settings.labels.whatsappWebhookUrl')}</label>
                                             <div className="flex items-center gap-3">
-                                                <code className="text-[10px] font-bold text-slate-700 break-all flex-1">
+                                                <code className="text-[10px] font-bold text-slate-300 break-all flex-1">
                                                     {window.location.origin}/api/v1/integrations/whatsapp?tenant={useAuthStore.getState().tenantId}&key={settings.integrations.whatsapp.webhookKey || 'ANAHTAR-YOK'}
                                                 </code>
                                             </div>
@@ -867,9 +1085,9 @@ export const AdminSettings: React.FC = () => {
                                 </section>
 
                                 {/* HARDWARE */}
-                                <section className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
-                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest mb-10 flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-xl bg-slate-50 text-slate-600 flex items-center justify-center"><FiHardDrive/></div>
+                                <section className="bg-white/5 rounded-3xl border border-white/5 p-8 shadow-sm">
+                                    <h3 className="text-xs font-black text-white uppercase tracking-widest mb-10 flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-slate-600/20 text-slate-400 flex items-center justify-center"><FiHardDrive/></div>
                                         {t('settings.labels.hardware')}
                                     </h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -882,10 +1100,10 @@ export const AdminSettings: React.FC = () => {
 
                         {activeTab === 'online_order' && (
                             <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-300">
-                                <section className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm relative overflow-hidden group">
+                                <section className="bg-white/5 rounded-3xl border border-white/5 p-8 shadow-sm relative overflow-hidden group">
                                     <div className="absolute top-0 right-0 p-8 opacity-5 text-orange-500 scale-150 rotate-12"><FiSettings size={80}/></div>
-                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest mb-10 flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center"><FiSettings/></div>
+                                    <h3 className="text-xs font-black text-white uppercase tracking-widest mb-10 flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-orange-600/20 text-orange-400 flex items-center justify-center"><FiSettings/></div>
                                         {t('settings.labels.onlineOrderQr')}
                                     </h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -909,8 +1127,8 @@ export const AdminSettings: React.FC = () => {
                                     </div>
                                 </section>
 
-                                <section className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm border-l-4 border-l-rose-500">
-                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest mb-10">{t('settings.labels.alarmSounds')}</h3>
+                                <section className="bg-white/5 rounded-3xl border border-white/5 p-8 shadow-sm border-l-4 border-l-rose-500">
+                                    <h3 className="text-xs font-black text-white uppercase tracking-widest mb-10">{t('settings.labels.alarmSounds')}</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                         <InputField 
                                             label={t('settings.labels.qrNotifySound')} 
@@ -954,8 +1172,8 @@ export const AdminSettings: React.FC = () => {
 
                         {activeTab === 'receipt' && (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in duration-500">
-                                <section className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
-                                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-10">{t('settings.labels.receiptTexts')}</h3>
+                                <section className="bg-white/5 rounded-3xl border border-white/5 p-8 shadow-sm">
+                                    <h3 className="text-xs font-black text-white uppercase tracking-widest mb-10">{t('settings.labels.receiptTexts')}</h3>
                                     <div className="space-y-6">
                                         <InputField label={t('settings.labels.headerSlogan')} value={settings.receipt.header} onChange={v => setSettings(s => ({ ...s, receipt: { ...s.receipt, header: v } }))} />
                                         <InputField label={t('settings.labels.footerInfo')} value={settings.receipt.footer} onChange={v => setSettings(s => ({ ...s, receipt: { ...s.receipt, footer: v } }))} />
@@ -970,17 +1188,24 @@ export const AdminSettings: React.FC = () => {
                         )}
 
                         {activeTab === 'tax' && (
-                            <section className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm max-w-2xl">
-                                <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest mb-10">{t('settings.labels.vatConfig')}</h3>
+                            <section className="bg-white/5 rounded-3xl border border-white/5 p-8 shadow-sm max-w-2xl">
+                                <h3 className="text-xs font-black text-white uppercase tracking-widest mb-10">{t('settings.labels.vatConfig')}</h3>
                                 <div className="space-y-4">
                                     {settings.vat.map((v, i) => (
-                                        <div key={i} className="flex gap-4 items-center bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
-                                            <input className="flex-1 bg-transparent border-none text-xs font-black text-slate-700 outline-none uppercase" value={v.label} onChange={e => updateVat(i, 'label', e.target.value)} />
-                                            <div className="w-20"><input type="number" className="w-full bg-white border rounded-xl px-4 py-2 text-sm font-black" value={v.value} onChange={e => updateVat(i, 'value', Number(e.target.value))} /></div>
-                                            <button onClick={() => setSettings(s => ({...s, vat: s.vat.filter((_, idx)=>idx!==i)}))} className="text-rose-400 p-2" aria-label={t('settings.btn.deleteTax')} title={t('settings.btn.deleteTax')}><FiTrash2/></button>
+                                        <div key={i} className="flex gap-4 items-center bg-white/5 p-4 rounded-2xl border border-white/5">
+                                            <input className="flex-1 bg-transparent border-none text-xs font-black text-white outline-none uppercase" value={v.label} onChange={e => updateVat(i, 'label', e.target.value)} />
+                                            <div className="w-20">
+                                                <input
+                                                    type="number"
+                                                    className="w-full bg-white/5 border-2 border-white/10 rounded-xl px-4 py-2 text-sm font-bold text-white outline-none focus:border-blue-500/50"
+                                                    value={v.value}
+                                                    onChange={(e) => updateVat(i, 'value', Number(e.target.value))}
+                                                />
+                                            </div>
+                                            <button onClick={() => setSettings(s => ({...s, vat: s.vat.filter((_, idx)=>idx!==i)}))} className="text-rose-400 p-2 hover:bg-rose-500/10 rounded-lg cursor-pointer" aria-label={t('settings.btn.deleteTax')} title={t('settings.btn.deleteTax')}><FiTrash2/></button>
                                         </div>
                                     ))}
-                                    <button onClick={() => setSettings(s => ({...s, vat: [...s.vat, {label:'YENİ', value:0}]}))} className="w-full py-4 border-2 border-dashed border-slate-100 rounded-2xl text-[10px] font-black text-slate-400 uppercase">+ {t('settings.btn.addTax')}</button>
+                                    <button onClick={() => setSettings(s => ({...s, vat: [...s.vat, {label:'YENİ', value:0}]}))} className="w-full py-4 border-2 border-dashed border-white/10 bg-white/5 rounded-2xl text-[10px] font-black text-slate-400 hover:text-slate-200 hover:bg-white/10 hover:border-white/20 transition-all uppercase cursor-pointer">+ {t('settings.btn.addTax')}</button>
                                 </div>
                             </section>
                         )}
@@ -1619,52 +1844,55 @@ export const AdminSettings: React.FC = () => {
                                         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/20 text-amber-300">
                                             <FiRefreshCw size={18} />
                                         </div>
-                                        {t('settings.labels.demoLoadTitle')}
+                                        Veritabanı & Örnek Veri Yönetimi
                                     </h3>
                                     <p className="mb-6 text-[11px] font-bold leading-relaxed text-slate-300">
-                                        {t('settings.desc.demoLoad')}
+                                        Bu ekrandan örnek verileri tamamen temizleyebilir veya varsayılan restoran/kurye demo veri setini yükleyebilirsiniz.
                                     </p>
                                     <div className="mb-6 grid grid-cols-2 gap-3 text-[10px] font-black uppercase tracking-wider text-slate-300">
-                                        <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">{t('settings.options.demoZones')}</div>
-                                        <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">{t('settings.options.demoTables')}</div>
-                                        <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">{t('settings.options.demoCategories')}</div>
-                                        <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">{t('settings.options.demoVariants')}</div>
+                                        <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">
+                                            <span className="text-amber-300 block mb-1">Eylem 1: Demo Veri Yükle</span>
+                                            Tüm verileri siler ve Pizza, Burger, İçecek ve Masa planından oluşan demo şablonu kurar.
+                                        </div>
+                                        <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">
+                                            <span className="text-rose-400 block mb-1">Eylem 2: Tüm Verileri Temizle</span>
+                                            Menü, varyant, kategori, masa, kat planı ve sipariş geçmişi dahil her şeyi kalıcı olarak siler.
+                                        </div>
                                     </div>
-                                    <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5 text-[10px] font-bold text-rose-100">
-                                        {t('settings.desc.demoWarningText')}
+                                    <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-5 text-[10px] font-bold text-rose-100 mb-6">
+                                        UYARI: Bu işlemler kalıcıdır ve geri alınamaz. Masalarda aktif oturumlar veya bekleyen siparişler varsa işlem otomatik olarak engellenir.
                                     </div>
-                                    <div className="mt-6 space-y-4">
-                                        <label className="flex items-center gap-3 text-[11px] font-bold text-slate-200">
-                                            <input
-                                                type="checkbox"
-                                                checked={demoConfirmed}
-                                                onChange={(e) => setDemoConfirmed(e.target.checked)}
-                                                className="h-4 w-4 rounded border-white/20 bg-transparent"
+                                    <div className="space-y-5">
+                                        <div className="max-w-md">
+                                            <InputField
+                                                label="Şifre / PIN Doğrulaması"
+                                                value={confirmPassword}
+                                                onChange={setConfirmPassword}
+                                                placeholder="Yönetici Şifresi veya PIN Kodu"
+                                                type="password"
+                                                icon={<FiLock size={16} />}
                                             />
-                                            {t('settings.labels.confirmDemoCheckbox')}
-                                        </label>
-                                        <InputField
-                                            label={tpl(t, 'settings.labels.demoConfirmInput', { text: t('settings.placeholder.demoConfirm') })}
-                                            value={demoConfirmText}
-                                            onChange={setDemoConfirmText}
-                                            placeholder={t('settings.placeholder.demoConfirm')}
-                                        />
-                                        {import.meta.env.PROD ? (
-                                            <div className="px-4 py-3 mt-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs font-bold text-rose-400 flex items-center gap-2">
-                                                <FiAlertCircle size={16} />
-                                                Production ortamında demo verisi yüklenemez.
-                                            </div>
-                                        ) : (
+                                        </div>
+                                        <div className="flex flex-wrap gap-4 pt-2">
                                             <button
                                                 type="button"
                                                 onClick={handleSeedDemo}
-                                                disabled={seedingDemo}
-                                                className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-600/30 px-6 py-3 text-[11px] font-black uppercase tracking-wider text-amber-100 hover:bg-amber-600/50 disabled:opacity-50"
+                                                disabled={seedingDemo || clearingData || !confirmPassword}
+                                                className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-600/30 px-6 py-3.5 text-[11px] font-black uppercase tracking-wider text-amber-100 hover:bg-amber-600/50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                                             >
                                                 <FiRefreshCw size={14} className={seedingDemo ? 'animate-spin' : ''} />
-                                                {seedingDemo ? t('settings.status.demoLoading') : t('settings.btn.loadDemoNow')}
+                                                {seedingDemo ? 'Demo Yükleniyor...' : 'Demo Verileri Yükle'}
                                             </button>
-                                        )}
+                                            <button
+                                                type="button"
+                                                onClick={handleClearData}
+                                                disabled={seedingDemo || clearingData || !confirmPassword}
+                                                className="inline-flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-600/30 px-6 py-3.5 text-[11px] font-black uppercase tracking-wider text-rose-100 hover:bg-rose-600/50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                                            >
+                                                <FiRefreshCw size={14} className={clearingData ? 'animate-spin' : ''} />
+                                                {clearingData ? 'Veriler Siliniyor...' : 'Tüm Verileri Temizle'}
+                                            </button>
+                                        </div>
                                     </div>
                                 </section>
                             </div>
@@ -1798,24 +2026,96 @@ export const AdminSettings: React.FC = () => {
 
 
 // UI COMPONENTS
-const TabBtn: React.FC<{ id: any, label: string, active: any, onClick: any }> = ({ id, label, active, onClick }) => (
-    <button onClick={() => onClick(id)} className={`h-full px-2 whitespace-nowrap border-b-2 transition-all text-[10px] font-black uppercase tracking-[0.2em] ${active === id ? 'border-blue-500 text-blue-500' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
-        {label}
-    </button>
-);
+const TabBtn: React.FC<{
+    id: any;
+    icon: React.ComponentType<{ className?: string }>;
+    label: string;
+    active: any;
+    onClick: any;
+}> = ({ id, icon: Icon, label, active, onClick }) => {
+    const isActive = active === id;
+    return (
+        <button
+            onClick={() => onClick(id)}
+            title={label}
+            className={`relative flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl transition-all duration-300 text-[9px] sm:text-[10px] font-black uppercase tracking-wider whitespace-nowrap select-none border cursor-pointer w-full group ${
+                isActive
+                    ? 'bg-blue-600/10 border-blue-500/35 text-blue-400 shadow-[0_0_20px_rgba(37,99,235,0.08)]'
+                    : 'bg-white/[0.01] border-white/5 text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] hover:border-white/10'
+            }`}
+        >
+            <Icon className={`w-3.5 h-3.5 transition-all duration-300 shrink-0 ${isActive ? 'scale-110 text-blue-400' : 'text-slate-500 group-hover:text-slate-350'}`} />
+            <span className="transition-colors duration-300 truncate max-w-[65px] sm:max-w-none">{label}</span>
+            {isActive && (
+                <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-4 h-[2px] bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.9)] animate-pulse" />
+            )}
+        </button>
+    );
+};
 
-const InputField: React.FC<{ label: string, value: string | number, placeholder?: string, type?: 'text' | 'select' | 'number', options?: {v:string, l:string}[], onChange: (v: string) => void }> = ({ label, value, placeholder, type = 'text', options, onChange }) => (
-    <div className="group">
-        <label className="block text-[9px] font-black text-slate-500 mb-2 uppercase tracking-widest group-focus-within:text-blue-400 transition-colors">{label}</label>
-        {type === 'select' ? (
-            <select value={value === null || value === undefined ? "" : String(value)} onChange={e => onChange(e.target.value)} className="w-full rounded-2xl border-2 border-white/10 bg-white/5 px-5 py-4 text-sm font-bold text-black outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all">
-                {options?.map(o => <option key={o.v} value={o.v} className="bg-[#0f172a] text-black">{o.l}</option>)}
-            </select>
-        ) : (
-            <input type={type} value={value === null || value === undefined ? "" : String(value)} placeholder={placeholder} onChange={e => onChange(e.target.value)} className="w-full rounded-2xl border-2 border-white/10 bg-white/5 px-5 py-4 text-sm font-bold text-black outline-none focus:border-blue-500/50 focus:bg-white/10 transition-all placeholder:text-slate-600" />
-        )}
-    </div>
-);
+const InputField: React.FC<{
+    label: string;
+    value: string | number;
+    placeholder?: string;
+    type?: 'text' | 'select' | 'number' | 'textarea' | 'password';
+    options?: { v: string | number; l: string }[];
+    onChange: (v: string) => void;
+    icon?: React.ReactNode;
+    mask?: MaskType | ((val: string) => string);
+}> = ({ label, value, placeholder, type = 'text', options, onChange, icon, mask }) => {
+    const handleChange = (val: string) => {
+        onChange(applyMask(val, mask));
+    };
+
+    return (
+        <div className="group w-full">
+            <label className="block text-[9px] font-black text-slate-500 mb-2 uppercase tracking-widest group-focus-within:text-blue-400 transition-colors">
+                {label}
+            </label>
+            <div className="relative flex items-center w-full">
+                {icon && (
+                    <div className="absolute left-4 text-slate-400 group-focus-within:text-blue-400 transition-colors pointer-events-none z-10">
+                        {icon}
+                    </div>
+                )}
+                {type === 'select' ? (
+                    <select
+                        value={value === null || value === undefined ? '' : String(value)}
+                        onChange={(e) => handleChange(e.target.value)}
+                        className={`w-full rounded-2xl border-2 border-white/10 bg-white/5 ${
+                            icon ? 'pl-11' : 'px-5'
+                        } py-4 text-sm font-bold text-white outline-none focus:border-blue-500/50 focus:bg-white/[0.08] transition-all`}
+                    >
+                        {options?.map((o) => (
+                            <option key={o.v} value={o.v} className="bg-slate-900 text-white">
+                                {o.l}
+                            </option>
+                        ))}
+                    </select>
+                ) : type === 'textarea' ? (
+                    <textarea
+                        value={value === null || value === undefined ? '' : String(value)}
+                        onChange={(e) => handleChange(e.target.value)}
+                        placeholder={placeholder}
+                        className={`w-full rounded-2xl border-2 border-white/10 bg-white/5 ${
+                            icon ? 'pl-11' : 'px-5'
+                        } py-4 text-sm font-bold text-white outline-none focus:border-blue-500/50 focus:bg-white/[0.08] transition-all min-h-[80px] resize-none`}
+                    />
+                ) : (
+                    <input
+                        type={type}
+                        value={value === null || value === undefined ? '' : String(value)}
+                        onChange={(e) => handleChange(e.target.value)}
+                        placeholder={placeholder}
+                        className={`w-full rounded-2xl border-2 border-white/10 bg-white/5 ${
+                            icon ? 'pl-11' : 'px-5'
+                        } py-4 text-sm font-bold text-white outline-none focus:border-blue-500/50 focus:bg-white/[0.08] transition-all placeholder:text-slate-600`}
+                    />
+                )}
+            </div>
+        </div>
+    );
+};
 
 const ToggleOption: React.FC<{ label: string, active: boolean, onChange: (v: boolean) => void }> = ({ label, active, onChange }) => (
     <div className={`p-4 rounded-2xl border transition-all flex items-center justify-between cursor-pointer group ${active ? 'bg-indigo-500/10 border-indigo-500/30' : 'bg-white/5 border-white/5 hover:bg-white/10'}`} onClick={() => onChange(!active)}>

@@ -45,7 +45,10 @@ export const getProductsHandler = async (req: Request, res: Response) => {
     try {
         const { categoryId, lang } = req.query;
         const tenantId = req.tenantId!;
-        const cacheKey = `menu:${tenantId}:products:${String(lang || 'tr')}:${String(categoryId || 'all')}`;
+        const isQr = req.originalUrl.includes('/qr-web/') || req.originalUrl.includes('/qr/');
+        const includePassive = !isQr;
+
+        const cacheKey = `menu:${tenantId}:products:${String(lang || 'tr')}:${String(categoryId || 'all')}:${includePassive ? 'all' : 'active'}`;
         const cached = await getCacheJson<any[]>(cacheKey);
         if (cached) {
             res.setHeader('x-cache', 'hit');
@@ -57,9 +60,14 @@ export const getProductsHandler = async (req: Request, res: Response) => {
                 SELECT p.*, c.name as category_name
                 FROM products p
                 LEFT JOIN categories c ON p.category_id = c.id
-                WHERE p.is_active = true
             `;
             const params: any[] = [];
+
+            if (!includePassive) {
+                query += ` WHERE p.is_active = true`;
+            } else {
+                query += ` WHERE 1=1`;
+            }
 
             if (categoryId) {
                 params.push(Number(categoryId));
@@ -104,6 +112,7 @@ export const getProductsHandler = async (req: Request, res: Response) => {
                 description: prod.description,
                 displayDescription: t?.description || prod.description,
                 prepTimeMin: prod.prep_time_min,
+                isActive: prod.is_active === 1 || prod.is_active === true || prod.is_active === 'true',
                 variants: (prod.variants || []).map((v: any) => ({
                     id: v.id,
                     name: v.name,

@@ -1,11 +1,10 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// NextPOS — Auth Route (Multi-Tenant)
-// Login/Logout/Refresh — Schema-per-Tenant uyumlu
-// ═══════════════════════════════════════════════════════════════════════════
-
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { login, loginWithPin, refreshToken, logout, saasLogin, verifyAdminPin, verifySaas2fa, resendSaas2fa } from '../controllers/auth.controller.js';
+import { 
+    login, loginWithPin, refreshToken, logout, saasLogin, verifyAdminPin, verifySaas2fa, resendSaas2fa,
+    createImpersonationCode, loginWithImpersonationCode
+} from '../controllers/auth.controller.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 function envInt(name: string, fallback: number): number {
     const n = parseInt(process.env[name] ?? '', 10);
@@ -37,6 +36,11 @@ authRouter.post('/login/pin', loginLimiter, loginWithPin);
 authRouter.post('/login/saas', loginLimiter, saasLogin);
 authRouter.post('/login/saas/2fa/verify', loginLimiter, verifySaas2fa);
 authRouter.post('/login/saas/2fa/resend', loginLimiter, resendSaas2fa);
-authRouter.post('/verify-admin', loginLimiter, verifyAdminPin);
+authRouter.post('/verify-admin', authMiddleware, loginLimiter, verifyAdminPin);
 authRouter.post('/refresh', refreshLimiter, refreshToken);
 authRouter.post('/logout', logout);
+
+// Gölge Giriş (Impersonation)
+authRouter.post('/impersonate', authMiddleware, createImpersonationCode);
+authRouter.post('/login/impersonate', loginLimiter, loginWithImpersonationCode);
+

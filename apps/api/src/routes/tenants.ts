@@ -11,7 +11,7 @@ import {
     getTenantByIdHandler,
     resetTenantUserDevicesHandler,
     updateTenantHandler,
-    getSaaSStatsHandler,
+    getSaaSStatsHandler, getDashboardOverviewHandler,
     getSystemBackupsHandler,
     createBackupHandler,
     getSupportTicketsHandler,
@@ -32,6 +32,8 @@ import {
     updateSystemSettingsHandler,
     sendTenantCredentialsHandler,
     changeTenantUserPasswordHandler,
+    deleteTenantHandler,
+    retryTenantDnsHandler,
 } from '../controllers/tenants.controller.js';
 
 import {
@@ -43,7 +45,6 @@ import {
 } from '../controllers/pos-invoices.controller.js';
 
 import {
-    // Finans
     getPaymentHistory,
     createPayment,
     updatePaymentStatus,
@@ -54,9 +55,15 @@ import {
     getAccountingInstallments,
     getAccountingNotifications,
     getAccountingAllPayments,
+    getPaymentFinanceDetail,
     getInvoices,
     getInvoiceByNumber,
     recalculateResellerCommissionsHandler,
+    getResellerCommissionSummary,
+    getResellerZReportsSummary,
+    suspendTenantForOverdueInvoice,
+    getExpenses,
+    createExpense,
     // Güvenlik
     getAuditLogs, getLoginAttempts, getSecuritySummary,
     getApiKeys, createApiKey, revokeApiKey,
@@ -79,8 +86,11 @@ import {
 
 import {
     getResellers, createReseller, updateReseller, deleteReseller,
-    getResellerPlans, purchaseResellerPlan,
-    addResellerPlan, updateResellerPlan, deleteResellerPlan
+    getResellerTenants, getResellerPayments,
+    getResellerPlans, purchaseResellerPlan, cancelResellerPlanPurchaseHandler,
+    addResellerPlan, updateResellerPlan, deleteResellerPlan,
+    getResellerFinanceSettings, updateResellerFinanceSettings,
+    createResellerWithdrawal, getResellerWithdrawals, recalculateCommissions
 } from '../controllers/resellers.controller.js';
 
 import {
@@ -93,6 +103,11 @@ import {
 
 import { authMiddleware, requireRole } from '../middleware/auth.js';
 import { getAllTenantPresenceHandler, getTenantPresenceHandler } from '../controllers/presence.controller.js';
+import {
+    listSaasAdminsHandler,
+    patchSaasAdminActiveHandler,
+    resetSaasAdminPasswordHandler,
+} from '../controllers/saas-admins-super.controller.js';
 
 export const tenantsRouter = Router();
 
@@ -108,6 +123,13 @@ const requireAdminOrReseller = requireRole('super_admin', 'reseller');
 // 1. TEMEL RESTORAN (TENANT) YÖNETİMİ
 // ═══════════════════════════════════════
 tenantsRouter.get('/stats', requireAdminOrReseller, getSaaSStatsHandler);
+tenantsRouter.get('/dashboard/overview', requireAdminOrReseller, getDashboardOverviewHandler);
+
+// SaaS panel giriş hesapları (public.saas_admins) — yalnızca super_admin
+tenantsRouter.get('/saas-admins', requireSuperAdmin, listSaasAdminsHandler);
+tenantsRouter.patch('/saas-admins/:id/active', requireSuperAdmin, patchSaasAdminActiveHandler);
+tenantsRouter.post('/saas-admins/:id/reset-password', requireSuperAdmin, resetSaasAdminPasswordHandler);
+
 tenantsRouter.post('/', requireAdminOrReseller, createTenantHandler);
 tenantsRouter.post('/tenant-drafts/:draftId/complete-card', requireReseller, completeTenantCardDraftHandler);
 tenantsRouter.get('/', requireAdminOrReseller, getTenantsHandler);
@@ -151,9 +173,13 @@ tenantsRouter.get('/finance/accounting/upcoming', requireAdminOrReseller, getAcc
 tenantsRouter.get('/finance/accounting/installments', requireAdminOrReseller, getAccountingInstallments);
 tenantsRouter.get('/finance/accounting/notifications', requireAdminOrReseller, getAccountingNotifications);
 tenantsRouter.get('/finance/accounting/all-payments', requireAdminOrReseller, getAccountingAllPayments);
+tenantsRouter.get('/finance/payments/:id/detail', requireAdminOrReseller, getPaymentFinanceDetail);
 tenantsRouter.get('/finance/invoices', requireAdminOrReseller, getInvoices);
 tenantsRouter.get('/finance/invoices/:invoiceNumber', requireAdminOrReseller, getInvoiceByNumber);
-tenantsRouter.post('/finance/recalculate-commissions', requireAdminOrReseller, recalculateResellerCommissionsHandler);
+    tenantsRouter.post('/finance/recalculate-commissions', requireAdminOrReseller, recalculateResellerCommissionsHandler);
+    tenantsRouter.post('/finance/invoices/:id/suspend', requireAdminOrReseller, suspendTenantForOverdueInvoice);
+    tenantsRouter.get('/finance/expenses', requireAdminOrReseller, getExpenses);
+    tenantsRouter.post('/finance/expenses', requireAdminOrReseller, createExpense);
 
 // ═══════════════════════════════════════
 // 4. GÜVENLİK & DENETİM (Sadece Super Admin)
@@ -172,6 +198,18 @@ tenantsRouter.get('/resellers', requireSuperAdmin, getResellers);
 tenantsRouter.post('/resellers', requireSuperAdmin, createReseller);
 tenantsRouter.patch('/resellers/:id', requireSuperAdmin, updateReseller);
 tenantsRouter.delete('/resellers/:id', requireSuperAdmin, deleteReseller);
+tenantsRouter.get('/resellers/:id/tenants', requireSuperAdmin, getResellerTenants);
+tenantsRouter.get('/resellers/:id/payments', requireSuperAdmin, getResellerPayments);
+// BUG-2 FIX: Bayi bazlı komisyon kırılım raporu
+tenantsRouter.get('/resellers/commission-summary', requireSuperAdmin, getResellerCommissionSummary);
+tenantsRouter.get('/resellers/z-reports-summary', requireAdminOrReseller, getResellerZReportsSummary);
+
+// Bayi Finans & Para Çekme işlemleri (Sadece Bayi)
+tenantsRouter.get('/resellers/finance/settings', requireReseller, getResellerFinanceSettings);
+tenantsRouter.put('/resellers/finance/settings', requireReseller, updateResellerFinanceSettings);
+tenantsRouter.post('/resellers/finance/withdraw', requireReseller, createResellerWithdrawal);
+tenantsRouter.get('/resellers/finance/withdrawals', requireReseller, getResellerWithdrawals);
+tenantsRouter.post('/resellers/finance/recalculate', requireReseller, recalculateCommissions);
 
 // ═══════════════════════════════════════
 // Bayi lisans paketleri (liste: süper + bayi; satın alma: sadece bayi)
@@ -181,6 +219,7 @@ tenantsRouter.post('/resellers/plans', requireSuperAdmin, addResellerPlan);
 tenantsRouter.patch('/resellers/plans/:id', requireSuperAdmin, updateResellerPlan);
 tenantsRouter.delete('/resellers/plans/:id', requireSuperAdmin, deleteResellerPlan);
 tenantsRouter.post('/resellers/plans/purchase', requireReseller, purchaseResellerPlan);
+tenantsRouter.post('/resellers/plans/purchase/cancel', requireReseller, cancelResellerPlanPurchaseHandler);
 
 
 // ═══════════════════════════════════════
@@ -234,9 +273,12 @@ tenantsRouter.get('/:id/pos-invoices/:posInvoiceNo/pdf', requireAdminOrReseller,
 tenantsRouter.post('/:id/pos-invoices/:posInvoiceNo/send-email', requireAdminOrReseller, sendPosInvoiceEmailHandler);
 tenantsRouter.get('/:id/pos-invoices-events', requireAdminOrReseller, listPosInvoiceEventsHandler);
 
+tenantsRouter.post('/:id/retry-dns', requireAdminOrReseller, retryTenantDnsHandler);
+
 // ═══════════════════════════════════════
 // 9. GENERIC TENANT ROUTES (MUST BE LAST)
 // ═══════════════════════════════════════
+tenantsRouter.delete('/:id', requireSuperAdmin, deleteTenantHandler);
 tenantsRouter.get('/:id', requireAdminOrReseller, getTenantByIdHandler);
 tenantsRouter.patch('/:id', requireAdminOrReseller, updateTenantHandler);
 

@@ -1,4 +1,7 @@
 import { offlineDb } from './offlineDb';
+import { isOfflineLocked } from './offlinePolicy';
+import { getOfflineAuthHeaders, getOfflineToken, validateHeartbeatResponse } from './offlineAttestation';
+import { getDeviceId } from './deviceId';
 
 const PENDING_EVENT = 'nextpos-sync-pending';
 
@@ -23,8 +26,12 @@ export async function enqueuePendingSync(
     entityType: 'pos_order' | 'pos_checkout',
     payload: Record<string, unknown>
 ): Promise<void> {
+    if (isOfflineLocked()) {
+        throw new Error('OFFLINE_LOCKED');
+    }
     await purgeExpiredPendingSync();
-    const offlineId = crypto.randomUUID();
+    const offlineId = (payload.offlineId as string) || crypto.randomUUID();
+    payload.offlineId = offlineId;
     await offlineDb.pendingSync.add({
         offlineId,
         entityType,
@@ -59,8 +66,26 @@ export function shouldQueueOfflineError(err: unknown): boolean {
 
 export type FlushSyncResult = { flushed: number; serverFailed: number; expiredDropped: number };
 
+async function ensureOfflineToken(getHeaders: () => Record<string, string>): Promise<void> {
+    if (getOfflineToken()) return;
+    const headers = getHeaders();
+    if (!headers.Authorization) return;
+    try {
+        const res = await fetch('/api/v1/sync/heartbeat', {
+            headers: { ...headers, 'x-device-id': getDeviceId() },
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as Parameters<typeof validateHeartbeatResponse>[0];
+        const tenantId = headers['x-tenant-id'];
+        if (tenantId) validateHeartbeatResponse(data, tenantId);
+    } catch {
+        /* ignore */
+    }
+}
+
 /** Tüm bekleyen kayıtları tek istekte sunucu kuyruğuna iter. Sunucu işleme hatası varsa IndexedDB silinmez. */
 export async function flushPendingSync(getHeaders: () => Record<string, string>): Promise<FlushSyncResult> {
+    await ensureOfflineToken(getHeaders);
     const expiredDropped = await purgeExpiredPendingSync();
     const rows = await offlineDb.pendingSync.orderBy('createdAt').toArray();
     if (rows.length === 0) return { flushed: 0, serverFailed: 0, expiredDropped };
@@ -74,7 +99,7 @@ export async function flushPendingSync(getHeaders: () => Record<string, string>)
 
     const res = await fetch('/api/v1/sync/push', {
         method: 'POST',
-        headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+        headers: { ...getHeaders(), ...getOfflineAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ items }),
     });
 
@@ -87,17 +112,15 @@ export async function flushPendingSync(getHeaders: () => Record<string, string>)
 
     const j = (await res.json()) as { failed?: number };
     const serverFailed = Number(j.failed ?? 0);
-    if (serverFailed > 0) {
-        notifyPendingChanged();
-        return { flushed: 0, serverFailed, expiredDropped };
-    }
 
-    const ids = rows.map((r) => r.id).filter((id): id is number => id != null);
-    if (ids.length) {
-        await offlineDb.pendingSync.bulkDelete(ids);
+    if (serverFailed === 0) {
+        const ids = rows.map((r) => r.id).filter((id): id is number => id != null);
+        if (ids.length) {
+            await offlineDb.pendingSync.bulkDelete(ids);
+        }
     }
     notifyPendingChanged();
-    return { flushed: rows.length, serverFailed: 0, expiredDropped };
+    return { flushed: rows.length, serverFailed, expiredDropped };
 }
 
 /** Sunucuda failed olan sync_queue satırlarını yeniden dener (admin/kasiyer). */

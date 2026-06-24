@@ -32,13 +32,13 @@ export const ShopTab: React.FC = () => {
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Header / Info */}
-            <div className="bg-gradient-to-r from-blue-600/20 to-indigo-600/20 p-8 rounded-[32px] border border-blue-500/20 backdrop-blur-xl relative overflow-hidden group">
+            <div className="bg-gradient-to-r from-blue-600/20 to-indigo-600/20 p-8 rounded-2xl border border-blue-500/20 backdrop-blur-xl relative overflow-hidden group">
                 <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform duration-700">
                     <FiShoppingCart size={120} />
                 </div>
                 <div className="relative z-10">
-                    <h2 className="text-2xl font-black text-white mb-2">{t('shop.title')}</h2>
-                    <p className="text-slate-400 max-w-2xl text-sm font-medium leading-relaxed">
+                    <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-2">{t('shop.title')}</h2>
+                    <p className="text-slate-500 dark:text-slate-400 max-w-2xl text-sm font-medium leading-relaxed">
                         {t('shop.intro')}{' '}
                         <span className="text-blue-400 font-bold">&quot;{t('shop.introHighlight')}&quot;</span>{' '}
                         {t('shop.introEnd')}
@@ -72,32 +72,32 @@ export const ShopTab: React.FC = () => {
                     const upgradeCost = isUpgrade ? planPrice - currentPrice : planPrice;
 
                     return (
-                        <div key={plan.id} className={`bg-white/5 border rounded-[32px] overflow-hidden transition-all group flex flex-col h-full ${isCurrent ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-white/5 hover:border-blue-500/30'}`}>
+                        <div key={plan.id} className={`bg-white/5 border rounded-2xl overflow-hidden transition-all group flex flex-col h-full ${isCurrent ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-slate-200 dark:border-slate-800 hover:border-blue-500/30'}`}>
                             {isCurrent && (
-                                <div className="bg-emerald-500 text-white text-[10px] font-black uppercase tracking-widest text-center py-1.5 flex items-center justify-center gap-2">
+                                <div className="bg-emerald-500 text-slate-800 dark:text-white text-[10px] font-black uppercase tracking-widest text-center py-1.5 flex items-center justify-center gap-2">
                                     <FiCheck /> {t('shop.currentBadge')}
                                 </div>
                             )}
                             
                             <div className="p-8 pb-4">
                                 <div className="flex justify-between items-start mb-6">
-                                    <div className={`p-3 rounded-2xl border transition-all duration-300 ${isCurrent ? 'bg-emerald-500 text-white border-emerald-400' : 'bg-blue-600/10 border-blue-500/20 group-hover:bg-blue-600 group-hover:text-white'}`}>
+                                    <div className={`p-3 rounded-2xl border transition-all duration-300 ${isCurrent ? 'bg-emerald-500 text-slate-800 dark:text-white border-emerald-400' : 'bg-blue-600/10 border-blue-500/20 group-hover:bg-blue-600 group-hover:text-slate-800 dark:text-white'}`}>
                                         <FiPackage size={24} />
                                     </div>
                                     <div className="text-right">
                                         <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{plan.code}</span>
                                     </div>
                                 </div>
-                                <h3 className="text-xl font-bold text-white mb-2">{plan.name}</h3>
+                                <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">{plan.name}</h3>
                                 <div className="flex items-baseline gap-1 mb-6">
-                                    <span className="text-3xl font-black text-white">{currency}{plan.price}</span>
+                                    <span className="text-3xl font-black text-slate-800 dark:text-white">{currency}{plan.price}</span>
                                     <span className="text-slate-500 text-xs font-bold">{t('shop.perPack')}</span>
                                 </div>
                             </div>
 
                             <div className="px-8 pb-8 flex-1 space-y-4">
                                 <div className={`p-4 rounded-2xl border ${isCurrent ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-blue-600/5 border-blue-500/10'}`}>
-                                    <span className="text-xs text-slate-400 block mb-1">{t('shop.licenseCap')}</span>
+                                    <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">{t('shop.licenseCap')}</span>
                                     <span className={`text-lg font-black ${isCurrent ? 'text-emerald-400' : 'text-blue-400'}`}>
                                         {isUpgrade
                                             ? t('shop.extraLicenses').replace('{n}', String(plan.license_count - (currentPlan?.license_count || 0)))
@@ -107,7 +107,7 @@ export const ShopTab: React.FC = () => {
 
                                 <ul className="space-y-3">
                                     {plan.description?.split('+').map((feature: string, i: number) => (
-                                        <li key={i} className="flex items-start gap-3 text-xs text-slate-400 font-medium">
+                                        <li key={i} className="flex items-start gap-3 text-xs text-slate-500 dark:text-slate-400 font-medium">
                                             <div className={`mt-1 flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center ${isCurrent ? 'bg-emerald-500/10' : 'bg-blue-500/10'}`}>
                                                 <FiCheck className={isCurrent ? 'text-emerald-400' : 'text-emerald-400'} size={10} />
                                             </div>
@@ -123,8 +123,8 @@ export const ShopTab: React.FC = () => {
                                     disabled={isLoading || isCurrent || isLower}
                                     className={`w-full py-4 border rounded-2xl text-xs font-black transition-all flex items-center justify-center gap-2 group/btn ${
                                         isCurrent ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 cursor-default' : 
-                                        isLower ? 'bg-white/5 border-white/5 text-slate-600 cursor-not-allowed grayscale' :
-                                        'bg-white/5 hover:bg-emerald-600 hover:text-white border-white/10 hover:border-emerald-500 text-slate-200'
+                                        isLower ? 'bg-white/5 border-slate-200 dark:border-slate-800 text-slate-600 cursor-not-allowed grayscale' :
+                                        'bg-white/5 hover:bg-emerald-600 hover:text-slate-800 dark:text-white border-slate-200 dark:border-slate-800 hover:border-emerald-500 text-slate-200'
                                     }`}
                                 >
                                     {isLoading ? (
@@ -147,14 +147,14 @@ export const ShopTab: React.FC = () => {
             </div>
 
             {/* Wallet Info Footer */}
-            <div className="bg-slate-900 border border-white/5 p-6 rounded-[28px] flex items-center justify-between">
+            <div className="bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-[28px] flex items-center justify-between">
                 <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
                         <FiDollarSign size={24} />
                     </div>
                     <div>
                         <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">{t('shop.walletLabel')}</span>
-                        <span className="text-2xl font-black text-white">{currency}{admin?.wallet_balance || '0.00'}</span>
+                        <span className="text-2xl font-black text-slate-800 dark:text-white">{currency}{admin?.wallet_balance || '0.00'}</span>
                     </div>
                 </div>
                 <button type="button" className="text-xs font-black text-blue-400 hover:text-blue-300 transition-all underline underline-offset-8">{t('shop.topUp')}</button>

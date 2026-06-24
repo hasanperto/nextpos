@@ -23,7 +23,10 @@ import { AdminCouriers } from './pages/AdminCouriers';
 import { AdminSettings } from './pages/AdminSettings';
 import { AdminAccounting } from './pages/AdminAccounting';
 import { AdminCampaigns } from './pages/AdminCampaigns';
+import { AdminSettlements } from './pages/AdminSettlements';
 import { AdminReservations } from './pages/AdminReservations';
+import { AdminSupport } from './pages/AdminSupport';
+import { AdminBilling } from './pages/AdminBilling';
 import FloorPlanDesigner from './pages/FloorPlanDesigner';
 import SaaSAdmin from './pages/SaaSAdmin';
 
@@ -32,10 +35,15 @@ import HandoverPanel from './pages/HandoverPanel';
 import { Toaster } from 'react-hot-toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineBanner } from './components/OfflineBanner';
+import { OfflineLockScreen } from './components/OfflineLockScreen';
+import { OfflinePinGate } from './components/OfflinePinGate';
+import { NotificationOverlay } from './components/notifications/NotificationOverlay';
+import { ModuleLockedCTA } from './components/ModuleLockedCTA';
 
 // Auth-protected route wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { isAuthenticated } = useAuthStore();
+    if (isOfflineGraceExpired()) return <OfflineLockScreen />;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
     return <>{children}</>;
 };
@@ -55,6 +63,7 @@ const COURIER_ROLES = new Set(['courier', 'admin', 'cashier']);
 
 const CourierRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { isAuthenticated, user, billingWorkspace } = useAuthStore();
+    if (isOfflineGraceExpired()) return <OfflineLockScreen />;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
     if (!user?.role || !COURIER_ROLES.has(user.role)) {
         return <Navigate to="/cashier" replace />;
@@ -69,6 +78,7 @@ const CourierRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 const KITCHEN_ROLES = new Set(['kitchen', 'admin']);
 const KitchenRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { isAuthenticated, user, billingWorkspace } = useAuthStore();
+    if (isOfflineGraceExpired()) return <OfflineLockScreen />;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
     if (!user?.role || !KITCHEN_ROLES.has(user.role)) {
         return <Navigate to="/cashier" replace />;
@@ -82,6 +92,7 @@ const KitchenRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 const WAITER_ROLES = new Set(['waiter', 'admin', 'cashier']);
 const WaiterRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { isAuthenticated, user, billingWorkspace } = useAuthStore();
+    if (isOfflineGraceExpired()) return <OfflineLockScreen />;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
     if (!user?.role || !WAITER_ROLES.has(user.role)) {
         return <Navigate to="/cashier" replace />;
@@ -96,6 +107,7 @@ const WaiterRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const HANDOVER_ROLES = new Set(['admin', 'cashier']);
 const HandoverRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { isAuthenticated, user } = useAuthStore();
+    if (isOfflineGraceExpired()) return <OfflineLockScreen />;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
     if (!user?.role || !HANDOVER_ROLES.has(user.role)) {
         return <Navigate to="/" replace />;
@@ -106,6 +118,7 @@ const HandoverRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 const CASHIER_ROLES = new Set(['admin', 'cashier']);
 const CashierRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { isAuthenticated, user } = useAuthStore();
+    if (isOfflineGraceExpired()) return <OfflineLockScreen />;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
     if (!user?.role || !CASHIER_ROLES.has(user.role)) {
         // Redirect to their default path if they try to access cashier
@@ -120,7 +133,7 @@ const CashierRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 const EntitlementRoute: React.FC<{ code: string; children: React.ReactNode }> = ({ code, children }) => {
     const { billingWorkspace } = useAuthStore();
     if (!getEntitlementEnabled(billingWorkspace, code)) {
-        return <Navigate to="/admin" replace />;
+        return <ModuleLockedCTA code={code} />;
     }
     return <>{children}</>;
 };
@@ -137,10 +150,37 @@ const KitchenRedirect: React.FC = () => {
 };
 
 import { PosLocaleProvider } from './contexts/PosLocaleContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { useOfflineSyncBootstrap } from './hooks/useOfflineSyncBootstrap';
+import { useOfflinePolicyBootstrap } from './hooks/useOfflinePolicyBootstrap';
+import './styles/theme-overrides.css';
+import { ImpersonationBanner } from './components/ImpersonationBanner';
+import toast from 'react-hot-toast';
+import { isOfflineGraceExpired } from './lib/offlinePolicy';
+
+// Impersonation fetch block interceptor
+if (typeof window !== 'undefined' && !(window as any).__fetchIntercepted) {
+    (window as any).__fetchIntercepted = true;
+    const originalFetch = window.fetch;
+    window.fetch = async function (input, init) {
+        const method = String(init?.method || 'GET').toUpperCase();
+        if (method === 'DELETE') {
+            const isImpersonated = useAuthStore.getState().isImpersonated;
+            if (isImpersonated) {
+                toast.error('Gölge giriş (impersonation) modunda silme işlemi engellenmiştir.');
+                return new Response(JSON.stringify({ error: 'Gölge giriş modunda silme işlemi engellenmiştir.' }), {
+                    status: 403,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+        }
+        return originalFetch.apply(this, arguments as any);
+    };
+}
 
 function OfflineSyncHost() {
     useOfflineSyncBootstrap();
+    useOfflinePolicyBootstrap();
     return null;
 }
 
@@ -148,9 +188,12 @@ function App() {
     return (
         <Router>
             <ErrorBoundary>
+                <ThemeProvider>
                 <PosLocaleProvider>
                     <OfflineSyncHost />
-                    <OfflineBanner />
+                    <OfflineLockScreen />
+                    <OfflinePinGate />
+                    <ImpersonationBanner />
                     <Routes>
                         {/* Public Routes */}
                         <Route path="/login" element={<LoginPage />} />
@@ -185,6 +228,7 @@ function App() {
                             <Route path="floor" element={<AdminFloor />} />
                             <Route path="staff" element={<AdminStaff />} />
                             <Route path="staff-performance" element={<AdminStaffPerformance />} />
+                            <Route path="settlements" element={<AdminSettlements />} />
                             <Route path="customers" element={<EntitlementRoute code="customer_crm"><AdminCustomers /></EntitlementRoute>} />
                             <Route path="campaigns" element={<AdminCampaigns />} />
                             <Route path="reservations" element={<EntitlementRoute code="table_reservation"><AdminReservations /></EntitlementRoute>} />
@@ -194,15 +238,17 @@ function App() {
                             <Route path="delivery" element={<EntitlementRoute code="courier_module"><AdminDeliveryZones /></EntitlementRoute>} />
                             <Route path="couriers" element={<EntitlementRoute code="courier_module"><AdminCouriers /></EntitlementRoute>} />
                             <Route path="designer" element={<FloorPlanDesigner />} />
+                            <Route path="billing" element={<AdminBilling />} />
                             <Route path="settings" element={<AdminSettings />} />
                             <Route path="accounting" element={<AdminAccounting />} />
+                            <Route path="support" element={<AdminSupport />} />
                         </Route>
                         <Route path="/waiter" element={<WaiterRoute><WaiterPanel /></WaiterRoute>} />
                         <Route path="/courier" element={
                             <CourierRoute><CourierPanel /></CourierRoute>
                         } />
 
-                        <Route path="/queue" element={<QueueDisplay />} />
+                        <Route path="/queue" element={<ProtectedRoute><EntitlementRoute code="queue_display"><QueueDisplay /></EntitlementRoute></ProtectedRoute>} />
                         {/* Handover paneline HandoverRoute koruması eklendi */}
                         <Route path="/handover" element={<HandoverRoute><HandoverPanel /></HandoverRoute>} />
 
@@ -215,7 +261,9 @@ function App() {
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                     <Toaster position="top-right" />
+                    <NotificationOverlay />
                 </PosLocaleProvider>
+                </ThemeProvider>
             </ErrorBoundary>
         </Router>
     );

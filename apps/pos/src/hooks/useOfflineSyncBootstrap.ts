@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../store/useAuthStore';
 import { flushPendingSync, getOfflineSyncMaxAgeMs } from '../lib/syncQueueClient';
+import { markOnlineSuccess } from '../lib/offlinePolicy';
 
 /**
  * Oturum açıkken: çevrimdışı senkron kuyruğunu internet gelince ve periyodik olarak sunucuya iter.
@@ -23,11 +24,20 @@ export function useOfflineSyncBootstrap(): void {
             flushing.current = true;
             try {
                 const r = await flushPendingSync(getAuthHeaders);
+                if (r.flushed > 0 && r.serverFailed === 0) {
+                    markOnlineSuccess();
+                }
                 if (r.expiredDropped > 0) {
                     const h = Math.round(getOfflineSyncMaxAgeMs() / (60 * 60 * 1000));
                     toast.error(
                         `Çevrimdışı kuyrukta ${r.expiredDropped} kayıt süresi doldu (${h} saat) ve silindi. Yeniden işlem gerekir.`,
                         { duration: 8000 },
+                    );
+                }
+                if (r.serverFailed > 0) {
+                    toast.error(
+                        `Çevrimdışı kuyruktan ${r.serverFailed} kayıt sunucuda işlenirken hata aldı. Lütfen yönetici panelini kontrol edin.`,
+                        { duration: 8000 }
                     );
                 }
             } catch (e) {

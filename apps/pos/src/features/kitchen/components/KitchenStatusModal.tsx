@@ -31,13 +31,42 @@ export const KitchenStatusModal: React.FC = () => {
     const { showKitchenStatus, setKitchenStatus, setCartOpen } = useUIStore();
     const { t } = usePosLocale();
 
+    const [processingOrderIds, setProcessingOrderIds] = useState<Record<number, boolean>>({});
+
     const handleAddTakeawayToCart = useCallback(
-        async (orderId: number) => {
-            await loadOrderToCart(String(orderId));
-            setKitchenStatus(false);
-            if (window.innerWidth < 1280) setCartOpen(true);
+        async (orderId: number, order?: any) => {
+            if (processingOrderIds[orderId]) return;
+            setProcessingOrderIds((prev) => ({ ...prev, [orderId]: true }));
+
+            const headers = {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json',
+            };
+            try {
+                await fetch(`/api/v1/orders/${orderId}/status`, {
+                    method: 'PATCH',
+                    headers,
+                    body: JSON.stringify({ status: 'ready', payment_status: 'in_bill' }),
+                });
+            } catch {
+                // Arka plandaki işaretleme başarısızsa yine de sepete eklemeyi deniyoruz.
+            }
+
+            try {
+                const ok = await loadOrderToCart(String(orderId), order, { append: true });
+                if (!ok) {
+                    toast(t('handover.already_added_to_bill'), {
+                        icon: 'ℹ️',
+                    });
+                    return;
+                }
+                setKitchenStatus(false);
+                if (window.innerWidth < 1280) setCartOpen(true);
+            } finally {
+                setProcessingOrderIds((prev) => ({ ...prev, [orderId]: false }));
+            }
         },
-        [loadOrderToCart, setKitchenStatus, setCartOpen]
+        [loadOrderToCart, setKitchenStatus, setCartOpen, getAuthHeaders, t, processingOrderIds]
     );
 
     const [modalTab, setModalTab] = useState<'kitchen' | 'handover'>('kitchen');
@@ -149,7 +178,7 @@ export const KitchenStatusModal: React.FC = () => {
                                     return (
                                         <div key={idx} className="bg-[var(--color-pos-bg-tertiary)] border-2 border-emerald-500/30 rounded-2xl overflow-hidden shadow-lg group hover:border-emerald-500 transition-all">
                                             <div className={`px-3 py-1.5 flex justify-between items-center ${statusColor} text-white font-black italic tracking-widest text-[10px]`}>
-                                                <span>{isDineIn ? `🪑 ${t('cart.dineIn')} ${group.tableName}` : group.tableName === 'PAKET' ? t('cart.takeaway') : group.tableName}</span>
+                                                <span>{isDineIn ? `🪑 ${t('cart.dineIn')} ${group.tableName}` : group.tableName === 'PAKET' ? (group.types.has('delivery') ? `🛵 ${t('cart.delivery')}` : `🥡 ${t('cart.takeaway')}`) : group.tableName}</span>
                                                 <div className="flex items-center gap-2">
                                                     {group.items.length} {t('kitchen.items_count')}
                                                 </div>
@@ -171,17 +200,27 @@ export const KitchenStatusModal: React.FC = () => {
                                                     ))}
                                                 </div>
                                                 <div className="flex flex-col gap-2">
-                                                    <button
-                                                        onClick={() => { 
-                                                            const firstOrderId = Array.from(group.orderIds)[0];
-                                                            void loadOrderToCart(String(firstOrderId)); 
-                                                            setKitchenStatus(false); 
-                                                            if (window.innerWidth < 1280) setCartOpen(true); 
-                                                        }}
-                                                        className="w-full h-10 bg-emerald-500 hover:bg-emerald-600 rounded-xl font-black text-[10px] text-white transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 uppercase tracking-widest"
-                                                    >
-                                                        <FiShoppingCart size={14} /> {t('kitchen.take_to_cart')}
-                                                    </button>
+                                                     {(() => {
+                                                         const firstOrderId = Array.from(group.orderIds)[0];
+                                                         const isProcessing = processingOrderIds[firstOrderId];
+                                                         return (
+                                                             <button
+                                                                 disabled={isProcessing}
+                                                                 onClick={() => { 
+                                                                     void handleAddTakeawayToCart(firstOrderId);
+                                                                 }}
+                                                                 className="w-full h-10 bg-emerald-500 hover:bg-emerald-600 rounded-xl font-black text-[10px] text-white transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                                                             >
+                                                                 {isProcessing ? (
+                                                                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                                                 ) : (
+                                                                     <>
+                                                                         <FiShoppingCart size={14} /> {t('kitchen.take_to_cart')}
+                                                                     </>
+                                                                 )}
+                                                             </button>
+                                                         );
+                                                     })()}
 
                                                     <button
                                                         onClick={async () => {

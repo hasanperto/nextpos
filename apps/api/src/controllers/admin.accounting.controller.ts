@@ -83,8 +83,10 @@ export const listAccountingTransactions = async (req: Request, res: Response) =>
             }
 
             if (startDate && endDate) {
+                const sDate = String(startDate).includes(' ') || String(startDate).includes('T') ? String(startDate) : `${startDate} 00:00:00`;
+                const eDate = String(endDate).includes(' ') || String(endDate).includes('T') ? String(endDate) : `${endDate} 23:59:59.999`;
                 listQuery += ` AND o.created_at BETWEEN ? AND ?`;
-                params.push(startDate, endDate);
+                params.push(sDate, eDate);
             }
 
             listQuery += ` ORDER BY o.created_at DESC LIMIT ? OFFSET ?`;
@@ -135,6 +137,96 @@ export const updateTransaction = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'İşlem bulunamadı veya silinmiş' });
         }
         res.status(500).json({ error: 'Güncelleme başarısız: ' + error.message });
+    }
+};
+
+/** Storno: Orijinal kaydı korur, iade/iptal kaydı oluşturur (soft-delete yapmaz). */
+export const voidTransaction = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const orderId = Number(req.params.id);
+        const { reason, type = 'void' } = (req.body || {}) as { reason?: string; type?: 'void' | 'refund' };
+        const voidType = type === 'refund' ? 'refund' : 'void';
+
+        if (!Number.isFinite(orderId)) {
+            return res.status(400).json({ error: 'Geçersiz İşlem ID' });
+        }
+        if (!reason || !String(reason).trim()) {
+            return res.status(400).json({ error: 'Storno nedeni zorunludur' });
+        }
+
+        await withTenantTransaction(tenantId, async (connection) => {
+            const [beforeRows]: any = await connection.query(
+                `SELECT id, total_amount, status, payment_status, created_at, deleted_at
+                 FROM orders WHERE id = ?`,
+                [orderId]
+            );
+            const before = beforeRows?.[0];
+            if (!before) throw new Error('NOT_FOUND');
+            if (before.deleted_at) throw new Error('ALREADY_DELETED');
+            if (String(before.payment_status) === 'refunded') throw new Error('ALREADY_VOIDED');
+
+            const by = Number(req.user?.userId);
+            const voidedBy = Number.isFinite(by) ? by : null;
+            const reasonText = String(reason).trim().slice(0, 500);
+
+            const [result]: any = await connection.query(
+                `UPDATE orders
+                 SET status = 'cancelled',
+                     payment_status = 'refunded',
+                     delete_reason = ?,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ? AND deleted_at IS NULL`,
+                [reasonText, orderId]
+            );
+            if (Number(result?.affectedRows || 0) === 0) throw new Error('NOT_FOUND');
+
+            const [payRows]: any = await connection.query(
+                `SELECT method FROM payments WHERE order_id = ? ORDER BY id DESC LIMIT 1`,
+                [orderId]
+            );
+            const payMethod = payRows?.[0]?.method || 'cash';
+            const negAmount = -Math.abs(Number(before.total_amount || 0));
+            if (negAmount < 0) {
+                await connection.query(
+                    `INSERT INTO payments (order_id, amount, method, status, notes, cashier_id)
+                     VALUES (?, ?, ?, 'refunded', ?, ?)`,
+                    [orderId, negAmount, payMethod, `[${voidType}] ${reasonText}`, voidedBy]
+                );
+            }
+
+            try {
+                await queryPublic(
+                    `INSERT INTO \`public\`.audit_logs (user_id, action, entity_type, entity_id, old_value, new_value, ip_address, user_agent)
+                     VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?)`,
+                    [
+                        String(req.user?.username || req.user?.userId || 'unknown'),
+                        'tenant_accounting_order_voided',
+                        'order',
+                        String(orderId),
+                        JSON.stringify(before || {}),
+                        JSON.stringify({
+                            void_type: voidType,
+                            void_reason: reasonText,
+                            voided_by: voidedBy,
+                            tenant_id: tenantId,
+                        }),
+                        String(req.ip || ''),
+                        String(req.headers['user-agent'] || ''),
+                    ]
+                );
+            } catch {
+                /* ignore audit failure */
+            }
+        });
+
+        res.json({ message: 'Storno kaydı oluşturuldu', type: voidType });
+    } catch (error: any) {
+        console.error('Void Transaction Error:', error);
+        if (String(error?.message) === 'NOT_FOUND') return res.status(404).json({ error: 'İşlem bulunamadı' });
+        if (String(error?.message) === 'ALREADY_DELETED') return res.status(409).json({ error: 'İşlem silinmiş' });
+        if (String(error?.message) === 'ALREADY_VOIDED') return res.status(409).json({ error: 'İşlem zaten storno edilmiş' });
+        res.status(500).json({ error: 'Storno işlemi başarısız: ' + error.message });
     }
 };
 

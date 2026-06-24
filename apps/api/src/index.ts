@@ -50,10 +50,11 @@ import { API_VERSION } from '@nextpos/shared-types';
 import { testConnection, closePool } from './lib/db.js';
 import { migrateBillingTables, runBillingCron, runAccountingCron } from './services/billing.service.js';
 import { runAuditRetentionCleanup } from './services/audit-retention.service.js';
+import { runServiceCallEscalationTick } from './services/service-call-escalation.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 dotenv.config({ path: path.resolve(__dirname, '../.env.local'), override: true });
-dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
 
 function envInt(name: string, fallback: number): number {
     const n = parseInt(process.env[name] ?? '', 10);
@@ -104,7 +105,8 @@ const io = new SocketServer(httpServer, {
 });
 
 // Redis Adapter (horizontal scale)
-const pubClient = createClient({ url: process.env.REDIS_URL || 'redis://localhost:6379' });
+/** Docker Compose varsayılanı 6380 (host); yerel 6379 kullanıyorsanız REDIS_URL ayarlayın */
+const pubClient = createClient({ url: process.env.REDIS_URL || 'redis://127.0.0.1:6380' });
 const subClient = pubClient.duplicate();
 
 pubClient.on('error', (err) => console.error('❌ Redis Pub Error:', err));
@@ -136,14 +138,15 @@ app.use(cors({
         if (/\.webotonom\.de$/.test(new URL(origin).hostname)) return callback(null, true);
         callback(null, true);
     },
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id', 'x-branch-id'],
     credentials: true,
 }));
 /** Stripe webhook imza doğrulaması için ham gövde (express.json'dan önce) */
 app.post('/api/v1/saas-public/webhooks/stripe', express.raw({ type: 'application/json' }), (req, res) => {
     void handleStripeWebhook(req, res);
 });
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '15mb' }));
+app.use(express.urlencoded({ limit: '15mb', extended: true }));
 app.use('/public', express.static(path.join(process.cwd(), 'public')));
 
 if (process.env.NODE_ENV === 'production') {
@@ -294,10 +297,8 @@ setupSocketHandlers(io);
 // Start Server
 // ═══════════════════════════════════════
 
-const PORT =
-    process.env.NODE_ENV === 'production'
-        ? process.env.NEXTPOS_API_PORT || process.env.PORT || 3001
-        : process.env.NEXTPOS_API_PORT || 3001;
+/** Varsayılan 3101: 3001 sıkça Docker / başka servislerle çakışır */
+const PORT = process.env.NEXTPOS_API_PORT || process.env.PORT || 3101;
 import { initAutomatedBackups } from './services/backup.service.js';
 
 async function startServer() {
@@ -332,6 +333,10 @@ async function startServer() {
   ╚══════════════════════════════════════════════════╝
   `);
     });
+
+    setInterval(() => {
+        void runServiceCallEscalationTick(io);
+    }, 20_000);
 }
 
 // Graceful shutdown

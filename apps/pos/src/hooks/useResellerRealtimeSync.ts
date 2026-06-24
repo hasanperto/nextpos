@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import { getSocketOrigin } from '../lib/socketOrigin';
 import { useSaaSStore } from '../store/useSaaSStore';
 
 /**
@@ -13,11 +14,7 @@ export function useResellerRealtimeSync(): void {
         if (!token || !admin) return;
         if (admin.role !== 'reseller' && admin.role !== 'super_admin') return;
 
-        /** Aynı origin → Vite /socket.io proxy. WS sorununda .env: VITE_SOCKET_ORIGIN=http://127.0.0.1:3001 */
-        const origin =
-            (import.meta.env.VITE_SOCKET_ORIGIN as string | undefined)?.replace(/\/$/, '') ||
-            (typeof window !== 'undefined' ? window.location.origin : '');
-        const socket: Socket = io(origin, {
+        const socket: Socket = io(getSocketOrigin(), {
             path: '/socket.io',
             transports: ['polling', 'websocket'],
             reconnectionDelay: 1000,
@@ -61,12 +58,14 @@ export function useResellerRealtimeSync(): void {
         socket.on('reseller:sale_update', onSaleUpdate);
         socket.on('reseller:tenant_status', onTenantStatus);
         socket.on('GLOBAL_LIVE_FEED', onGlobalLiveFeed);
+        socket.on('saas:live_feed', onGlobalLiveFeed);
 
         return () => {
             socket.off('connect', onConnect);
             socket.off('reseller:sale_update', onSaleUpdate);
             socket.off('reseller:tenant_status', onTenantStatus);
             socket.off('GLOBAL_LIVE_FEED', onGlobalLiveFeed);
+            socket.off('saas:live_feed', onGlobalLiveFeed);
             socket.disconnect();
         };
     }, [token, admin, addLiveFeedItem, fetchTenants, fetchStats]);

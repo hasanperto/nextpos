@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { queryPublic, withTenant, withTenantTransaction } from '../lib/db.js';
 import { emitTenantMenuCatalogStale } from '../lib/tenantSocketEmit.js';
 import { delCacheByPrefix } from '../lib/cache.js';
@@ -758,5 +760,41 @@ export const putProductRecipe = async (req: Request, res: Response) => {
         }
         console.error('putProductRecipe', e);
         res.status(500).json({ error: 'Reçete kaydedilemedi' });
+    }
+};
+
+export const uploadProductImage = async (req: Request, res: Response) => {
+    try {
+        const { fileName, fileData } = req.body;
+        if (!fileName || !fileData) {
+            return res.status(400).json({ error: 'fileName ve fileData (base64) gereklidir!' });
+        }
+
+        // Clean & validate filename
+        const ext = path.extname(fileName).toLowerCase();
+        if (!['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext)) {
+            return res.status(400).json({ error: 'Sadece görsel dosyaları (.png, .jpg, .jpeg, .webp, .gif) yüklenebilir!' });
+        }
+
+        const base64Data = fileData.replace(/^data:image\/\w+;base64,/, "");
+        const buffer = Buffer.from(base64Data, 'base64');
+
+        const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'products');
+        // Ensure directory exists
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        // Unique filename: timestamp + random + ext
+        const uniqueFileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}${ext}`;
+        const filePath = path.join(uploadDir, uniqueFileName);
+
+        fs.writeFileSync(filePath, buffer);
+
+        const urlPath = `/public/uploads/products/${uniqueFileName}`;
+        res.json({ success: true, imageUrl: urlPath });
+    } catch (error) {
+        console.error('Resim yükleme hatası:', error);
+        res.status(500).json({ error: 'Resim sunucuya yüklenirken bir hata oluştu.' });
     }
 };

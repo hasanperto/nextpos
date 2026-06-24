@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * API çalışırken: `npm run dev:api` veya `PORT=3001` ile `npm start` (apps/api).
+ * API çalışırken: `npm run dev:api` veya `PORT=3101` ile `npm start` (apps/api).
  * Özel adres: `API_BASE_URL=http://localhost:3002 npm run test:e2e`
  */
 test.describe('API duman (public uçlar)', () => {

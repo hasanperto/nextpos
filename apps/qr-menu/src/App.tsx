@@ -50,12 +50,22 @@ type CartLine = {
     unitPrice: number;
 };
 
+type CustomerAddress = {
+    id: number;
+    label?: string;
+    address: string;
+    district?: string;
+    city?: string;
+    is_default?: boolean;
+};
+
 type LinkedCustomer = {
     id: number;
     name: string;
     phone: string | null;
     customer_code: string | null;
     reward_points?: number | null;
+    addresses?: CustomerAddress[];
 };
 
 type QrMemberRegistration = {
@@ -80,7 +90,8 @@ type View =
     | 'checkout'
     | 'order_receipt'
     | 'order_status'
-    | 'service';
+    | 'service'
+    | 'desktop_intro';
 type ServiceType = 'dine_in' | 'delivery' | 'takeaway';
 type CheckoutPaymentMethod = 'cash' | 'card' | 'paypal' | 'google_pay';
 
@@ -141,7 +152,9 @@ function OrderLookupModal({
     onClose,
     t,
     input,
+    phoneInput,
     onInputChange,
+    onPhoneChange,
     onSubmit,
     loading,
     track,
@@ -151,7 +164,9 @@ function OrderLookupModal({
     onClose: () => void;
     t: Tx;
     input: string;
+    phoneInput: string;
     onInputChange: (v: string) => void;
+    onPhoneChange: (v: string) => void;
     onSubmit: () => void;
     loading: boolean;
     track: { status?: string } | null;
@@ -198,6 +213,21 @@ function OrderLookupModal({
                     placeholder={t.orderLookupPlaceholder}
                     className="w-full rounded-xl border-[1.5px] border-[#1e3a55] bg-[#1a2f45] px-4 py-3.5 text-sm text-[#f0f6ff] placeholder:text-[#4e6a88] focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
                 />
+                <label className="mb-1.5 mt-3 block text-[11px] font-semibold uppercase tracking-wide text-[#4e6a88]" htmlFor="order-lookup-phone">
+                    {t.orderLookupPhoneLabel}
+                </label>
+                <input
+                    id="order-lookup-phone"
+                    value={phoneInput}
+                    onChange={(e) => onPhoneChange(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') onSubmit();
+                    }}
+                    inputMode="tel"
+                    autoComplete="tel"
+                    placeholder={t.orderLookupPhonePlaceholder}
+                    className="w-full rounded-xl border-[1.5px] border-[#1e3a55] bg-[#1a2f45] px-4 py-3.5 text-sm text-[#f0f6ff] placeholder:text-[#4e6a88] focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+                />
                 <button
                     type="button"
                     disabled={loading}
@@ -213,6 +243,296 @@ function OrderLookupModal({
                         <p className="mt-1 text-lg font-bold text-[#f0f6ff]">{orderStatusLabel(track.status, t)}</p>
                     </div>
                 ) : null}
+            </div>
+        </div>
+    );
+}
+
+function CustomerAddressesModal({
+    open,
+    onClose,
+    t,
+    linkedCustomer,
+    onAddressesUpdated,
+    onSelectAddress,
+    hdr,
+}: {
+    open: boolean;
+    onClose: () => void;
+    t: any;
+    linkedCustomer: LinkedCustomer | null;
+    onAddressesUpdated: (updatedAddresses: CustomerAddress[]) => void;
+    onSelectAddress?: (address: CustomerAddress) => void;
+    hdr: (extra?: Record<string, string>) => HeadersInit;
+}) {
+    const [label, setLabel] = useState('');
+    const [address, setAddress] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [locationLoading, setLocationLoading] = useState(false);
+
+    const handleDetectLocationModal = () => {
+        if (!navigator.geolocation) {
+            toast.error('Tarayıcınız konum bilgisini desteklemiyor.');
+            return;
+        }
+        setLocationLoading(true);
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                try {
+                    const { latitude, longitude } = position.coords;
+                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=tr`);
+                    const data = await res.json();
+                    if (data && data.display_name) {
+                        setAddress(data.display_name);
+                        toast.success('Konumunuz başarıyla algılandı!');
+                    } else {
+                        toast.error('Adres çözümlenemedi.');
+                    }
+                } catch {
+                    toast.error('Konum servisinden adres alınamadı.');
+                } finally {
+                    setLocationLoading(false);
+                }
+            },
+            () => {
+                toast.error('Konum izni reddedildi veya konum alınamadı.');
+                setLocationLoading(false);
+            },
+            { enableHighAccuracy: true, timeout: 8000 }
+        );
+    };
+
+    if (!open || !linkedCustomer) return null;
+
+    const handleAdd = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!address.trim()) {
+            setError('Lütfen bir adres yazın');
+            return;
+        }
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch('/api/v1/qr-web/addresses', {
+                method: 'POST',
+                headers: hdr({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({
+                    customerId: linkedCustomer.id,
+                    phone: linkedCustomer.phone,
+                    label: label.trim() || undefined,
+                    address: address.trim(),
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Adres eklenemedi');
+            
+            const updated = [...(linkedCustomer.addresses || []), data];
+            onAddressesUpdated(updated);
+            setLabel('');
+            setAddress('');
+            toast.success('Adres eklendi');
+        } catch (err: any) {
+            setError(err.message || 'Bir hata oluştu');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDelete = async (addressId: number) => {
+        if (!window.confirm('Bu adresi silmek istediğinize emin misiniz?')) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch(`/api/v1/qr-web/addresses/${addressId}?customerId=${linkedCustomer.id}&phone=${encodeURIComponent(linkedCustomer.phone || '')}`, {
+                method: 'DELETE',
+                headers: hdr(),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Adres silinemedi');
+            
+            const fetchRes = await fetch(`/api/v1/qr-web/addresses?customerId=${linkedCustomer.id}&phone=${encodeURIComponent(linkedCustomer.phone || '')}`, {
+                headers: hdr()
+            });
+            const fresh = await fetchRes.json();
+            onAddressesUpdated(fresh);
+            toast.success('Adres silindi');
+        } catch (err: any) {
+            setError(err.message || 'Bir hata oluştu');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSetDefault = async (addressId: number) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch(`/api/v1/qr-web/addresses/${addressId}/default`, {
+                method: 'PUT',
+                headers: hdr({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ customerId: linkedCustomer.id, phone: linkedCustomer.phone }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Varsayılan güncellenemedi');
+            
+            const updated = (linkedCustomer.addresses || []).map(a => ({
+                ...a,
+                is_default: a.id === addressId,
+            }));
+            onAddressesUpdated(updated);
+            toast.success('Varsayılan adres güncellendi');
+        } catch (err: any) {
+            setError(err.message || 'Bir hata oluştu');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 p-4 pb-[max(16px,env(safe-area-inset-bottom))] sm:items-center sm:p-6"
+            role="dialog"
+            aria-modal="true"
+        >
+            <button type="button" className="absolute inset-0 h-full w-full cursor-default bg-transparent" onClick={onClose} aria-label={t.close} />
+            <div
+                className="relative z-[1] flex max-h-[85vh] w-full max-w-md flex-col rounded-2xl border border-[#1e3a55] bg-[#112035] p-5 shadow-2xl overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Modal Header */}
+                <div className="shrink-0 mb-4 flex items-center justify-between border-b border-[#1e3a55]/60 pb-3">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xl">📍</span>
+                        <h2 className="text-base font-bold text-[#f0f6ff]">Adreslerim</h2>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="rounded-lg p-1 text-[#8ba3c0] transition hover:bg-[#1a2f45] hover:text-[#f0f6ff]"
+                        aria-label={t.close}
+                    >
+                        <FiX className="text-xl" />
+                    </button>
+                </div>
+
+                {/* Modal Content Scrollable Area */}
+                <div className="flex-1 overflow-y-auto pr-1 space-y-4 pos-scrollbar">
+                    {error && (
+                        <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300">
+                            ⚠️ {error}
+                        </div>
+                    )}
+
+                    {/* Address List */}
+                    <div className="space-y-3">
+                        {(!linkedCustomer.addresses || linkedCustomer.addresses.length === 0) ? (
+                            <p className="text-xs text-[#8ba3c0] italic text-center py-4 bg-[#0d1f35] rounded-xl border border-[#1e3a55]/40">
+                                Kayıtlı teslimat adresiniz bulunmamaktadır.
+                            </p>
+                        ) : (
+                            linkedCustomer.addresses.map((a) => (
+                                <div
+                                    key={a.id}
+                                    className={`relative rounded-xl border p-3.5 transition ${
+                                        a.is_default
+                                            ? 'border-emerald-500 bg-emerald-500/[0.04]'
+                                            : 'border-[#1e3a55] bg-[#1a2f45]/50 hover:bg-[#1a2f45]'
+                                    }`}
+                                >
+                                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-bold text-[#f0f6ff]">
+                                                {a.label ? `🏠 ${a.label}` : '🏠 Adres'}
+                                            </span>
+                                            {a.is_default && (
+                                                <span className="rounded-full bg-emerald-500/15 border border-emerald-500/20 px-2 py-0.5 text-[9px] font-bold text-emerald-400 uppercase tracking-wider">
+                                                    Varsayılan
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                            {!a.is_default && (
+                                                <button
+                                                    type="button"
+                                                    disabled={loading}
+                                                    onClick={() => void handleSetDefault(a.id)}
+                                                    className="rounded px-2 py-0.5 text-[10px] font-medium text-emerald-400 hover:bg-emerald-500/10 transition"
+                                                    title="Varsayılan Yap"
+                                                >
+                                                    ★ Varsayılan Yap
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                disabled={loading}
+                                                onClick={() => void handleDelete(a.id)}
+                                                className="rounded p-1 text-red-400 hover:bg-red-500/10 transition"
+                                                title="Sil"
+                                            >
+                                                <FiTrash2 size={13} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-[#8ba3c0] leading-relaxed pr-8">{a.address}</p>
+
+                                    {onSelectAddress && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                onSelectAddress(a);
+                                                onClose();
+                                            }}
+                                            className="mt-3 w-full rounded-lg bg-[#10b981] py-1.5 text-xs font-bold text-white transition hover:bg-emerald-600 active:scale-[0.98]"
+                                        >
+                                            Seç ve Kullan
+                                        </button>
+                                    )}
+                                </div>
+                            ))
+                        )}
+                    </div>
+
+                    {/* Add Address Form */}
+                    <form onSubmit={(e) => void handleAdd(e)} className="border-t border-[#1e3a55]/60 pt-4 space-y-3">
+                        <h3 className="text-xs font-bold text-[#f0f6ff] uppercase tracking-wider mb-2">➕ Yeni Adres Ekle</h3>
+                        <div>
+                            <label className="block text-[10px] font-semibold text-[#4e6a88] uppercase tracking-wider mb-1">Adres Başlığı</label>
+                            <input
+                                type="text"
+                                placeholder="Örn: Evim, İş Yerim, Annemin Evi..."
+                                value={label}
+                                onChange={(e) => setLabel(e.target.value)}
+                                className="w-full rounded-xl border border-[#1e3a55] bg-[#1a2f45] px-3.5 py-2 text-xs text-[#f0f6ff] placeholder:text-[#4e6a88] transition focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/25"
+                            />
+                        </div>
+                        <div className="relative">
+                            <label className="block text-[10px] font-semibold text-[#4e6a88] uppercase tracking-wider mb-1">Açık Adres</label>
+                            <textarea
+                                placeholder="Mahalle, Cadde, Sokak, No/Daire, Kat vb. tüm detayları yazınız."
+                                value={address}
+                                onChange={(e) => setAddress(e.target.value)}
+                                rows={3}
+                                className="w-full rounded-xl border border-[#1e3a55] bg-[#1a2f45] pl-3.5 pr-24 py-2 text-xs text-[#f0f6ff] placeholder:text-[#4e6a88] transition resize-none focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/25"
+                            />
+                            <button
+                                type="button"
+                                onClick={handleDetectLocationModal}
+                                disabled={locationLoading}
+                                className="absolute bottom-2.5 right-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-2 py-1 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/25 transition disabled:opacity-50 flex items-center gap-1 active:scale-95"
+                            >
+                                {locationLoading ? 'Bulunuyor...' : '📍 Konum Bul'}
+                            </button>
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={loading || !address.trim()}
+                            className="w-full rounded-xl bg-[#10b981] py-2.5 text-xs font-bold text-white transition hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+                        >
+                            {loading ? 'Yükleniyor...' : 'Adresi Kaydet'}
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
     );
@@ -330,6 +650,13 @@ function QrIdleLayout({
     );
 }
 
+function isDesktop(): boolean {
+    if (typeof window === 'undefined') return false;
+    const ua = navigator.userAgent.toLowerCase();
+    const isMobile = /mobile|android|iphone|ipad|tablet|iemobile|opera mini/i.test(ua);
+    return !isMobile && window.innerWidth >= 1024;
+}
+
 /* ═══════════ APP ═══════════ */
 
 export function App() {
@@ -353,6 +680,8 @@ export function App() {
     const [guestName, setGuestName] = useState('');
     const [guestPhone, setGuestPhone] = useState('');
     const [guestAddress, setGuestAddress] = useState('');
+    const [newAddressLabel, setNewAddressLabel] = useState('');
+    const [selectedAddressId, setSelectedAddressId] = useState<number | 'new'>('new');
     const [linkedCustomer, setLinkedCustomer] = useState<LinkedCustomer | null>(null);
     const [lookupQuery, setLookupQuery] = useState('');
     const [identifyLoading, setIdentifyLoading] = useState(false);
@@ -365,12 +694,28 @@ export function App() {
     const [awaitingPosMembership, setAwaitingPosMembership] = useState(false);
     const [orderLookupOpen, setOrderLookupOpen] = useState(false);
     const [orderLookupInput, setOrderLookupInput] = useState('');
+    const [orderLookupPhone, setOrderLookupPhone] = useState('');
     const [orderLookupTrack, setOrderLookupTrack] = useState<{ status?: string } | null>(null);
     const [orderLookupErr, setOrderLookupErr] = useState<string | null>(null);
     const [orderLookupLoading, setOrderLookupLoading] = useState(false);
+    const [addressesModalOpen, setAddressesModalOpen] = useState(false);
+    const [checkoutAuthMode, setCheckoutAuthMode] = useState<'login' | 'register'>('register');
+    const [checkoutInfoVerified, setCheckoutInfoVerified] = useState(false);
+    const [locationLoading, setLocationLoading] = useState(false);
     const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
     const [checkoutPayment, setCheckoutPayment] = useState<CheckoutPaymentMethod>('cash');
     const [checkoutNewRegistration, setCheckoutNewRegistration] = useState(false);
+    const [waVerified, setWaVerified] = useState(false);
+    const [waVerifyModalOpen, setWaVerifyModalOpen] = useState(false);
+    const [waVerificationCode, setWaVerificationCode] = useState('');
+    const [waVerifyChecking, setWaVerifyChecking] = useState(false);
+    const [waVerifyLoading, setWaVerifyLoading] = useState(false);
+    const [waVerifiedPhone, setWaVerifiedPhone] = useState('');
+    const [waVerificationLink, setWaVerificationLink] = useState('');
+    const guestPhoneRef = useRef(guestPhone);
+    useEffect(() => {
+        guestPhoneRef.current = guestPhone;
+    }, [guestPhone]);
     /** Bot honeypot — dolu gelirse gönderim yok */
     const [checkoutHoneypot, setCheckoutHoneypot] = useState('');
     const [checkoutHumanAnswer, setCheckoutHumanAnswer] = useState('');
@@ -385,8 +730,8 @@ export function App() {
 
     const tableQr = useMemo(() => {
         const path = window.location.pathname;
-        const m = path.match(/^\/(?:table|t)\/(.+)/);
-        return m?.[1] || new URLSearchParams(window.location.search).get('table') || '';
+        const m = path.match(/^\/(?:table|t|qr)\/(.+)/);
+        return m?.[1] ? decodeURIComponent(m[1]) : new URLSearchParams(window.location.search).get('table') || '';
     }, []);
 
     const [tableInfo, setTableInfo] = useState<{ tableId: number; tableName: string } | null>(null);
@@ -429,7 +774,12 @@ export function App() {
                 const path = window.location.pathname;
                 const m = path.match(/^\/(?:table|t)\/(.+)/);
                 const hasTable = Boolean(m?.[1] || new URLSearchParams(window.location.search).get('table'));
-                setView(hasTable ? 'idle' : 'web_idle');
+                
+                if (isDesktop()) {
+                    setView('desktop_intro');
+                } else {
+                    setView(hasTable ? 'idle' : 'web_idle');
+                }
             } catch {
                 setView('error');
             }
@@ -499,6 +849,38 @@ export function App() {
             else if (st === 'completed') setLiveStatus('delivered');
             else if (['pending', 'preparing', 'ready', 'delivered'].includes(st)) setLiveStatus(st);
             if (st === 'ready') toast.success(t.ready, { duration: 5000 });
+            if (st === 'cancelled') toast.error(t.orderRejected);
+            if (st === 'confirmed') toast.success(t.orderApproved);
+        });
+        socket.on('order:status_changed', (data: { orderId: number; status: string }) => {
+            if (Number(data.orderId) !== pendingOrderId) return;
+            const st = data.status;
+            if (st === 'cancelled') setLiveStatus('cancelled');
+            else if (st === 'confirmed') setLiveStatus('confirmed');
+            else if (st === 'completed') setLiveStatus('delivered');
+            else if (['pending', 'preparing', 'ready', 'delivered'].includes(st)) setLiveStatus(st);
+        });
+        socket.on('customer:order_approved', (data: { orderId: number }) => {
+            if (Number(data.orderId) === pendingOrderId) {
+                setLiveStatus('confirmed');
+                toast.success(t.orderApproved);
+            }
+        });
+        socket.on('customer:order_rejected', (data: { orderId: number }) => {
+            if (Number(data.orderId) === pendingOrderId) {
+                setLiveStatus('cancelled');
+                toast.error(t.orderRejected);
+            }
+        });
+        socket.on('customer:whatsapp_verified', (data: { phone: string }) => {
+            const cleanTarget = guestPhoneRef.current.replace(/\D/g, '');
+            const cleanIncoming = data.phone.replace(/\D/g, '');
+            if (cleanTarget && cleanIncoming && (cleanTarget.endsWith(cleanIncoming) || cleanIncoming.endsWith(cleanTarget))) {
+                setWaVerified(true);
+                setWaVerifiedPhone(guestPhoneRef.current);
+                setWaVerifyModalOpen(false);
+                toast.success(t.whatsappVerified || "Telefon numaranız doğrulandı!");
+            }
         });
         socket.on('menu:catalog_stale', () => loadMenu());
         return () => { socket.disconnect(); };
@@ -507,19 +889,21 @@ export function App() {
     const refreshOrderTrack = useCallback(async () => {
         if (pendingOrderId == null || !config) return;
         try {
-            const res = await fetch(`/api/v1/qr-web/track/${pendingOrderId}`, { headers: hdr() });
+            const phoneQ = guestPhone.trim() ? `?phone=${encodeURIComponent(guestPhone.trim())}` : '';
+            const res = await fetch(`/api/v1/qr-web/track/${pendingOrderId}${phoneQ}`, { headers: hdr() });
             if (!res.ok) return;
             const d = (await res.json()) as { status?: string };
             if (d.status) setLiveStatus(normalizeTrackStatus(d.status));
         } catch { /* silent */ }
-    }, [pendingOrderId, config, hdr]);
+    }, [pendingOrderId, config, hdr, guestPhone]);
 
     const openOrderLookup = useCallback(() => {
         setOrderLookupInput('');
+        setOrderLookupPhone(guestPhone.trim());
         setOrderLookupTrack(null);
         setOrderLookupErr(null);
         setOrderLookupOpen(true);
-    }, []);
+    }, [guestPhone]);
 
     const runOrderLookupModal = useCallback(async () => {
         if (!config) {
@@ -533,11 +917,16 @@ export function App() {
             setOrderLookupTrack(null);
             return;
         }
+        if (!orderLookupPhone.trim()) {
+            setOrderLookupErr(t.orderLookupPhoneRequired);
+            return;
+        }
         setOrderLookupLoading(true);
         setOrderLookupErr(null);
         setOrderLookupTrack(null);
         try {
-            const res = await fetch(`/api/v1/qr-web/track/${id}`, { headers: hdr() });
+            const phoneQ = `?phone=${encodeURIComponent(orderLookupPhone.trim())}`;
+            const res = await fetch(`/api/v1/qr-web/track/${id}${phoneQ}`, { headers: hdr() });
             const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
             if (!res.ok) {
                 setOrderLookupErr(data.error || t.orderLookupNotFound);
@@ -553,7 +942,7 @@ export function App() {
         } finally {
             setOrderLookupLoading(false);
         }
-    }, [config, orderLookupInput, hdr, t]);
+    }, [config, orderLookupInput, orderLookupPhone, hdr, t]);
 
     useEffect(() => {
         if (view !== 'order_receipt' || pendingOrderId == null) return;
@@ -588,6 +977,77 @@ export function App() {
         toast.success(`${p.displayName} ${t.addToCart}`, { duration: 1500 });
     };
 
+    useEffect(() => {
+        if (guestPhone.trim() !== waVerifiedPhone) {
+            setWaVerified(false);
+        }
+    }, [guestPhone, waVerifiedPhone]);
+
+    const startPollingWhatsAppVerification = (phone: string) => {
+        setWaVerifyChecking(true);
+        const intervalId = window.setInterval(async () => {
+            try {
+                const res = await fetch(`/api/v1/qr-web/verify-check?phone=${encodeURIComponent(phone)}`, { headers: hdr() });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.verified) {
+                        setWaVerified(true);
+                        setWaVerifiedPhone(phone);
+                        setWaVerifyModalOpen(false);
+                        window.clearInterval(intervalId);
+                        setWaVerifyChecking(false);
+                        toast.success(t.whatsappVerified || "Telefon numaranız doğrulandı!");
+                    }
+                }
+            } catch { /* ignore */ }
+        }, 2500);
+
+        window.setTimeout(() => {
+            window.clearInterval(intervalId);
+            setWaVerifyChecking(false);
+        }, 180000);
+    };
+
+    const handleWhatsAppVerifyRequest = async () => {
+        if (!guestPhone.trim()) {
+            toast.error(t.fillAllCheckoutFields);
+            return;
+        }
+        setWaVerifyLoading(true);
+        try {
+            const res = await fetch('/api/v1/qr-web/verify-request', {
+                method: 'POST',
+                headers: hdr({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({
+                    name: guestName || 'Misafir',
+                    phone: guestPhone.trim()
+                })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                if (data.alreadyVerified) {
+                    setWaVerified(true);
+                    setWaVerifiedPhone(guestPhone.trim());
+                    toast.success(t.whatsappVerified || "Telefon numaranız doğrulandı!");
+                } else {
+                    setWaVerificationCode(data.code);
+                    setWaVerifyModalOpen(true);
+                    const msg = `NextPOS dogrulama kodum: ${data.code}`;
+                    const waLink = `https://wa.me/${data.whatsappPhone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
+                    setWaVerificationLink(waLink);
+                    window.open(waLink, '_blank');
+                    startPollingWhatsAppVerification(guestPhone.trim());
+                }
+            } else {
+                toast.error(data.error || t.whatsappVerifyError || "Doğrulama kodu oluşturulurken bir hata oluştu.");
+            }
+        } catch {
+            toast.error(t.whatsappVerifyError || "Doğrulama kodu oluşturulurken bir hata oluştu.");
+        } finally {
+            setWaVerifyLoading(false);
+        }
+    };
+
     /* ═══ SEND ORDER ═══ */
     const sendOrder = async () => {
         if (!config || cart.length === 0) return;
@@ -601,6 +1061,10 @@ export function App() {
         const addressOk = serviceType !== 'delivery' || guestAddress.trim().length >= 10;
         if (!nameOk || !phoneOk || !addressOk) {
             toast.error(t.fillAllCheckoutFields);
+            return;
+        }
+        if (checkoutNewRegistration && !waVerified) {
+            void handleWhatsAppVerifyRequest();
             return;
         }
         const sumExpected = checkoutSumChallenge ? checkoutSumChallenge.a + checkoutSumChallenge.b : null;
@@ -664,6 +1128,7 @@ export function App() {
                         customerPhone: guestPhone,
                         orderType: serviceType,
                         address: serviceType === 'delivery' ? guestAddress : undefined,
+                        addressLabel: serviceType === 'delivery' && selectedAddressId === 'new' && newAddressLabel.trim() ? newAddressLabel.trim() : undefined,
                         paymentMethod: checkoutPayment,
                         customerId: linkedCustomer != null ? Number(linkedCustomer.id) : undefined,
                         wantsRegistration: checkoutNewRegistration,
@@ -708,11 +1173,16 @@ export function App() {
     const sendServiceCall = async (callType: string) => {
         if (!tableQr) return;
         try {
-            await fetch('/api/v1/qr-web/service-call', {
+            const res = await fetch('/api/v1/qr-web/service-call', {
                 method: 'POST',
                 headers: hdr({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ qrCode: tableQr, callType }),
             });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                toast.error((data as { error?: string }).error || t.noWaiterAvailable || t.error);
+                return;
+            }
             toast.success(t.serviceSent, { duration: 3000 });
             setView('menu');
         } catch {
@@ -743,6 +1213,14 @@ export function App() {
             setLinkedCustomer(row);
             setGuestName(String(row.name || '').trim());
             setGuestPhone(String(row.phone || '').trim());
+            if (row.addresses && row.addresses.length > 0) {
+                const defaultAddr = row.addresses.find(a => a.is_default) || row.addresses[0];
+                setSelectedAddressId(defaultAddr.id);
+                setGuestAddress(defaultAddr.address);
+            } else {
+                setSelectedAddressId('new');
+                setGuestAddress('');
+            }
             toast.success(row.name ? `${t.loggedInAs}, ${row.name}` : t.loggedInAs);
             setView(tableQr ? 'order_type' : 'menu');
         } catch {
@@ -775,8 +1253,14 @@ export function App() {
             onClose={() => setOrderLookupOpen(false)}
             t={t}
             input={orderLookupInput}
+            phoneInput={orderLookupPhone}
             onInputChange={(v) => {
                 setOrderLookupInput(v);
+                setOrderLookupTrack(null);
+                setOrderLookupErr(null);
+            }}
+            onPhoneChange={(v) => {
+                setOrderLookupPhone(v);
                 setOrderLookupTrack(null);
                 setOrderLookupErr(null);
             }}
@@ -785,6 +1269,108 @@ export function App() {
             track={orderLookupTrack}
             error={orderLookupErr}
         />
+    );
+
+    const updateLinkedCustomerAddresses = (updatedAddresses: CustomerAddress[]) => {
+        if (linkedCustomer) {
+            setLinkedCustomer({
+                ...linkedCustomer,
+                addresses: updatedAddresses,
+            });
+            if (updatedAddresses.length > 0) {
+                const def = updatedAddresses.find(a => a.is_default) || updatedAddresses[0];
+                setSelectedAddressId(def.id);
+                setGuestAddress(def.address);
+            } else {
+                setSelectedAddressId('new');
+                setGuestAddress('');
+            }
+        }
+    };
+
+    const handleDetectLocation = () => {
+        if (!navigator.geolocation) {
+            toast.error('Tarayıcınız konum bilgisini desteklemiyor.');
+            return;
+        }
+        setLocationLoading(true);
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                try {
+                    const { latitude, longitude } = position.coords;
+                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=tr`);
+                    const data = await res.json();
+                    if (data && data.display_name) {
+                        setGuestAddress(data.display_name);
+                        toast.success('Konumunuz başarıyla algılandı!');
+                    } else {
+                        toast.error('Adres çözümlenemedi.');
+                    }
+                } catch {
+                    toast.error('Konum servisinden adres alınamadı.');
+                } finally {
+                    setLocationLoading(false);
+                }
+            },
+            () => {
+                toast.error('Konum izni reddedildi veya konum alınamadı.');
+                setLocationLoading(false);
+            },
+            { enableHighAccuracy: true, timeout: 8000 }
+        );
+    };
+
+    const addressesModalNode = (
+        <CustomerAddressesModal
+            open={addressesModalOpen}
+            onClose={() => setAddressesModalOpen(false)}
+            t={t}
+            linkedCustomer={linkedCustomer}
+            onAddressesUpdated={updateLinkedCustomerAddresses}
+            onSelectAddress={(addr) => {
+                setSelectedAddressId(addr.id);
+                setGuestAddress(addr.address);
+            }}
+            hdr={hdr}
+        />
+    );
+
+    const waVerifyModalNode = waVerifyModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setWaVerifyModalOpen(false)} />
+            <div className="relative w-full max-w-md rounded-3xl border border-emerald-500/20 bg-[#0b1329] p-6 text-center shadow-[0_0_50px_rgba(16,185,129,0.15)] animate-in zoom-in-95 duration-200">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400">
+                    <span className="text-2xl">💬</span>
+                </div>
+                <h3 className="text-lg font-black text-white">{t.whatsappVerifyTitle || "WhatsApp ile Doğrula"}</h3>
+                <p className="mt-3 text-xs text-[#8ba3c0] leading-relaxed">
+                    {t.whatsappVerifyHint || "Güvenliğiniz için lütfen telefon numaranızı WhatsApp üzerinden ücretsiz doğrulayın. Aşağıdaki butona tıkladığınızda otomatik olarak bir doğrulama mesajı oluşturulacaktır."}
+                </p>
+
+                <div className="mt-6 space-y-3">
+                    <button
+                        type="button"
+                        onClick={() => window.open(waVerificationLink, '_blank')}
+                        className="w-full rounded-xl bg-emerald-500 py-3 text-xs font-bold text-white transition hover:bg-emerald-600 shadow-lg shadow-emerald-950/20 active:scale-[0.98]"
+                    >
+                        {t.whatsappVerifyButton || "WhatsApp ile Doğrula (Ücretsiz)"}
+                    </button>
+                    
+                    <div className="flex items-center justify-center gap-2 text-[11px] text-[#4e6a88] pt-2">
+                        <div className="w-3 h-3 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                        <span>{t.whatsappVerifyAwaiting || "Doğrulama bekleniyor... Lütfen WhatsApp üzerinden mesajı gönderip bu sayfaya geri dönün."}</span>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={() => setWaVerifyModalOpen(false)}
+                        className="w-full rounded-xl border border-[#1e3a55] bg-[#0d1f35] py-3 text-xs font-bold text-[#8ba3c0] transition hover:bg-[#1a2f45] active:scale-[0.98]"
+                    >
+                        {t.close || "Kapat"}
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 
     /* ═══════════ RENDER ═══════════ */
@@ -817,6 +1403,112 @@ export function App() {
         );
     }
 
+    if (view === 'desktop_intro' && config) {
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(window.location.href)}`;
+        return (
+            <div className="min-h-[100dvh] bg-[#0a1628] text-[#f0f6ff] flex flex-col justify-between overflow-hidden relative font-sans">
+                {/* Background decorative glowing rings */}
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full border border-emerald-500/5 pointer-events-none animate-pulse" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full border border-teal-500/5 pointer-events-none" />
+
+                {/* Header */}
+                <header className="w-full max-w-7xl mx-auto px-8 py-6 flex items-center justify-between shrink-0 relative z-10">
+                    <div className="flex items-center gap-3">
+                        <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/35 flex items-center justify-center text-2xl shadow-lg shadow-emerald-500/10">
+                            {config.logo ? <img src={config.logo} alt="" className="w-8 h-8 rounded-full object-cover" /> : '🍕'}
+                        </div>
+                        <div>
+                            <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest leading-none">PREMIUM MENU SYSTEM</span>
+                            <h2 className="text-lg font-black text-white leading-tight mt-0.5">{config.restaurantName}</h2>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {LANG_OPTIONS.map((l) => (
+                            <button
+                                key={l.code}
+                                type="button"
+                                onClick={() => setLang(l.code)}
+                                className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                                    lang === l.code
+                                        ? 'border-emerald-500 bg-emerald-500/15 text-emerald-400'
+                                        : 'border-[#1e3a55] bg-[#112035] text-[#8ba3c0] hover:border-emerald-500/50'
+                                }`}
+                            >
+                                {l.flag} {l.label}
+                            </button>
+                        ))}
+                    </div>
+                </header>
+
+                {/* Main Hero Content */}
+                <main className="w-full max-w-7xl mx-auto px-8 flex-1 grid grid-cols-1 lg:grid-cols-12 items-center gap-12 relative z-10 py-12 lg:py-0">
+                    {/* Left text column */}
+                    <div className="lg:col-span-7 space-y-6 text-left">
+                        <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-xs font-semibold text-emerald-400">
+                            ✨ {t.welcome}
+                        </span>
+                        <h1 className="text-4xl lg:text-6xl font-extrabold tracking-tight text-white leading-tight">
+                            Lezzet Dolu Menümüzü <br />
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">
+                                Şimdi Keşfedin
+                            </span>
+                        </h1>
+                        <p className="text-base text-[#8ba3c0] max-w-xl leading-relaxed">
+                            Masaüstünüzden zengin içerikli menümüzü, ürün detaylarını ve seçenekleri inceleyebilirsiniz. 
+                            Hızlı ve temassız sipariş vermek için akıllı telefonunuzun kamerası ile sağdaki QR kodu okutabilirsiniz.
+                        </p>
+                        
+                        <div className="flex flex-wrap items-center gap-4 pt-4">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const path = window.location.pathname;
+                                    const m = path.match(/^\/(?:table|t)\/(.+)/);
+                                    const hasTable = Boolean(m?.[1] || new URLSearchParams(window.location.search).get('table'));
+                                    setView(hasTable ? 'idle' : 'web_idle');
+                                }}
+                                className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-bold rounded-2xl transition-all shadow-xl shadow-emerald-500/20 active:scale-[0.98] cursor-pointer"
+                            >
+                                {t.idleOpenMenu || 'Menüyü İncele'}
+                            </button>
+                            <div className="text-xs text-[#4e6a88] flex items-center gap-2 font-medium">
+                                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                                Mobil cihazlarla tam uyumludur
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Right QR card column */}
+                    <div className="lg:col-span-5 flex justify-center">
+                        <div className="w-full max-w-[380px] bg-gradient-to-b from-[#112035] to-[#0d1726] border border-[#1e3a55] rounded-[32px] p-8 shadow-2xl relative overflow-hidden flex flex-col items-center">
+                            {/* Glow accent */}
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 blur-3xl rounded-full" />
+                            
+                            <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full uppercase tracking-widest mb-6">
+                                TELEFONUNDAN TARA
+                            </span>
+                            
+                            <div className="bg-white p-4 rounded-3xl shadow-inner border-4 border-[#1e3a55] mb-6 relative group">
+                                <img src={qrUrl} alt="Masa QR" className="w-[180px] h-[180px] select-none" />
+                                <div className="absolute inset-0 bg-[#0a1628]/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl pointer-events-none" />
+                            </div>
+
+                            <h3 className="text-sm font-bold text-white text-center mb-1">Kameranı Aç ve Okut</h3>
+                            <p className="text-[11px] text-[#8ba3c0] text-center max-w-[240px] leading-relaxed">
+                                Telefonunun kamerası ile QR kodu okutarak doğrudan masandan siparişini verebilirsin.
+                            </p>
+                        </div>
+                    </div>
+                </main>
+
+                {/* Footer */}
+                <footer className="w-full max-w-7xl mx-auto px-8 py-6 text-center text-xs text-[#4e6a88] border-t border-[#1e3a55]/20 shrink-0 relative z-10">
+                    <p>{t.poweredBy || 'Powered by NextPOS'}</p>
+                </footer>
+            </div>
+        );
+    }
+
     /* ═══ KIOSK IDLE — nextpos_qrmenu_v2(1) #s-kiosk-idle ═══ */
     if (view === 'idle' && config) {
         return (
@@ -837,6 +1529,7 @@ export function App() {
                     t={t}
                 />
                 {orderLookupModalNode}
+                {addressesModalNode}
             </>
         );
     }
@@ -857,6 +1550,7 @@ export function App() {
                     t={t}
                 />
                 {orderLookupModalNode}
+                {addressesModalNode}
             </>
         );
     }
@@ -881,9 +1575,6 @@ export function App() {
                 <div className="py-2 text-center">
                     <div className="text-[clamp(22px,5vw,28px)] font-extrabold tracking-tight text-[#f0f6ff]">{config.restaurantName}</div>
                     <p className="mt-1.5 px-2 text-[13px] leading-snug text-[#8ba3c0]">{t.webSvcSub}</p>
-                    <span className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/35 bg-emerald-500/15 px-3 py-1.5 text-[11px] font-semibold text-emerald-400">
-                        🔒 {t.webSyncPos}
-                    </span>
                 </div>
                 <div className="mt-2 flex flex-col gap-3" role="radiogroup" aria-label={t.webSvcTitle}>
                     <button
@@ -959,6 +1650,7 @@ export function App() {
                 <p className="mt-3.5 text-center text-[11px] leading-relaxed text-[#4e6a88] opacity-85">{t.webDemoFoot}</p>
             </div>
             {orderLookupModalNode}
+            {addressesModalNode}
             </>
         );
     }
@@ -1036,6 +1728,9 @@ export function App() {
                             setLinkedCustomer(null);
                             setGuestName('');
                             setGuestPhone('');
+                            setGuestAddress('');
+                            setSelectedAddressId('new');
+                            setNewAddressLabel('');
                             resetLoginForm();
                             setView(tableQr ? 'order_type' : 'menu');
                         }}
@@ -1046,6 +1741,7 @@ export function App() {
                 </div>
             </div>
             {orderLookupModalNode}
+            {addressesModalNode}
             </>
         );
     }
@@ -1142,6 +1838,7 @@ export function App() {
                 </div>
             </div>
             {orderLookupModalNode}
+            {addressesModalNode}
             </>
         );
     }
@@ -1328,7 +2025,7 @@ export function App() {
         const sumOk =
             checkoutSumChallenge != null && Number(String(checkoutHumanAnswer).trim()) === sumExpected;
         const honeypotOk = checkoutHoneypot.trim().length === 0;
-        const canSubmit = Boolean(nameOk && phoneOk && addressOk && sumOk && honeypotOk && checkoutSumChallenge);
+        const canSubmit = Boolean(nameOk && phoneOk && addressOk && sumOk && honeypotOk && checkoutSumChallenge && checkoutInfoVerified);
         return (
             <>
             <div className="qr-web-svc-root flex min-h-[100dvh] flex-col">
@@ -1399,47 +2096,263 @@ export function App() {
                                         </p>
                                     ) : null}
                                 </div>
-                            ) : null}
-
-                            <div className="mb-4 space-y-2">
-                                {!linkedCustomer ? (
-                                    <input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder={t.guestName} className={cartInputCls} />
-                                ) : (
-                                    <input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder={t.yourName} className={cartInputCls} />
-                                )}
-                                <div className="relative">
-                                    <FiPhone className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#4e6a88]" size={16} />
-                                    <input
-                                        value={guestPhone}
-                                        onChange={(e) => setGuestPhone(e.target.value)}
-                                        placeholder={t.phone}
-                                        inputMode="tel"
-                                        autoComplete="tel"
-                                        className={`${cartInputCls} pl-9`}
-                                    />
+                            ) : (
+                                <div className="mb-4 grid grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setCheckoutAuthMode('register');
+                                            setCheckoutNewRegistration(true);
+                                        }}
+                                        className={`rounded-xl border-[1.5px] py-3 text-xs font-bold transition-all ${
+                                            checkoutAuthMode === 'register'
+                                                ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400 font-bold shadow-[0_0_8px_rgba(16,185,129,0.15)]'
+                                                : 'border-[#1e3a55] bg-[#112035] text-[#8ba3c0] hover:border-emerald-500/40'
+                                        }`}
+                                    >
+                                        ➕ Yeni Kullanıcı Oluştur
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setCheckoutAuthMode('login');
+                                        }}
+                                        className={`rounded-xl border-[1.5px] py-3 text-xs font-bold transition-all ${
+                                            checkoutAuthMode === 'login'
+                                                ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400 font-bold shadow-[0_0_8px_rgba(16,185,129,0.15)]'
+                                                : 'border-[#1e3a55] bg-[#112035] text-[#8ba3c0] hover:border-emerald-500/40'
+                                        }`}
+                                    >
+                                        🔑 Giriş Yap
+                                    </button>
                                 </div>
-                                {serviceType === 'delivery' ? (
+                            )}
+
+                            {/* Eksik Bilgi Uyarıları */}
+                            {linkedCustomer && (
+                                <div className="space-y-2 mb-4 animate-in fade-in slide-in-from-bottom-2">
+                                    {(!guestName.trim() || guestName.trim().length < 2) && (
+                                        <div className="p-3 rounded-xl border border-amber-500/20 bg-amber-500/10 text-xs text-amber-300 flex items-center gap-2">
+                                            <span>⚠️</span>
+                                            <span>Ad soyad bilginiz eksik, lütfen aşağıdan tanımlayın.</span>
+                                        </div>
+                                    )}
+                                    {(!guestPhone.trim() || guestPhone.replace(/\D/g, '').length < 8) && (
+                                        <div className="p-3 rounded-xl border border-amber-500/20 bg-amber-500/10 text-xs text-amber-300 flex items-center gap-2">
+                                            <span>⚠️</span>
+                                            <span>Telefon numaranız eksik, lütfen aşağıdan tanımlayın.</span>
+                                        </div>
+                                    )}
+                                    {serviceType === 'delivery' && !guestAddress.trim() && (
+                                        <div className="p-3 rounded-xl border border-amber-500/20 bg-amber-500/10 text-xs text-amber-300 flex items-center gap-2">
+                                            <span>⚠️</span>
+                                            <span>Kayıtlı teslimat adresiniz bulunmuyor, lütfen teslimat adresi tanımlayın.</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {!linkedCustomer && checkoutAuthMode === 'login' && (
+                                <div className="mb-4 rounded-2xl border border-[#1e3a55] bg-[#112035] p-4 space-y-3 animate-in fade-in slide-in-from-bottom-2">
+                                    <div className="text-center">
+                                        <h3 className="text-sm font-bold text-[#f0f6ff]">🔑 Kayıtlı Müşteri Girişi</h3>
+                                        <p className="mt-1 text-[11px] text-[#8ba3c0]">Telefon, isim veya müşteri kodunuzu girerek hızlıca sorgulayın.</p>
+                                    </div>
                                     <div className="relative">
-                                        <FiMapPin className="pointer-events-none absolute left-3 top-3 text-[#4e6a88]" size={16} />
-                                        <textarea
-                                            value={guestAddress}
-                                            onChange={(e) => setGuestAddress(e.target.value)}
-                                            placeholder={t.address}
-                                            rows={2}
-                                            autoComplete="street-address"
-                                            className={`${cartInputCls} resize-none pl-9`}
+                                        <input
+                                            value={lookupQuery}
+                                            onChange={(e) => setLookupQuery(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') void runUnifiedLookup();
+                                            }}
+                                            type="text"
+                                            autoComplete="off"
+                                            placeholder={t.lookupPlaceholder}
+                                            className={`${cartInputCls}`}
                                         />
                                     </div>
-                                ) : null}
-                                <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={t.note} rows={2} className={`${cartInputCls} resize-none`} />
-                                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#1e3a55] bg-[#1a2f45] px-3 py-3">
+                                    <button
+                                        type="button"
+                                        disabled={identifyLoading}
+                                        onClick={() => void runUnifiedLookup()}
+                                        className="w-full rounded-xl bg-emerald-500 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-600 disabled:opacity-50"
+                                    >
+                                        {identifyLoading ? '…' : t.lookupBtn}
+                                    </button>
+                                </div>
+                            )}
+
+                            {(linkedCustomer || checkoutAuthMode === 'register') && (
+                                <div className="mb-4 space-y-3 animate-in fade-in slide-in-from-bottom-2">
+                                    {!linkedCustomer ? (
+                                        <div className="p-3.5 rounded-xl border border-emerald-500/25 bg-emerald-500/5 text-xs text-emerald-400 font-medium">
+                                            ✨ Siparişinizle birlikte yeni bir müşteri hesabı oluşturulacaktır.
+                                        </div>
+                                    ) : null}
+
+                                    {!linkedCustomer ? (
+                                        <input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder={t.guestName} className={cartInputCls} />
+                                    ) : (
+                                        <input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder={t.yourName} className={cartInputCls} />
+                                    )}
+                                    
+                                    <div className="relative">
+                                        <FiPhone className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#4e6a88]" size={16} />
+                                        <input
+                                            value={guestPhone}
+                                            onChange={(e) => setGuestPhone(e.target.value)}
+                                            placeholder={t.phone}
+                                            inputMode="tel"
+                                            autoComplete="tel"
+                                            className={`${cartInputCls} pl-9`}
+                                        />
+                                    </div>
+
+                                    {checkoutNewRegistration && guestPhone.replace(/\D/g, '').length >= 8 && (
+                                        <div className="mt-1 animate-in fade-in duration-200">
+                                            {waVerified ? (
+                                                <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs font-bold text-emerald-400">
+                                                    <span className="text-sm">✅</span>
+                                                    <span>{t.whatsappVerified || "Telefon numaranız doğrulandı!"}</span>
+                                                </div>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    disabled={waVerifyLoading}
+                                                    onClick={() => void handleWhatsAppVerifyRequest()}
+                                                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-50 shadow-md shadow-emerald-950/20"
+                                                >
+                                                    {waVerifyLoading ? (
+                                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                    ) : (
+                                                        <span>💬</span>
+                                                    )}
+                                                    <span>{t.whatsappVerifyButton || "WhatsApp ile Doğrula (Ücretsiz)"}</span>
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {serviceType === 'delivery' ? (
+                                        <div className="space-y-2">
+                                            {linkedCustomer && linkedCustomer.addresses && linkedCustomer.addresses.length > 0 && (
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center justify-between px-1">
+                                                        <label className="block text-[10px] font-bold text-[#8ba3c0] uppercase tracking-wider">Kayıtlı Adreslerim</label>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setAddressesModalOpen(true)}
+                                                            className="text-[10px] font-bold text-emerald-400 hover:text-emerald-300 transition uppercase tracking-wider"
+                                                        >
+                                                            ⚙️ Yönet
+                                                        </button>
+                                                    </div>
+                                                    <select
+                                                        className={`${cartInputCls} appearance-none bg-[url('data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%238BA3C0%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1.25rem] bg-[right_1rem_center] bg-no-repeat`}
+                                                        value={selectedAddressId}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            if (val === 'new') {
+                                                                setSelectedAddressId('new');
+                                                                setGuestAddress('');
+                                                                setNewAddressLabel('');
+                                                            } else {
+                                                                const idNum = Number(val);
+                                                                setSelectedAddressId(idNum);
+                                                                const matched = linkedCustomer.addresses?.find(a => a.id === idNum);
+                                                                if (matched) {
+                                                                    setGuestAddress(matched.address);
+                                                                }
+                                                            }
+                                                        }}
+                                                    >
+                                                        {linkedCustomer.addresses.map(a => (
+                                                            <option key={a.id} value={a.id}>
+                                                                {a.label ? `🏠 ${a.label}` : '🏠 Adres'} : {a.address.slice(0, 35)}...
+                                                            </option>
+                                                        ))}
+                                                        <option value="new">➕ Yeni Adres Ekle...</option>
+                                                    </select>
+                                                </div>
+                                            )}
+
+                                            {selectedAddressId === 'new' ? (
+                                                <div className="space-y-2">
+                                                    {linkedCustomer && (
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Adres Başlığı (Örn: Evim, İş Adresim)"
+                                                            value={newAddressLabel}
+                                                            onChange={(e) => setNewAddressLabel(e.target.value)}
+                                                            className={cartInputCls}
+                                                        />
+                                                    )}
+                                                    <div className="relative">
+                                                        <FiMapPin className="pointer-events-none absolute left-3 top-3 text-[#4e6a88]" size={16} />
+                                                        <textarea
+                                                            value={guestAddress}
+                                                            onChange={(e) => setGuestAddress(e.target.value)}
+                                                            placeholder={t.address}
+                                                            rows={2}
+                                                            autoComplete="street-address"
+                                                            className={`${cartInputCls} resize-none pl-9 pr-24`}
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleDetectLocation}
+                                                            disabled={locationLoading}
+                                                            className="absolute bottom-2 right-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-2 py-1 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/25 transition disabled:opacity-50 flex items-center gap-1 active:scale-95"
+                                                        >
+                                                            {locationLoading ? 'Bulunuyor...' : '📍 Konum Bul'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-xs text-[#f0f6ff] leading-relaxed flex items-start gap-2">
+                                                    <span className="text-base leading-none">📍</span>
+                                                    <div>
+                                                        <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full uppercase tracking-wider mr-2 mb-1 inline-block">
+                                                            {linkedCustomer?.addresses?.find(a => a.id === selectedAddressId)?.label || 'Seçili Adres'}
+                                                        </span>
+                                                        <p className="text-xs text-[#8ba3c0] italic mt-1 leading-snug">
+                                                            {guestAddress}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : null}
+                                    <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={t.note} rows={2} className={`${cartInputCls} resize-none`} />
+                                </div>
+                            )}
+
+                            {/* Bilgilerimi Doğrula Adımı */}
+                            <div className="mb-4 rounded-2xl border border-amber-500/25 bg-amber-500/[0.04] p-4 space-y-3 animate-in fade-in slide-in-from-bottom-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-base">📋</span>
+                                    <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider">Bilgi Doğrulama</h4>
+                                </div>
+                                <div className="text-xs space-y-2 text-[#8ba3c0] bg-[#0d1f35]/60 p-3 rounded-xl border border-[#1e3a55]/40 leading-relaxed">
+                                    <div>
+                                        <span className="font-semibold text-[#f0f6ff]">Ad Soyad:</span> {guestName.trim() || <span className="text-red-400 font-bold">Girilmedi ⚠️</span>}
+                                    </div>
+                                    <div>
+                                        <span className="font-semibold text-[#f0f6ff]">Telefon:</span> {guestPhone.trim() || <span className="text-red-400 font-bold">Girilmedi ⚠️</span>}
+                                    </div>
+                                    {serviceType === 'delivery' && (
+                                        <div>
+                                            <span className="font-semibold text-[#f0f6ff]">Teslimat Adresi:</span> {guestAddress.trim() || <span className="text-red-400 font-bold">Girilmedi ⚠️</span>}
+                                        </div>
+                                    )}
+                                </div>
+                                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-500/35 bg-amber-500/[0.08] px-3 py-3 transition hover:bg-amber-500/[0.12]">
                                     <input
                                         type="checkbox"
-                                        checked={checkoutNewRegistration}
-                                        onChange={(e) => setCheckoutNewRegistration(e.target.checked)}
-                                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-[#1e3a55] accent-emerald-500"
+                                        checked={checkoutInfoVerified}
+                                        onChange={(e) => setCheckoutInfoVerified(e.target.checked)}
+                                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-amber-500/40 accent-amber-500 focus:ring-0 focus:ring-offset-0"
                                     />
-                                    <span className="text-sm text-[#8ba3c0]">{t.newRegistrationOpt}</span>
+                                    <span className="text-xs font-bold text-[#f0f6ff]">Yukarıdaki bilgilerimin doğru olduğunu onaylıyorum.</span>
                                 </label>
                             </div>
 
@@ -1508,6 +2421,7 @@ export function App() {
                 </div>
             </div>
             {orderLookupModalNode}
+            {addressesModalNode}
             </>
         );
     }
@@ -1597,9 +2511,38 @@ export function App() {
                 </div>
                 <div className="mx-auto max-w-6xl px-4 pb-2">
                     {linkedCustomer ? (
-                        <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/[0.08] px-3 py-2.5">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-400/90">{t.memberBadge}</p>
-                            <p className="mt-1 truncate text-sm font-bold text-[#f0f6ff]">{linkedCustomer.name}</p>
+                        <div className="relative rounded-xl border border-emerald-500/35 bg-emerald-500/[0.08] px-3 py-2.5">
+                            <div className="flex justify-between items-start gap-2">
+                                <div>
+                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-400/90">{t.memberBadge}</p>
+                                    <p className="mt-1 truncate text-sm font-bold text-[#f0f6ff]">{linkedCustomer.name}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setAddressesModalOpen(true)}
+                                        className="rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 px-2.5 py-1 text-xs font-semibold text-emerald-400 transition"
+                                    >
+                                        📍 Adreslerim
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setLinkedCustomer(null);
+                                            setGuestName('');
+                                            setGuestPhone('');
+                                            setGuestAddress('');
+                                            setSelectedAddressId('new');
+                                            setNewAddressLabel('');
+                                            resetLoginForm();
+                                            toast.success('Çıkış yapıldı');
+                                        }}
+                                        className="rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/25 px-2.5 py-1 text-xs font-semibold text-red-400 transition"
+                                    >
+                                        🚪 Çıkış
+                                    </button>
+                                </div>
+                            </div>
                             {linkedCustomer.phone ? (
                                 <p className="mt-1 flex items-center gap-1.5 truncate text-xs text-[#8ba3c0]">
                                     <FiPhone size={12} className="shrink-0 opacity-70" />
@@ -1956,6 +2899,7 @@ export function App() {
                                         type="button"
                                         onClick={() => {
                                             setCartDrawerOpen(false);
+                                            setCheckoutInfoVerified(false);
                                             setView('checkout');
                                         }}
                                         className="flex w-full items-center justify-between rounded-2xl bg-primary-400 px-5 py-4 text-sm font-bold text-white transition-all hover:bg-primary-500 active:scale-[0.98] qr-cart-glow"
@@ -1971,6 +2915,8 @@ export function App() {
             </AnimatePresence>
         </div>
         {orderLookupModalNode}
+        {addressesModalNode}
+        {waVerifyModalNode}
         </>
     );
 }

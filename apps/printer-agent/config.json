@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "source": "android",
+  "defaultCountryCode": "90",
+  "defaultAreaCode": "",
+  "usbCidPort": "COM3",
+  "fritzBoxIP": "192.168.178.1",
+  "fritzBoxPort": 1012,
+  "webhookUrl": "http://127.0.0.1:5173/api/v1/integrations/caller-id?tenant=a1111111-1111-4111-8111-111111111111&key=DEMO"
+}

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
 import { withTenant, withTenantTransaction } from '../lib/db.js';
-import { getEffectiveMaxPrinters, migrateBillingTables } from '../services/billing.service.js';
+import { getEffectiveMaxPrinters, getEffectiveMaxDevices, migrateBillingTables } from '../services/billing.service.js';
 import { emitTenantMenuCatalogStale, emitTenantTablesStale } from '../lib/tenantSocketEmit.js';
 import { delCacheByPrefix } from '../lib/cache.js';
 
@@ -131,6 +132,13 @@ export const getSettingsHandler = async (req: Request, res: Response) => {
                     requirePIN: false,
                     logDuration: true
                 },
+                offlineSecurity: baseSettings.offlineSecurity || {
+                    maxOfflineHours: 48,
+                    requirePinOnOffline: true,
+                    strictHeartbeat: true,
+                    heartbeatFailBeforeSuspicious: 3,
+                    pinUnlockHours: 12,
+                },
                 ...baseSettings
             };
         });
@@ -144,6 +152,24 @@ export const getSettingsHandler = async (req: Request, res: Response) => {
             let printers = Array.isArray(arr) ? [...arr] : undefined;
             if (printers && printers.length > total) {
                 printers = printers.slice(0, total);
+                try {
+                    await withTenant(tenantId, async (connection) => {
+                        const [rows]: any = await connection.query('SELECT settings FROM branches WHERE id = ?', [branchId]);
+                        const b = rows?.[0];
+                        if (b) {
+                            const originalSettings = typeof b.settings === 'string' ? JSON.parse(b.settings) : b.settings || {};
+                            if (originalSettings.integrations?.printStations) {
+                                originalSettings.integrations.printStations.printers = printers;
+                                await connection.query(
+                                    'UPDATE branches SET settings = ? WHERE id = ?',
+                                    [JSON.stringify(originalSettings), branchId]
+                                );
+                            }
+                        }
+                    });
+                } catch (saveErr) {
+                    console.warn('[Billing] Failed to auto-clamp printer settings in DB:', saveErr);
+                }
             }
             res.json({
                 ...base,
@@ -176,6 +202,9 @@ function applySettingsDefaults(payload: any) {
     const lo = Number(int.longOccupiedMinutes);
     const longOccupiedMinutes =
         Number.isFinite(lo) && lo > 0 ? Math.min(720, Math.max(5, Math.floor(lo))) : 45;
+    const esc = Number(int.serviceCallEscalationSeconds);
+    const serviceCallEscalationSeconds =
+        Number.isFinite(esc) && esc >= 15 ? Math.min(600, Math.floor(esc)) : 60;
     const ps = (int.printStations as Record<string, unknown> | undefined) || {};
     const av = (payload.accountingVisibility as Record<string, unknown> | undefined) || {};
     return {
@@ -183,6 +212,7 @@ function applySettingsDefaults(payload: any) {
         integrations: {
             ...int,
             longOccupiedMinutes,
+            serviceCallEscalationSeconds,
             printStations: {
                 ...defaultPrintStations(),
                 ...ps,
@@ -209,6 +239,25 @@ export const updateSettingsHandler = async (req: Request, res: Response) => {
         if (Array.isArray(pr) && pr.length > maxPrinters) {
             return res.status(400).json({
                 error: `Yazıcı istasyonu kotası aşıldı (en fazla ${maxPrinters}). Ek yazıcı için aboneliğe «Ek Yazıcı İstasyonu» modülü ekleyin.`,
+            });
+        }
+
+        const { total: maxDevices } = await getEffectiveMaxDevices(tenantId);
+        const linkedKiosks = (otherSettings as { integrations?: { kiosk?: { linkedDevices?: unknown[] } } })?.integrations
+            ?.kiosk?.linkedDevices;
+        const kioskDeviceCount = Array.isArray(linkedKiosks) ? linkedKiosks.length : 0;
+
+        const userDeviceCount = await withTenant(tenantId, async (connection) => {
+            const [cntRows]: any = await connection.query(
+                `SELECT COUNT(DISTINCT device_id) as c FROM users WHERE device_id IS NOT NULL AND TRIM(device_id) <> ''`
+            );
+            return Number(cntRows?.[0]?.c ?? 0);
+        });
+
+        const totalDevices = userDeviceCount + kioskDeviceCount;
+        if (totalDevices > maxDevices) {
+            return res.status(400).json({
+                error: `Cihaz kotası aşıldı (Kullanılan: ${totalDevices}, En fazla: ${maxDevices}). Ek cihaz bağlayabilmek için planınızı yükseltin veya «Ek Cihaz» modülü satın alın.`,
             });
         }
 
@@ -243,16 +292,41 @@ export const updateSettingsHandler = async (req: Request, res: Response) => {
 };
 
 export const seedDemoContentHandler = async (req: Request, res: Response) => {
+    if (process.env.NODE_ENV === 'production') {
+        return res.status(403).json({ error: 'Demo seed is disabled in production', code: 'FORBIDDEN' });
+    }
     try {
         const tenantId = req.tenantId!;
-        const { confirmReset, preset } = req.body || {};
+        const userId = req.user?.userId;
+        const { confirmReset, preset, password, pinCode } = req.body || {};
         const selectedPreset = String(preset || 'restaurant_courier');
 
+        if (!userId) {
+            return res.status(401).json({ error: 'Yetkilendirme hatası.' });
+        }
         if (confirmReset !== true) {
             return res.status(400).json({ error: 'Demo yükleme için onay gerekli (confirmReset=true).' });
         }
         if (selectedPreset !== 'restaurant_courier') {
             return res.status(400).json({ error: 'Desteklenmeyen demo seti.' });
+        }
+
+        const authOk = await withTenant(tenantId, async (conn) => {
+            const [userRows]: any = await conn.query(`SELECT password_hash, pin_code FROM users WHERE id = ?`, [userId]);
+            const user = userRows?.[0];
+            if (!user) return false;
+            let ok = false;
+            if (password) {
+                ok = await bcrypt.compare(password, user.password_hash);
+            }
+            if (!ok && pinCode && user.pin_code) {
+                ok = (String(pinCode) === String(user.pin_code));
+            }
+            return ok;
+        });
+
+        if (!authOk) {
+            return res.status(401).json({ error: 'Geçersiz şifre veya PIN kodu.' });
         }
 
         const result = await withTenantTransaction(tenantId, async (conn) => {
@@ -266,17 +340,25 @@ export const seedDemoContentHandler = async (req: Request, res: Response) => {
 
             const [activeOrderRows]: any = await conn.query(
                 `SELECT COUNT(*)::int AS c FROM orders
-                 WHERE status IN ('pending', 'confirmed', 'preparing', 'ready', 'out_for_delivery')`
+                 WHERE status IN ('pending', 'confirmed', 'preparing', 'ready', 'shipped')`
             );
             const activeOrderCount = Number(activeOrderRows?.[0]?.c || 0);
             if (activeOrderCount > 0) {
                 throw new Error('ACTIVE_ORDERS');
             }
 
+            // Clear transaction and history tables first to prevent foreign key errors
+            await conn.query('DELETE FROM deliveries');
+            await conn.query('DELETE FROM kitchen_tickets');
+            await conn.query('DELETE FROM order_items');
+            await conn.query('DELETE FROM payments');
+            await conn.query('DELETE FROM orders');
+            await conn.query('DELETE FROM table_sessions');
+            await conn.query('DELETE FROM service_calls');
+
             // Reset order: child -> parent
             await conn.query('DELETE FROM product_modifiers');
             await conn.query('DELETE FROM product_variants');
-            await conn.query('DELETE FROM product_ingredients');
             await conn.query('DELETE FROM products');
             await conn.query('DELETE FROM modifiers');
             await conn.query('DELETE FROM categories');
@@ -353,8 +435,8 @@ export const seedDemoContentHandler = async (req: Request, res: Response) => {
             ];
             for (const p of products) {
                 const [ins]: any = await conn.query(
-                    `INSERT INTO products (category_id, name, description, base_price, price_takeaway, price_delivery, image_url, is_active, prep_time_min, allergens, translations, stock_qty, min_stock_qty, supplier_name, last_purchase_price)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?)`,
+                    `INSERT INTO products (category_id, name, description, base_price, price_takeaway, price_delivery, image_url, is_active, prep_time_min, allergens, translations, branch_id)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)`,
                     [
                         categoryIds[p.category],
                         p.name,
@@ -367,11 +449,7 @@ export const seedDemoContentHandler = async (req: Request, res: Response) => {
                         p.prep,
                         null,
                         JSON.stringify({ tr: p.name, en: p.name, de: p.name }),
-                        100,
-                        10,
-                        'Demo Tedarikçi',
-                        Math.max(1, p.base - 2),
-                        null,
+                        1,
                     ]
                 );
                 productIds[p.key] = Number(ins?.insertId);
@@ -421,6 +499,14 @@ export const seedDemoContentHandler = async (req: Request, res: Response) => {
                     );
                 }
             }
+            // 🛡️ Self-healing: Ensure columns exist in orders table
+            await conn.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS courier_settled BOOLEAN DEFAULT FALSE`);
+            await conn.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tip_amount DECIMAL(10,2) DEFAULT 0`);
+            await conn.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tip_owner_type VARCHAR(16) DEFAULT 'courier'`);
+            await conn.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tip_split_json JSONB`);
+            await conn.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS picked_up_at TIMESTAMP NULL`);
+            await conn.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS picked_up_by VARCHAR(255) NULL`);
+            await conn.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_signature TEXT NULL`);
 
             return {
                 sections: Object.keys(sectionIds).length,
@@ -452,5 +538,122 @@ export const seedDemoContentHandler = async (req: Request, res: Response) => {
         }
         console.error('❌ Seed demo content error:', error);
         res.status(500).json({ error: 'Demo içerik yüklenemedi.' });
+    }
+};
+
+export const revokeKioskHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const branchId = req.branchId || 1;
+        const deviceCode = req.params.deviceCode;
+
+        await withTenant(tenantId, async (connection) => {
+            const [branchRows]: any = await connection.query('SELECT settings FROM branches WHERE id = ?', [branchId]);
+            if (!branchRows[0]) return;
+            const settings = branchRows[0].settings || {};
+            if (settings.integrations?.kiosk?.linkedDevices) {
+                settings.integrations.kiosk.linkedDevices = settings.integrations.kiosk.linkedDevices.filter((d: any) => d.deviceCode !== deviceCode);
+                await connection.query('UPDATE branches SET settings = ? WHERE id = ?', [JSON.stringify(settings), branchId]);
+            }
+        });
+
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`tenant:${tenantId}`).emit('kiosk:revoked');
+        }
+
+        res.json({ success: true, message: 'Cihaz yetkisi iptal edildi.' });
+    } catch (error) {
+        console.error('❌ Revoke kiosk error:', error);
+        res.status(500).json({ error: 'Cihaz yetkisi iptal edilemedi.' });
+    }
+};
+
+export const clearDemoContentHandler = async (req: Request, res: Response) => {
+    if (process.env.NODE_ENV === 'production') {
+        return res.status(403).json({ error: 'Demo seed is disabled in production', code: 'FORBIDDEN' });
+    }
+    try {
+        const tenantId = req.tenantId!;
+        const userId = req.user?.userId;
+        const { password, pinCode } = req.body || {};
+
+        if (!userId) {
+            return res.status(401).json({ error: 'Yetkilendirme hatası.' });
+        }
+
+        const authOk = await withTenant(tenantId, async (conn) => {
+            const [userRows]: any = await conn.query(`SELECT password_hash, pin_code FROM users WHERE id = ?`, [userId]);
+            const user = userRows?.[0];
+            if (!user) return false;
+            let ok = false;
+            if (password) {
+                ok = await bcrypt.compare(password, user.password_hash);
+            }
+            if (!ok && pinCode && user.pin_code) {
+                ok = (String(pinCode) === String(user.pin_code));
+            }
+            return ok;
+        });
+
+        if (!authOk) {
+            return res.status(401).json({ error: 'Geçersiz şifre veya PIN kodu.' });
+        }
+
+        await withTenantTransaction(tenantId, async (conn) => {
+            const [activeTableRows]: any = await conn.query(
+                'SELECT COUNT(*)::int AS c FROM tables WHERE current_session_id IS NOT NULL'
+            );
+            const activeTableCount = Number(activeTableRows?.[0]?.c || 0);
+            if (activeTableCount > 0) {
+                throw new Error('ACTIVE_TABLE_SESSIONS');
+            }
+
+            const [activeOrderRows]: any = await conn.query(
+                `SELECT COUNT(*)::int AS c FROM orders
+                 WHERE status IN ('pending', 'confirmed', 'preparing', 'ready', 'shipped')`
+            );
+            const activeOrderCount = Number(activeOrderRows?.[0]?.c || 0);
+            if (activeOrderCount > 0) {
+                throw new Error('ACTIVE_ORDERS');
+            }
+
+            // Clear transaction and history tables first to prevent foreign key errors
+            await conn.query('DELETE FROM deliveries');
+            await conn.query('DELETE FROM kitchen_tickets');
+            await conn.query('DELETE FROM order_items');
+            await conn.query('DELETE FROM customer_point_history');
+            await conn.query('DELETE FROM payments');
+            await conn.query('DELETE FROM orders');
+            await conn.query('DELETE FROM table_sessions');
+            await conn.query('DELETE FROM service_calls');
+
+            // Reset order: child -> parent
+            await conn.query('DELETE FROM product_modifiers');
+            await conn.query('DELETE FROM product_variants');
+            await conn.query('DELETE FROM products');
+            await conn.query('DELETE FROM modifiers');
+            await conn.query('DELETE FROM categories');
+            await conn.query('DELETE FROM tables');
+            await conn.query('DELETE FROM sections');
+        });
+
+        emitTenantTablesStale(req);
+        emitTenantMenuCatalogStale(req);
+        await delCacheByPrefix(`menu:${tenantId}:`);
+
+        res.json({
+            ok: true,
+            message: 'Tüm menü, masa, bölüm ve sipariş verileri başarıyla silindi.'
+        });
+    } catch (error: any) {
+        if (error?.message === 'ACTIVE_TABLE_SESSIONS') {
+            return res.status(409).json({ error: 'Aktif masa oturumu varken veriler silinemez.' });
+        }
+        if (error?.message === 'ACTIVE_ORDERS') {
+            return res.status(409).json({ error: 'Bekleyen siparişler varken veriler silinemez.' });
+        }
+        console.error('❌ Clear content error:', error);
+        res.status(500).json({ error: 'Tüm veriler silinemedi.' });
     }
 };

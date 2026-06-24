@@ -15,6 +15,8 @@ import {
     updateBillingModuleRow,
     removeBillingModuleRow,
     getTenantBillingStatus,
+    formatPgDateOnly,
+    payTenantInvoiceWithWallet,
 } from '../services/billing.service.js';
 import { queryPublic } from '../lib/db.js';
 import { getQrWebDomainInfo, provisionQrWebSubdomain } from '../services/qrWebProvisioning.service.js';
@@ -193,7 +195,7 @@ export async function postRecordPaymentHandler(req: Request, res: Response) {
             [tenantId]
         );
         const cycle = body.billingCycle || tb?.[0]?.billing_cycle || 'monthly';
-        const dueDate = tb?.[0]?.next_payment_due ? String(tb[0].next_payment_due).slice(0, 10) : null;
+        const dueDate = formatPgDateOnly(tb?.[0]?.next_payment_due);
         await advanceBillingAfterPayment(tenantId, cycle);
 
         if (dueDate) {
@@ -416,3 +418,585 @@ export async function postTenantQrWebDomainProvisionHandler(req: Request, res: R
         res.status(400).json({ error: error.message || 'Provizyon başarısız' });
     }
 }
+
+export async function postCheckoutLinkHandler(req: Request, res: Response) {
+    try {
+        await migrateBillingTables();
+        const paymentHistoryId = Number(req.params.paymentHistoryId);
+        if (isNaN(paymentHistoryId)) {
+            return res.status(400).json({ error: 'Geçersiz fatura ID' });
+        }
+
+        // Faturayı çek
+        const [rows]: any = await queryPublic(
+            'SELECT * FROM `public`.payment_history WHERE id = ?',
+            [paymentHistoryId]
+        );
+        const invoice = rows?.[0];
+        if (!invoice) {
+            return res.status(404).json({ error: 'Fatura bulunamadı' });
+        }
+        if (invoice.status === 'paid') {
+            return res.status(400).json({ error: 'Bu fatura zaten ödenmiş' });
+        }
+
+        // Tenant çöz
+        const tenantId = invoice.tenant_id || invoice.tenantId;
+        if (!tenantId) {
+            return res.status(400).json({ error: 'Faturada tenantId bilgisi eksik' });
+        }
+
+        const [tenants]: any = await queryPublic(
+            'SELECT name, contact_email FROM `public`.tenants WHERE id::text = ?',
+            [tenantId]
+        );
+        const tenant = tenants?.[0] || { name: 'NextPOS Müşterisi' };
+
+        const { GatewayService } = await import('../services/gateway.service.js');
+        const session = await GatewayService.createSession({
+            tenantId,
+            amount: Number(invoice.amount),
+            currency: invoice.currency || 'EUR',
+            description: invoice.description || `Abonelik Ödemesi (Fatura: #${invoice.id})`,
+            email: tenant.contact_email || undefined,
+            callbackUrl: `http://localhost:3001/api/v1/billing/checkout/callback?paymentHistoryId=${paymentHistoryId}`,
+            items: [
+                {
+                    id: `inv_${paymentHistoryId}`,
+                    name: invoice.description || 'Abonelik Servis Ücreti',
+                    price: Number(invoice.amount),
+                    quantity: 1
+                }
+            ]
+        });
+
+        res.json({ ok: true, paymentUrl: session.paymentUrl, gateway: session.gateway });
+    } catch (error: any) {
+        console.error('postCheckoutLink:', error);
+        res.status(500).json({ error: error.message || 'Ödeme linki oluşturulamadı' });
+    }
+}
+
+export async function getCheckoutCallbackHandler(req: Request, res: Response) {
+    try {
+        await migrateBillingTables();
+        const paymentHistoryId = Number(req.query.paymentHistoryId);
+        if (isNaN(paymentHistoryId)) {
+            return res.status(400).send('Geçersiz ödeme parametreleri');
+        }
+
+        // Faturayı doğrula
+        const [rows]: any = await queryPublic(
+            'SELECT * FROM `public`.payment_history WHERE id = ?',
+            [paymentHistoryId]
+        );
+        const invoice = rows?.[0];
+        if (!invoice) {
+            return res.status(404).send('Ödeme kaydı bulunamadı');
+        }
+
+        if (invoice.status !== 'paid') {
+            const tenantId = invoice.tenant_id || invoice.tenantId;
+            if (invoice.payment_type === 'wallet_deposit') {
+                await depositTenantWallet(
+                    tenantId,
+                    Number(invoice.amount),
+                    invoice.payment_method || 'credit_card',
+                    invoice.description || 'Cüzdan Bakiye Yükleme',
+                    String(paymentHistoryId),
+                    paymentHistoryId
+                );
+            } else {
+                // 1. Vadeyi ilerlet ve restoranı aktife çek
+                const [tb]: any = await queryPublic(
+                    'SELECT billing_cycle FROM `public`.tenant_billing WHERE trim(tenant_id::text) = ?',
+                    [tenantId]
+                );
+                const cycle = tb?.[0]?.billing_cycle || 'monthly';
+                await advanceBillingAfterPayment(tenantId, cycle);
+
+                // 2. Faturayı güncelle
+                await queryPublic(
+                    "UPDATE `public`.payment_history SET status = 'paid', paid_at = NOW() WHERE id = ?",
+                    [paymentHistoryId]
+                );
+            }
+            
+            try {
+                const [lastPh]: any = await queryPublic(
+                    `SELECT ph.*, t.name as tenant_name
+                     FROM \`public\`.payment_history ph
+                     LEFT JOIN \`public\`.tenants t ON trim(ph.tenant_id::text) = t.id::text
+                     WHERE ph.id = ?`,
+                    [paymentHistoryId]
+                );
+                const lp = lastPh?.[0];
+                if (lp?.invoice_number) {
+                    const { createInvoiceFromPaidPayment } = await import('../controllers/saas-advanced.controller.js');
+                    await createInvoiceFromPaidPayment(lp, lp.invoice_number);
+                }
+            } catch {}
+        }
+
+        // Kullanıcıyı frontend POS ekranına başarıyla yönlendir
+        res.redirect(`http://localhost:5173/cashier?payment=success&id=${paymentHistoryId}`);
+    } catch (error: any) {
+        console.error('getCheckoutCallback:', error);
+        res.redirect(`http://localhost:5173/cashier?payment=error&message=${encodeURIComponent(error.message || 'odeme_hatasi')}`);
+    }
+}
+
+export async function postPayWithResellerWalletHandler(req: Request, res: Response) {
+    try {
+        await migrateBillingTables();
+        const paymentHistoryId = Number(req.params.paymentHistoryId);
+        if (isNaN(paymentHistoryId)) {
+            return res.status(400).json({ error: 'Geçersiz fatura ID' });
+        }
+
+        if (req.user?.role !== 'reseller') {
+            return res.status(403).json({ error: 'Bu işlem yalnızca bayiler tarafından yapılabilir' });
+        }
+        const resellerId = req.user.userId;
+
+        // Faturayı doğrula
+        const [rows]: any = await queryPublic(
+            'SELECT * FROM `public`.payment_history WHERE id = ?',
+            [paymentHistoryId]
+        );
+        const invoice = rows?.[0];
+        if (!invoice) {
+            return res.status(404).json({ error: 'Fatura bulunamadı' });
+        }
+        if (invoice.status === 'paid') {
+            return res.status(400).json({ error: 'Bu fatura zaten ödenmiş' });
+        }
+
+        const tenantId = invoice.tenant_id || invoice.tenantId;
+        // Tenant'ın bu bayiye ait olduğunu doğrula
+        const [tenants]: any = await queryPublic(
+            'SELECT name, reseller_id FROM `public`.tenants WHERE id::text = ?',
+            [tenantId]
+        );
+        const tenant = tenants?.[0];
+        if (!tenant) {
+            return res.status(404).json({ error: 'Restoran bulunamadı' });
+        }
+        if (tenant.reseller_id !== resellerId) {
+            return res.status(403).json({ error: 'Bu restoranın faturasını ödeme yetkiniz yok' });
+        }
+
+        // Bayi cüzdan bakiyesini kontrol et
+        const [resellers]: any = await queryPublic(
+            'SELECT wallet_balance FROM `public`.saas_admins WHERE id = ?',
+            [resellerId]
+        );
+        const reseller = resellers?.[0];
+        if (!reseller) {
+            return res.status(404).json({ error: 'Bayi kaydı bulunamadı' });
+        }
+
+        const cost = Number(invoice.amount);
+        const balance = Number(reseller.wallet_balance || 0);
+        if (balance < cost) {
+            return res.status(400).json({ 
+                error: 'Cüzdan bakiyesi yetersiz', 
+                detail: `Fatura tutarı ${cost.toFixed(2)} €, mevcut bakiyeniz ${balance.toFixed(2)} €.` 
+            });
+        }
+
+        // Cüzdandan düşüp faturayı paid yapalım ve vadeyi uzatalım
+        const [tb]: any = await queryPublic(
+            'SELECT billing_cycle FROM `public`.tenant_billing WHERE trim(tenant_id::text) = ?',
+            [tenantId]
+        );
+        const cycle = tb?.[0]?.billing_cycle || 'monthly';
+
+        // Veritabanı transaction işlemi
+        const pool = (await import('../lib/db.js')).default;
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // 1. Bayi bakiyesini düş
+            await client.query(
+                'UPDATE saas_admins SET wallet_balance = wallet_balance - $1::numeric WHERE id = $2',
+                [cost, resellerId]
+            );
+
+            // 2. Faturayı paid işaretle
+            await client.query(
+                "UPDATE payment_history SET status = 'paid', paid_at = NOW(), payment_method = 'wallet_balance', created_by = $1 WHERE id = $2",
+                [req.user.username || 'reseller', paymentHistoryId]
+            );
+
+            // 3. Vadeyi ilerlet
+            await advanceBillingAfterPayment(tenantId, cycle);
+
+            await client.query('COMMIT');
+        } catch (trxErr) {
+            await client.query('ROLLBACK');
+            throw trxErr;
+        } finally {
+            client.release();
+        }
+
+        res.json({ ok: true, message: 'Ödeme bayi cüzdanı ile başarıyla tamamlandı' });
+    } catch (error: any) {
+        console.error('postPayWithResellerWallet:', error);
+        res.status(500).json({ error: error.message || 'Cüzdanla ödeme işlemi başarısız' });
+    }
+}
+
+/**
+ * 💳 NextPOS B2B FinTech & Prepaid Tenant Wallet Controllers
+ */
+
+import {
+    depositTenantWallet,
+    processTenantWalletCharge,
+    transferResellerWalletToTenant
+} from '../services/billing.service.js';
+
+// Cüzdan hareket loglarını çek
+export async function getTenantWalletTransactionsHandler(req: Request, res: Response) {
+    try {
+        const tenantId = req.params.tenantId || req.tenantId;
+        if (!tenantId) return res.status(400).json({ error: 'tenantId gerekli' });
+
+        const [rows]: any = await queryPublic(
+            'SELECT id, amount, balance_before as "balanceBefore", balance_after as "balanceAfter", type, description, reference_id as "referenceId", created_at as "createdAt" FROM `public`.tenant_wallet_transactions WHERE trim(tenant_id::text) = ? ORDER BY created_at DESC',
+            [tenantId]
+        );
+        res.json(rows || []);
+    } catch (error: any) {
+        console.error('getTenantWalletTransactions:', error);
+        res.status(500).json({ error: 'Cüzdan hareketleri alınamadı' });
+    }
+}
+
+const depositWalletSchema = z.object({
+    amount: z.number().min(1),
+    paymentMethod: z.enum(['credit_card', 'bank_transfer']),
+    description: z.string().min(3),
+    isDirectSimulated: z.boolean().optional(),
+});
+
+export async function postDepositTenantWalletHandler(req: Request, res: Response) {
+    try {
+        const tenantId = paramId(req.params.tenantId);
+        const body = depositWalletSchema.parse(req.body);
+
+        if (body.paymentMethod === 'credit_card' && !body.isDirectSimulated) {
+            const [payHistResult]: any = await queryPublic(`
+                INSERT INTO \`public\`.payment_history
+                (tenant_id, amount, currency, payment_type, payment_method, description, status, created_by)
+                VALUES (?, ?, 'EUR', 'wallet_deposit', ?, ?, 'pending', ?)
+                RETURNING id
+            `, [tenantId, body.amount, body.paymentMethod, body.description || 'Cüzdan Bakiye Yükleme', req.user?.username || 'system']);
+
+            const paymentHistoryId = payHistResult?.insertId;
+            if (!paymentHistoryId) {
+                throw new Error('Ödeme kaydı oluşturulamadı.');
+            }
+
+            const [tenants]: any = await queryPublic(
+                'SELECT contact_email FROM `public`.tenants WHERE id::text = ?',
+                [tenantId]
+            );
+            const tenant = tenants?.[0] || {};
+
+            const { GatewayService } = await import('../services/gateway.service.js');
+            const apiBase = String(process.env.API_PUBLIC_URL || process.env.PUBLIC_API_URL || '')
+                .trim()
+                .replace(/\/$/, '') || `http://127.0.0.1:${process.env.PORT || '3101'}`;
+            const session = await GatewayService.createSession({
+                tenantId: String(tenantId),
+                amount: Number(body.amount),
+                currency: 'EUR',
+                description: body.description || `Cüzdan Bakiye Yükleme (Fatura: #${paymentHistoryId})`,
+                email: tenant.contact_email || undefined,
+                callbackUrl: `${apiBase}/api/v1/billing/checkout/callback?paymentHistoryId=${paymentHistoryId}`,
+                items: [
+                    {
+                        id: `dep_${paymentHistoryId}`,
+                        name: body.description || 'Cüzdan Bakiye Yükleme',
+                        price: Number(body.amount),
+                        quantity: 1
+                    }
+                ]
+            });
+
+            return res.json({
+                ok: true,
+                requiresPayment: true,
+                paymentUrl: session.paymentUrl,
+                gateway: session.gateway,
+                paymentHistoryId
+            });
+        }
+
+        if (body.paymentMethod === 'bank_transfer') {
+            const [payHistResult]: any = await queryPublic(`
+                INSERT INTO \`public\`.payment_history
+                (tenant_id, amount, currency, payment_type, payment_method, description, status, created_by)
+                VALUES (?, ?, 'EUR', 'wallet_deposit', ?, ?, 'pending', ?)
+                RETURNING id
+            `, [tenantId, body.amount, body.paymentMethod, body.description || 'Cüzdan Bakiye Yükleme', req.user?.username || 'system']);
+
+            const paymentHistoryId = payHistResult?.insertId;
+
+            return res.json({
+                ok: true,
+                requiresPayment: false,
+                status: 'pending',
+                paymentHistoryId,
+                message: 'Havale/EFT talebiniz oluşturuldu. Lütfen banka hesabımıza transfer yaparken açıklama kısmına faturanın açıklamasını veya kodunu yazınız.'
+            });
+        }
+
+        const result = await depositTenantWallet(
+            tenantId,
+            body.amount,
+            body.paymentMethod,
+            body.description,
+            req.user?.username || 'system'
+        );
+
+        res.json({ ok: true, ...result });
+    } catch (error: any) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Geçersiz veri', details: error.errors });
+        }
+        console.error('postDepositTenantWallet:', error);
+        res.status(500).json({ error: error.message || 'Bakiye yükleme işlemi başarısız' });
+    }
+}
+
+// Cüzdandan harcama düş (Super Admin)
+const chargeWalletSchema = z.object({
+    amount: z.number().min(0.01),
+    chargeType: z.enum(['plan_charge', 'module_charge', 'setup_charge']),
+    description: z.string().min(3),
+});
+
+export async function postTenantWalletChargeHandler(req: Request, res: Response) {
+    try {
+        const tenantId = paramId(req.params.tenantId);
+        const body = chargeWalletSchema.parse(req.body);
+
+        const result = await processTenantWalletCharge(
+            tenantId,
+            body.amount,
+            body.chargeType,
+            body.description
+        );
+
+        res.json({ ok: true, ...result });
+    } catch (error: any) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Geçersiz veri', details: error.errors });
+        }
+        console.error('postTenantWalletCharge:', error);
+        res.status(500).json({ error: error.message || 'Cüzdandan tahsilat başarısız' });
+    }
+}
+
+// Bayi cüzdanından restoran cüzdanına transfer yap
+const transferWalletSchema = z.object({
+    tenantId: z.string().uuid(),
+    amount: z.number().min(1),
+    description: z.string().min(3),
+});
+
+export async function postTransferResellerWalletToTenantHandler(req: Request, res: Response) {
+    try {
+        if (req.user?.role !== 'reseller') {
+            return res.status(403).json({ error: 'Bu işlem yalnızca bayiler tarafından yapılabilir' });
+        }
+        const resellerId = req.user.userId;
+        const body = transferWalletSchema.parse(req.body);
+
+        // Restoranın bu bayiye bağlı olduğunu doğrula
+        const [rows]: any = await queryPublic(
+            'SELECT 1 FROM `public`.tenants WHERE id::text = ? AND reseller_id = ? LIMIT 1',
+            [body.tenantId, resellerId]
+        );
+        if (!rows?.length) {
+            return res.status(403).json({ error: 'Bu restorana bakiye aktarma yetkiniz yok' });
+        }
+
+        const result = await transferResellerWalletToTenant(
+            Number(resellerId),
+            body.tenantId,
+            body.amount,
+            body.description
+        );
+
+        res.json({ ok: true, ...result });
+    } catch (error: any) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Geçersiz veri', details: error.errors });
+        }
+        console.error('postTransferResellerWalletToTenant:', error);
+        res.status(500).json({ error: error.message || 'Bakiye aktarımı başarısız' });
+    }
+}
+
+// Modül satın al (Otomatik cüzdan tahsilatı)
+export async function postPurchaseModuleHandler(req: Request, res: Response) {
+    try {
+        const tenantId = paramId(req.params.tenantId);
+        const moduleCode = paramId(req.params.moduleCode);
+
+        if (!tenantId || !moduleCode) {
+            return res.status(400).json({ error: 'tenantId ve moduleCode gerekli' });
+        }
+
+        // Modülü bul
+        const [moduleRows]: any = await queryPublic(
+            'SELECT * FROM `public`.billing_modules WHERE code = ? AND is_active = true',
+            [moduleCode]
+        );
+        const mod = moduleRows?.[0];
+        if (!mod) {
+            return res.status(404).json({ error: 'Modül bulunamadı veya pasif durumda.' });
+        }
+
+        const setupCost = Number(mod.setup_price || 0);
+        const monthlyCost = Number(mod.monthly_price || 0);
+        const totalCost = setupCost + monthlyCost;
+
+        // Cüzdandan düş
+        const billingResult = await processTenantWalletCharge(
+            tenantId,
+            totalCost,
+            'module_charge',
+            `${mod.name} Modülü Aktivasyon (Kurulum: ${setupCost.toFixed(2)} € + 1. Ay: ${monthlyCost.toFixed(2)} €)`
+        );
+
+        // Modülü kiracıya ekle
+        await queryPublic(`
+            INSERT INTO \`public\`.tenant_modules (tenant_id, module_code, quantity, setup_line_total, monthly_line_total, is_active)
+            VALUES (?, ?, 1, ?, ?, true)
+            ON CONFLICT (tenant_id, module_code)
+            DO UPDATE SET is_active = true, setup_line_total = EXCLUDED.setup_line_total, monthly_line_total = EXCLUDED.monthly_line_total
+        `, [tenantId, moduleCode, setupCost, monthlyCost]);
+
+        // Kiracının aylık tekrarlayan faturasını güncelle
+        await queryPublic(`
+            UPDATE \`public\`.tenant_billing
+            SET monthly_recurring_total = monthly_recurring_total + ?
+            WHERE trim(tenant_id::text) = ?
+        `, [monthlyCost, tenantId]);
+
+        res.json({
+            ok: true,
+            message: `${mod.name} modülü başarıyla satın alındı ve cüzdandan tahsil edildi.`,
+            wallet: billingResult
+        });
+    } catch (error: any) {
+        console.error('postPurchaseModule:', error);
+        res.status(500).json({ error: error.message || 'Modül satın alım işlemi başarısız' });
+    }
+}
+
+// Toptan Paket Satın Al (6 veya 12 Aylık Lisans Kilitleme)
+const purchaseBulkPlanSchema = z.object({
+    planCode: z.string(),
+    months: z.number().refine(n => n === 6 || n === 12, {
+        message: "Yalnızca 6 aylık veya 12 aylık paketler satın alınabilir."
+    })
+});
+
+import {
+    purchaseBulkPlanForTenant
+} from '../services/billing.service.js';
+
+export async function postPurchaseBulkPlanHandler(req: Request, res: Response) {
+    try {
+        const tenantId = paramId(req.params.tenantId);
+        const body = purchaseBulkPlanSchema.parse(req.body);
+
+        const result = await purchaseBulkPlanForTenant(
+            tenantId,
+            body.planCode,
+            body.months
+        );
+
+        res.json({
+            ok: true,
+            message: `${body.months} aylık toptan paket satın alımı başarıyla tamamlandı. Fiyatınız kilitlendi ve vade tarihiniz güncellendi.`,
+            ...result
+        });
+    } catch (error: any) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Geçersiz veri', details: error.errors });
+        }
+        console.error('postPurchaseBulkPlan:', error);
+        res.status(500).json({ error: error.message || 'Toptan paket satın alım işlemi başarısız' });
+    }
+}
+
+export async function getTenantPaymentHistoryHandler(req: Request, res: Response) {
+    try {
+        const tenantId = req.tenantId;
+        if (!tenantId) {
+            return res.status(400).json({ error: 'tenantId gerekli' });
+        }
+        const [rows]: any = await queryPublic(
+            'SELECT * FROM `public`.payment_history WHERE trim(tenant_id::text) = trim(?) ORDER BY created_at DESC',
+            [tenantId]
+        );
+        res.json(rows || []);
+    } catch (error: any) {
+        console.error('getTenantPaymentHistory:', error);
+        res.status(500).json({ error: 'Ödeme geçmişi alınamadı' });
+    }
+}
+
+export async function getBillingPlansHandler(_req: Request, res: Response) {
+    try {
+        const [rows]: any = await queryPublic(
+            'SELECT * FROM `public`.subscription_plans WHERE is_active = true ORDER BY sort_order ASC'
+        );
+        res.json(rows || []);
+    } catch (error: any) {
+        console.error('getBillingPlans:', error);
+        res.status(500).json({ error: 'Planlar alınamadı' });
+    }
+}
+
+export async function postPayWithTenantWalletHandler(req: Request, res: Response) {
+    try {
+        const paymentHistoryId = Number(req.params.paymentHistoryId);
+        if (isNaN(paymentHistoryId)) {
+            return res.status(400).json({ error: 'Geçersiz fatura ID' });
+        }
+
+        const tenantId = req.tenantId;
+        if (!tenantId) {
+            return res.status(400).json({ error: 'tenantId gerekli' });
+        }
+
+        const result = await payTenantInvoiceWithWallet({
+            tenantId,
+            paymentHistoryId,
+            createdBy: req.user?.username || 'admin',
+        });
+
+        res.json(result);
+    } catch (error: any) {
+        const msg = error?.message || 'Cüzdanla ödeme işlemi başarısız';
+        console.error('postPayWithTenantWallet:', error);
+        const clientErr =
+            msg.includes('yetersiz') ||
+            msg.includes('zaten ödenmiş') ||
+            msg.includes('bulunamadı') ||
+            msg.includes('ödenemez') ||
+            msg.includes('yetkiniz');
+        res.status(clientErr ? 400 : 500).json({ error: msg });
+    }
+}
+
+

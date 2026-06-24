@@ -12,7 +12,7 @@ interface CashPaymentModalProps {
     tableName?: string;
 }
 
-const QUICK_AMOUNTS = [5, 10, 20, 50, 100, 200, 500];
+const QUICK_AMOUNTS = [10, 20, 50, 100];
 
 const NUMPAD_KEYS = [
     ['7', '8', '9'],
@@ -36,14 +36,22 @@ export const CashPaymentModal: React.FC<CashPaymentModalProps> = ({
     const currencySymbol = settings?.currency || '€';
     const locale = settings?.language === 'tr' ? 'tr-TR' : (settings?.language === 'de' ? 'de-DE' : 'en-US');
 
+    const sanitizeAmountInput = useCallback((raw: string) => {
+        const normalized = raw.replace(',', '.').replace(/[^0-9.]/g, '');
+        const [wholeRaw = '', ...fractionChunks] = normalized.split('.');
+        const whole = wholeRaw.replace(/^0+(?=\d)/, '') || (wholeRaw.length > 0 ? '0' : '');
+        const fraction = fractionChunks.join('').slice(0, 2);
+        return fraction.length > 0 ? `${whole}.${fraction}` : whole;
+    }, []);
+
     // Reset on open
     useEffect(() => {
         if (isOpen) {
-            setInputValue('');
+            setInputValue(totalAmount.toFixed(2));
             // Auto-focus after animation
             setTimeout(() => inputRef.current?.focus(), 200);
         }
-    }, [isOpen]);
+    }, [isOpen, totalAmount]);
 
     const handleNumpad = useCallback((key: string) => {
         if (key === 'DEL') {
@@ -155,10 +163,7 @@ export const CashPaymentModal: React.FC<CashPaymentModalProps> = ({
                                         type="text"
                                         inputMode="decimal"
                                         value={inputValue}
-                                        onChange={(e) => {
-                                            const val = e.target.value.replace(/[^0-9.]/g, '');
-                                            setInputValue(val);
-                                        }}
+                                        onChange={(e) => setInputValue(sanitizeAmountInput(e.target.value))}
                                         placeholder="0.00"
                                         className="flex-1 bg-transparent text-3xl font-black text-white outline-none tabular-nums tracking-tight placeholder:text-white/10"
                                     />
@@ -191,10 +196,10 @@ export const CashPaymentModal: React.FC<CashPaymentModalProps> = ({
 
                         {/* Quick Amount Buttons */}
                         <div className="px-6 pb-3">
-                            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                            <div className="grid grid-cols-3 gap-2.5">
                                 <button
                                     onClick={handleExact}
-                                    className="shrink-0 px-4 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-500/30 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all active:scale-95"
+                                    className="min-w-0 px-4 py-3 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-500/30 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all active:scale-95"
                                 >
                                     {t('cash.exact') || 'TAM'}
                                 </button>
@@ -202,7 +207,7 @@ export const CashPaymentModal: React.FC<CashPaymentModalProps> = ({
                                     <button
                                         key={amt}
                                         onClick={() => handleQuickAmount(amt)}
-                                        className={`shrink-0 px-4 py-2.5 rounded-xl text-[11px] font-black tracking-wider transition-all active:scale-95 ${
+                                        className={`min-w-0 px-4 py-3 rounded-xl text-[12px] font-black tracking-wider transition-all active:scale-95 ${
                                             inputValue === String(amt)
                                                 ? 'bg-blue-600 text-white border border-blue-400/40 shadow-lg shadow-blue-900/30'
                                                 : 'bg-white/5 text-white/50 border border-white/[0.06] hover:bg-white/10 hover:text-white/80'

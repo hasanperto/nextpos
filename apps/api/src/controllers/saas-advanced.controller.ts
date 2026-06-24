@@ -1,17 +1,26 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// NextPOS — SaaS Advanced Controller
-// Finans, Güvenlik, Raporlama, CRM, Monitoring, Gelişmiş Destek
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// NextPOS â€” SaaS Advanced Controller
+// Finans, GÃ¼venlik, Raporlama, CRM, Monitoring, GeliÅŸmiÅŸ Destek
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 import { Request, Response } from 'express';
 import { invalidateTenantCache, queryPublic } from '../lib/db.js';
 import { trySendMail } from '../lib/email.js';
-import { migrateBillingTables } from '../services/billing.service.js';
+import {
+    migrateBillingTables,
+    advanceBillingAfterPayment,
+    aggregateResellerIncomeBreakdownAsync,
+    formatResellerCommissionDescription,
+    getResellerCommissionSplitForTenant,
+    type ResellerCommissionSplit,
+} from '../services/billing.service.js';
+import { cancelResellerPlanPurchase } from '../services/reseller-plan-card-purchase.service.js';
+import { depositTenantWallet } from '../services/billing.service.js';
 import { ensureDeviceResetQuotaSchema } from '../services/device-reset-quota.service.js';
 
-// ═══════════════════════════════════════════════════════════════
-// 1. FİNANS & GELİR MERKEZİ
-// ═══════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// 1. FÄ°NANS & GELÄ°R MERKEZÄ°
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 export const getPaymentHistory = async (req: Request, res: Response) => {
     try {
@@ -43,8 +52,8 @@ export const getPaymentHistory = async (req: Request, res: Response) => {
         const [rows] = await queryPublic(query, params);
         res.json(rows);
     } catch (error) {
-        console.error('❌ Payment history error:', error);
-        res.status(500).json({ error: 'Ödeme geçmişi alınamadı' });
+        console.error('âŒ Payment history error:', error);
+        res.status(500).json({ error: 'Ã–deme geÃ§miÅŸi alÄ±namadÄ±' });
     }
 };
 
@@ -53,7 +62,7 @@ export const createPayment = async (req: Request, res: Response) => {
         const { tenant_id, amount, currency, payment_type, payment_method, description, due_date, due_days, due_weeks, status } =
             req.body;
 
-        // Eğer due_date direkt gönderilmediyse (3 gün / 1 hafta gibi) due_* ile hesaplayalım.
+        // EÄŸer due_date direkt gÃ¶nderilmediyse (3 gÃ¼n / 1 hafta gibi) due_* ile hesaplayalÄ±m.
         let resolvedDueDate = due_date ?? null;
         if ((status === 'pending' || !status) && !resolvedDueDate) {
             const dDays = due_days != null ? Number(due_days) : null;
@@ -66,7 +75,7 @@ export const createPayment = async (req: Request, res: Response) => {
         
         if (req.user?.role === 'reseller') {
             const [check]: any = await queryPublic('SELECT id FROM `public`.tenants WHERE id = ? AND reseller_id = ?', [tenant_id, req.user.userId]);
-            if (check.length === 0) return res.status(403).json({ error: 'Bu restoran için ödeme oluşturma yetkiniz yok' });
+            if (check.length === 0) return res.status(403).json({ error: 'Bu restoran iÃ§in Ã¶deme oluÅŸturma yetkiniz yok' });
         }
 
         const invoiceNumber = `INV-${Date.now().toString(36).toUpperCase()}`;
@@ -95,17 +104,17 @@ export const createPayment = async (req: Request, res: Response) => {
             } catch {}
         }
 
-        res.status(201).json({ message: 'Ödeme kaydı oluşturuldu', id: result.insertId, invoice_number: invoiceNumber });
+        res.status(201).json({ message: 'Ã–deme kaydÄ± oluÅŸturuldu', id: result.insertId, invoice_number: invoiceNumber });
     } catch (error) {
-        console.error('❌ Create payment error:', error);
-        res.status(500).json({ error: 'Ödeme kaydı oluşturulamadı' });
+        console.error('âŒ Create payment error:', error);
+        res.status(500).json({ error: 'Ã–deme kaydÄ± oluÅŸturulamadÄ±' });
     }
 };
 
 export const updatePaymentStatus = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { status } = req.body;
+        const { status, amount, paymentMethod, description } = req.body;
 
         if (req.user?.role === 'reseller') {
             const [check]: any = await queryPublic(`
@@ -113,12 +122,40 @@ export const updatePaymentStatus = async (req: Request, res: Response) => {
                 JOIN \`public\`.tenants t ON trim(ph.tenant_id::text) = t.id::text
                 WHERE ph.id = ? AND t.reseller_id = ?
             `, [id, req.user.userId]);
-            if (check.length === 0) return res.status(403).json({ error: 'Bu ödemeyi güncelleme yetkiniz yok' });
+            if (check.length === 0) return res.status(403).json({ error: 'Bu Ã¶demeyi gÃ¼ncelleme yetkiniz yok' });
         }
 
         let invoiceNumber: string | null = null;
 
         if (status === 'paid') {
+            const [preRows]: any = await queryPublic(
+                `SELECT id, tenant_id::text as tenant_id, amount, payment_type, payment_method, description, status
+                 FROM \`public\`.payment_history WHERE id = ?`,
+                [id]
+            );
+            const pre = preRows?.[0];
+            if (
+                pre?.payment_type === 'wallet_deposit' &&
+                pre?.tenant_id &&
+                String(pre.status || '').toLowerCase() !== 'paid'
+            ) {
+                await depositTenantWallet(
+                    String(pre.tenant_id),
+                    Number(pre.amount),
+                    String(pre.payment_method || 'bank_transfer'),
+                    String(pre.description || 'Cüzdan bakiye yükleme'),
+                    undefined,
+                    Number(id)
+                );
+                await logAudit(req, 'update_payment_status', 'payment', id, null, {
+                    status: 'paid',
+                    walletDeposit: true,
+                });
+                return res.json({
+                    message: 'Ödeme onaylandı ve restoran cüzdan bakiyesine yüklendi.',
+                });
+            }
+
             const [existing]: any = await queryPublic(
                 `SELECT invoice_number FROM \`public\`.payment_history WHERE id = ?`,
                 [id]
@@ -127,11 +164,56 @@ export const updatePaymentStatus = async (req: Request, res: Response) => {
             if (!invoiceNumber) {
                 invoiceNumber = generateInvoiceNumber();
             }
+
+            const updates: string[] = [
+                "status = 'paid'",
+                "paid_at = NOW()",
+                "invoice_number = COALESCE(invoice_number, ?)"
+            ];
+            const params: any[] = [invoiceNumber];
+
+            if (amount !== undefined && amount !== null) {
+                updates.push("amount = ?");
+                params.push(amount);
+            }
+            if (paymentMethod !== undefined && paymentMethod !== null) {
+                updates.push("payment_method = ?");
+                params.push(paymentMethod);
+            }
+            if (description !== undefined && description !== null) {
+                updates.push("description = ?");
+                params.push(description);
+            }
+            params.push(id);
+
             await queryPublic(
-                `UPDATE \`public\`.payment_history SET status = 'paid', paid_at = NOW(), invoice_number = COALESCE(invoice_number, ?) WHERE id = ?`,
-                [invoiceNumber, id]
+                `UPDATE \`public\`.payment_history SET ${updates.join(', ')} WHERE id = ?`,
+                params
             );
         } else {
+            if (String(status).toLowerCase() === 'cancelled') {
+                const [phRow]: any = await queryPublic(
+                    `SELECT id, saas_admin_id, payment_type, status FROM \`public\`.payment_history WHERE id = ?`,
+                    [id]
+                );
+                const p = phRow?.[0];
+                if (p?.payment_type === 'license_upgrade' && p?.saas_admin_id != null) {
+                    const cancelResult = await cancelResellerPlanPurchase(
+                        Number(p.saas_admin_id),
+                        Number(id)
+                    );
+                    if (cancelResult.ok) {
+                        await logAudit(req, 'update_payment_status', 'payment', id, null, {
+                            status: 'cancelled',
+                            reverted: cancelResult.reverted,
+                        });
+                        return res.json({
+                            message: cancelResult.message,
+                            reverted: cancelResult.reverted,
+                        });
+                    }
+                }
+            }
             await queryPublic(`UPDATE \`public\`.payment_history SET status = ? WHERE id = ?`, [status, id]);
         }
 
@@ -154,7 +236,7 @@ export const updatePaymentStatus = async (req: Request, res: Response) => {
 
                 if (tenantId && p.payment_type === 'subscription' && String(p.description || '').includes('Havale bekleniyor')) {
                     const [trows]: any = await queryPublic(
-                        `SELECT id, reseller_id, settings FROM \`public\`.tenants WHERE trim(id::text) = trim(?)`,
+                        `SELECT id, reseller_id, settings, name FROM \`public\`.tenants WHERE trim(id::text) = trim(?)`,
                         [tenantId]
                     );
                     const trow = trows?.[0];
@@ -167,35 +249,101 @@ export const updatePaymentStatus = async (req: Request, res: Response) => {
                     }
                     const pending = settings.pending_bank_transfer === true;
                     const rc = Number(settings.reseller_commission_amount ?? 0);
-                    const rid = trow?.reseller_id != null ? Number(trow.reseller_id) : null;
-                    if (pending && rc > 0 && rid != null) {
-                        const [tbrows]: any = await queryPublic(
-                            `SELECT billing_cycle FROM \`public\`.tenant_billing WHERE trim(tenant_id::text) = trim(?) LIMIT 1`,
-                            [tenantId]
-                        );
-                        const cycle = tbrows?.[0]?.billing_cycle === 'yearly' ? 'yearly' : 'monthly';
-                        const commDesc = `Komisyon (${cycle}) — Havale onayı · ${String(p.tenant_name || '').trim()}`;
+                    
+                    if (pending && rc > 0) {
+                        let targetAdminId = trow?.reseller_id != null ? Number(trow.reseller_id) : null;
+                        let targetAdminRole: 'reseller' | 'super_admin' = 'reseller';
 
+                        if (targetAdminId == null) {
+                            // Bayi yoksa, SaaS Admin (super_admin) cüzdanına yatsın
+                            const [adminRows]: any = await queryPublic(`SELECT id FROM \`public\`.saas_admins WHERE role = 'super_admin' ORDER BY id ASC LIMIT 1`);
+                            if (adminRows?.[0]) {
+                                targetAdminId = Number(adminRows[0].id);
+                            } else {
+                                targetAdminId = 1;
+                            }
+                            targetAdminRole = 'super_admin';
+                        }
+
+                        let split: ResellerCommissionSplit | null = null;
+                        const rawBr = settings.reseller_commission_breakdown;
+                        if (rawBr && typeof rawBr === 'object') {
+                            const o = rawBr as Record<string, unknown>;
+                            const sc = Number(o.setupCorporate ?? o.setup_corporate);
+                            const am = Number(o.addonModules ?? o.addon_modules);
+                            const rec = Number(o.recurring);
+                            const bc = o.billingCycle === 'yearly' || o.billing_cycle === 'yearly' ? 'yearly' : 'monthly';
+                            if (Number.isFinite(sc) && Number.isFinite(am) && Number.isFinite(rec)) {
+                                split = { setupCorporate: sc, addonModules: am, recurring: rec, billingCycle: bc };
+                            }
+                        }
+                        if (!split) {
+                            split = await getResellerCommissionSplitForTenant(tenantId);
+                        }
+                        let commDesc: string;
+                        if (split) {
+                            commDesc = formatResellerCommissionDescription(String(p.tenant_name || trow?.name || '').trim(), split, targetAdminRole === 'reseller' ? '· Havale onayı' : '· Havale onayı (SaaS Admin)');
+                        } else {
+                            const [tbrows]: any = await queryPublic(
+                                `SELECT billing_cycle FROM \`public\`.tenant_billing WHERE trim(tenant_id::text) = trim(?) LIMIT 1`,
+                                [tenantId]
+                            );
+                            const cycle = tbrows?.[0]?.billing_cycle === 'yearly' ? 'yearly' : 'monthly';
+                            commDesc = targetAdminRole === 'reseller'
+                                ? `Komisyon (${cycle}) — Havale onayı · ${String(p.tenant_name || trow?.name || '').trim()}`
+                                : `SaaS Komisyonu (${cycle}) — Havale onayı · ${String(p.tenant_name || trow?.name || '').trim()} (Bayi Olmadığı İçin)`;
+                        }
+
+                        // BUG-3 FIX: Locale-bağımsız duplikat kontrolü (ILIKE Türkçe karakter sorunu)
                         const [dup]: any = await queryPublic(
                             `SELECT id FROM \`public\`.payment_history
-                             WHERE trim(tenant_id::text) = trim(?) AND payment_type = 'reseller_income' AND status = 'paid'
-                               AND description ILIKE '%Havale onayı%'
+                             WHERE trim(tenant_id::text) = trim(?)
+                               AND payment_type = 'reseller_income'
+                               AND payment_method = 'bank_transfer'
+                               AND saas_admin_id = ?
+                               AND status = 'paid'
                              LIMIT 1`,
-                            [tenantId]
+                            [tenantId, targetAdminId]
                         );
                         if (!dup?.length) {
+                            // 1. Cüzdanı güncelle
+                            await queryPublic(
+                                `UPDATE \`public\`.saas_admins SET wallet_balance = COALESCE(wallet_balance, 0) + ? WHERE id = ?`,
+                                [rc, targetAdminId]
+                            );
+
+                            // 2. Ödeme geçmişi kaydı
                             await queryPublic(
                                 `INSERT INTO \`public\`.payment_history (tenant_id, saas_admin_id, amount, currency, payment_type, payment_method, status, description, paid_at)
                                  VALUES (?, ?, ?, 'EUR', 'reseller_income', 'bank_transfer', 'paid', ?, NOW())`,
-                                [tenantId, rid, rc, commDesc]
+                                [tenantId, targetAdminId, rc, commDesc]
                             );
                         }
                         await queryPublic(
-                            `UPDATE \`public\`.tenants SET settings = (COALESCE(settings::jsonb, '{}'::jsonb) - 'pending_bank_transfer' - 'reseller_commission_amount' - 'first_invoice_total')
+                            `UPDATE \`public\`.tenants SET settings = (COALESCE(settings::jsonb, '{}'::jsonb) - 'pending_bank_transfer' - 'reseller_commission_amount' - 'reseller_commission_breakdown' - 'first_invoice_total')
                              WHERE trim(id::text) = trim(?)`,
                             [tenantId]
                         );
                         invalidateTenantCache(tenantId);
+                    }
+                }
+
+                /** Aylık/yıllık birleşik abonelik satırı ödendiğinde sonraki vadeyi ilerlet (paket + modül aylıkları tek tutar) */
+                if (tenantId && p.payment_type === 'subscription' && p.due_date) {
+                    try {
+                        const [tbRows]: any = await queryPublic(
+                            `SELECT billing_cycle, next_payment_due::text as npd FROM \`public\`.tenant_billing WHERE trim(tenant_id::text) = trim(?) LIMIT 1`,
+                            [tenantId]
+                        );
+                        const tb0 = tbRows?.[0];
+                        const npd = tb0?.npd ? String(tb0.npd).slice(0, 10) : '';
+                        const dd = String(p.due_date).slice(0, 10);
+                        if (tb0 && npd === dd) {
+                            const cycle = tb0.billing_cycle === 'yearly' ? 'yearly' : 'monthly';
+                            await advanceBillingAfterPayment(tenantId, cycle);
+                        }
+                    } catch (advErr) {
+                        console.warn('advanceBillingAfterPayment (updatePaymentStatus):', advErr);
                     }
                 }
 
@@ -222,10 +370,10 @@ export const updatePaymentStatus = async (req: Request, res: Response) => {
             }
         }
 
-        res.json({ message: 'Ödeme durumu güncellendi', invoice_number: invoiceNumber });
+        res.json({ message: 'Ã–deme durumu gÃ¼ncellendi', invoice_number: invoiceNumber });
     } catch (error) {
         console.error('updatePaymentStatus error:', error);
-        res.status(500).json({ error: 'Ödeme durumu güncellenemedi' });
+        res.status(500).json({ error: 'Ã–deme durumu gÃ¼ncellenemedi' });
     }
 };
 
@@ -263,7 +411,7 @@ async function createInvoiceFromPayment(p: any, invNo: string): Promise<void> {
             [
                 p.tenant_id, invNo, items, subtotal, taxRate, taxAmount, amount,
                 p.currency || 'EUR', p.due_date || null,
-                `${p.tenant_name || ''} — ${paymentTypeDescription(p.payment_type)}`,
+                `${p.tenant_name || ''} â€” ${paymentTypeDescription(p.payment_type)}`,
             ]
         );
     } catch (e) {
@@ -273,14 +421,14 @@ async function createInvoiceFromPayment(p: any, invNo: string): Promise<void> {
 
 function paymentTypeDescription(pt: string): string {
     const map: Record<string, string> = {
-        subscription: 'Abonelik ücreti',
-        setup: 'Kurulum ücreti',
-        addon: 'Ek modül ücreti',
-        license: 'Lisans ücreti',
-        refund: 'İade',
+        subscription: 'Abonelik Ã¼creti',
+        setup: 'Kurulum Ã¼creti',
+        addon: 'Ek modÃ¼l Ã¼creti',
+        license: 'Lisans Ã¼creti',
+        refund: 'Ä°ade',
         reseller_income: 'Bayi komisyonu',
         reseller_package_onboarding: 'Bayi paket / onboarding',
-        license_upgrade: 'Lisans yükseltme',
+        license_upgrade: 'Lisans yÃ¼kseltme',
     };
     return map[pt] || pt;
 }
@@ -331,9 +479,9 @@ async function ensureInvoicesTable(): Promise<void> {
     }
 }
 
-// ═════════════════════════════════════════════
-// Muhasebe Inbox (vadeli abonelik ödemeleri)
-// ═════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Muhasebe Inbox (vadeli abonelik Ã¶demeleri)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 export const getFinanceInbox = async (req: Request, res: Response) => {
     try {
         const isReseller = req.user?.role === 'reseller';
@@ -383,7 +531,7 @@ export const getFinanceInbox = async (req: Request, res: Response) => {
         });
     } catch (error) {
         console.error('getFinanceInbox error:', error);
-        res.status(500).json({ error: 'Muhasebe inbox alınamadı' });
+        res.status(500).json({ error: 'Muhasebe inbox alÄ±namadÄ±' });
     }
 };
 
@@ -412,16 +560,16 @@ export const sendPaymentDueMail = async (req: Request, res: Response) => {
         );
 
         const p = rows?.[0];
-        if (!p) return res.status(404).json({ error: 'Ödeme bulunamadı' });
+        if (!p) return res.status(404).json({ error: 'Ã–deme bulunamadÄ±' });
 
         const to = p.contact_email;
         if (!to) return res.status(400).json({ error: 'Tenant e-posta adresi yok' });
 
-        const dueStr = p.due_date ? String(p.due_date) : '—';
+        const dueStr = p.due_date ? String(p.due_date) : 'â€”';
         const subject = `Abonelik yenileme - vade ${dueStr}`;
-        const text = `Merhaba ${p.tenant_name || ''},\n\nAbonelik yenileme ödeme vadeniz: ${dueStr}.\nTutar: €${Number(p.amount || 0).toFixed(
+        const text = `Merhaba ${p.tenant_name || ''},\n\nAbonelik yenileme Ã¶deme vadeniz: ${dueStr}.\nTutar: â‚¬${Number(p.amount || 0).toFixed(
             2
-        )}\n\nÖdemeyi tamamladığınızda sistem otomatik güncelleyecektir.\n`;
+        )}\n\nÃ–demeyi tamamladÄ±ÄŸÄ±nÄ±zda sistem otomatik gÃ¼ncelleyecektir.\n`;
 
         await queryPublic(
             `INSERT INTO \`public\`.billing_reminder_log (tenant_id, kind, message) VALUES (?, 'mail_sent', ?)`,
@@ -432,13 +580,13 @@ export const sendPaymentDueMail = async (req: Request, res: Response) => {
         return res.json({ ok: true, mailSent: mail.ok, reason: mail.reason || undefined });
     } catch (error) {
         console.error('sendPaymentDueMail error:', error);
-        res.status(500).json({ error: 'Mail gönderilemedi' });
+        res.status(500).json({ error: 'Mail gÃ¶nderilemedi' });
     }
 };
 
-// ═════════════════════════════════════════════
-// Muhasebe detay: yaklaşan ödemeler, vadeli, bildirim log
-// ═════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Muhasebe detay: yaklaÅŸan Ã¶demeler, vadeli, bildirim log
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 export const getAccountingUpcoming = async (req: Request, res: Response) => {
     try {
@@ -469,7 +617,7 @@ export const getAccountingUpcoming = async (req: Request, res: Response) => {
         res.json(rows || []);
     } catch (error) {
         console.error('getAccountingUpcoming error:', error);
-        res.status(500).json({ error: 'Yaklaşan ödemeler alınamadı' });
+        res.status(500).json({ error: 'YaklaÅŸan Ã¶demeler alÄ±namadÄ±' });
     }
 };
 
@@ -506,7 +654,7 @@ export const getAccountingInstallments = async (req: Request, res: Response) => 
         res.json(rows || []);
     } catch (error) {
         console.error('getAccountingInstallments error:', error);
-        res.status(500).json({ error: 'Vadeli ödemeler alınamadı' });
+        res.status(500).json({ error: 'Vadeli Ã¶demeler alÄ±namadÄ±' });
     }
 };
 
@@ -533,7 +681,7 @@ export const getAccountingNotifications = async (req: Request, res: Response) =>
         res.json(rows || []);
     } catch (error) {
         console.error('getAccountingNotifications error:', error);
-        res.status(500).json({ error: 'Bildirim logları alınamadı' });
+        res.status(500).json({ error: 'Bildirim loglarÄ± alÄ±namadÄ±' });
     }
 };
 
@@ -543,7 +691,7 @@ export const getAccountingAllPayments = async (req: Request, res: Response) => {
         const userId = req.user?.userId;
         const { status, type, from, to, tenant, payment_method } = req.query;
         const params: any[] = [];
-        /** Kiracıya bağlı satırlar + tenant_id NULL iken saas_admin_id bu bayiye ait cüzdan yüklemeleri */
+        /** KiracÄ±ya baÄŸlÄ± satÄ±rlar + tenant_id NULL iken saas_admin_id bu bayiye ait cÃ¼zdan yÃ¼klemeleri */
         const whereTenant = isReseller
             ? ' AND (t.reseller_id = ? OR (ph.tenant_id IS NULL AND ph.saas_admin_id = ?))'
             : '';
@@ -562,10 +710,16 @@ export const getAccountingAllPayments = async (req: Request, res: Response) => {
 
         const [rows]: any = await queryPublic(
             `
-            SELECT ph.*, COALESCE(t.name, a.company_name, a.username) as tenant_name
+            SELECT ph.*, COALESCE(t.name, a.company_name, a.username) as tenant_name,
+                   tb.plan_code as tb_plan_code,
+                   tb.billing_cycle as tb_billing_cycle,
+                   tb.monthly_recurring_total as tb_monthly_recurring_total,
+                   tb.setup_fee_total as tb_setup_fee_total,
+                   tb.next_payment_due as tb_next_payment_due
             FROM \`public\`.payment_history ph
             LEFT JOIN \`public\`.tenants t ON trim(ph.tenant_id::text) = t.id::text
             LEFT JOIN \`public\`.saas_admins a ON ph.saas_admin_id = a.id
+            LEFT JOIN \`public\`.tenant_billing tb ON trim(tb.tenant_id::text) = trim(ph.tenant_id::text)
             WHERE 1=1 ${filters} ${whereTenant}
             ORDER BY ph.created_at DESC
             LIMIT 300
@@ -591,13 +745,18 @@ export const getAccountingAllPayments = async (req: Request, res: Response) => {
             params
         );
 
+        const enriched = (rows || []).map((r: Record<string, unknown>) => ({
+            ...r,
+            cadence_key: paymentCadenceKey(r.payment_type as string, r.due_date),
+        }));
+
         res.json({
-            rows: rows || [],
+            rows: enriched,
             summary: summary?.[0] || {},
         });
     } catch (error) {
         console.error('getAccountingAllPayments error:', error);
-        res.status(500).json({ error: 'Ödeme emirleri alınamadı' });
+        res.status(500).json({ error: 'Ã–deme emirleri alÄ±namadÄ±' });
     }
 };
 
@@ -631,7 +790,7 @@ export const getInvoices = async (req: Request, res: Response) => {
         res.json(rows || []);
     } catch (error) {
         console.error('getInvoices error:', error);
-        res.status(500).json({ error: 'Fatura listesi alınamadı' });
+        res.status(500).json({ error: 'Fatura listesi alÄ±namadÄ±' });
     }
 };
 
@@ -673,6 +832,32 @@ async function assertResellerOwnsTenant(req: Request, tenantId: string | null | 
     return Array.isArray(chk) && chk.length > 0;
 }
 
+/** Bayi: tenant veya tenant_id NULL iken kendi saas_admin satırı */
+async function assertResellerPaymentRowAccess(req: Request, row: { tenant_id?: unknown; saas_admin_id?: unknown }): Promise<boolean> {
+    if (req.user?.role === 'super_admin') return true;
+    if (req.user?.role !== 'reseller') return false;
+    const uid = Number(req.user.userId);
+    if (row.tenant_id != null && String(row.tenant_id).trim() !== '') {
+        return assertResellerOwnsTenant(req, String(row.tenant_id));
+    }
+    return Number(row.saas_admin_id) === uid;
+}
+
+/** Kurulum tek sefer; abonelik/ek modül vadeleri due_date ile tekrarlayan kabul edilir (UI metni i18n) */
+function paymentCadenceKey(paymentType: string | null | undefined, dueDate: unknown): string {
+    const p = String(paymentType || '').toLowerCase();
+    const hasDue = dueDate != null && String(dueDate).trim() !== '';
+
+    if (p === 'setup') return 'one_time_setup';
+    if (p === 'subscription') return hasDue ? 'recurring_subscription' : 'subscription_settled';
+    if (p === 'addon') return hasDue ? 'recurring_addon' : 'addon_charge';
+    if (p === 'reseller_income') return 'commission';
+    if (p === 'license_upgrade' || p === 'reseller_package_onboarding') return 'license_pool';
+    if (p.includes('topup') || p === 'withdrawal') return 'wallet';
+    if (p === 'license') return 'license_pool';
+    return 'other';
+}
+
 export const getInvoiceByNumber = async (req: Request, res: Response) => {
     try {
         await ensureInvoicesTable();
@@ -704,9 +889,9 @@ export const getInvoiceByNumber = async (req: Request, res: Response) => {
                 [invNo]
             );
             const ph = phRows?.[0];
-            if (!ph) return res.status(404).json({ error: 'Fatura bulunamadı' });
+            if (!ph) return res.status(404).json({ error: 'Fatura bulunamadÄ±' });
             if (!(await assertResellerOwnsTenant(req, ph.tenant_id != null ? String(ph.tenant_id) : null))) {
-                return res.status(403).json({ error: 'Bu faturaya erişim yetkiniz yok' });
+                return res.status(403).json({ error: 'Bu faturaya eriÅŸim yetkiniz yok' });
             }
 
             const amount = Number(ph.amount || 0);
@@ -735,13 +920,13 @@ export const getInvoiceByNumber = async (req: Request, res: Response) => {
                 due_date: ph.due_date,
                 paid_at: ph.paid_at,
                 created_at: ph.created_at,
-                notes: `${ph.tenant_name || ''} — ${paymentTypeDescription(ph.payment_type)}`,
+                notes: `${ph.tenant_name || ''} â€” ${paymentTypeDescription(ph.payment_type)}`,
             });
         }
 
         const inv = rows[0];
         if (!(await assertResellerOwnsTenant(req, inv.tenant_id != null ? String(inv.tenant_id) : null))) {
-            return res.status(403).json({ error: 'Bu faturaya erişim yetkiniz yok' });
+            return res.status(403).json({ error: 'Bu faturaya eriÅŸim yetkiniz yok' });
         }
         if (typeof inv.items === 'string') {
             try { inv.items = JSON.parse(inv.items); } catch {}
@@ -750,7 +935,155 @@ export const getInvoiceByNumber = async (req: Request, res: Response) => {
         res.json(inv);
     } catch (error) {
         console.error('getInvoiceByNumber error:', error);
-        res.status(500).json({ error: 'Fatura detayı alınamadı' });
+        res.status(500).json({ error: 'Fatura detayÄ± alÄ±namadÄ±' });
+    }
+};
+
+/** Bayi/SaaS: tek ödeme kaydı — fatura kalemleri, faturalama özeti, modül satırları */
+export const getPaymentFinanceDetail = async (req: Request, res: Response) => {
+    try {
+        await ensureInvoicesTable();
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id)) return res.status(400).json({ error: 'Geçersiz ödeme kimliği' });
+
+        const [phRows]: any = await queryPublic(
+            `
+            SELECT ph.*,
+                   COALESCE(t.name, a.company_name, a.username) AS tenant_name,
+                   t.contact_email, t.contact_phone, t.tax_office, t.tax_number,
+                   t.authorized_person, t.company_title, t.address AS tenant_address,
+                   tb.plan_code, tb.billing_cycle, tb.setup_fee_total, tb.monthly_recurring_total,
+                   tb.yearly_prepay_total, tb.next_payment_due, tb.payment_current
+            FROM \`public\`.payment_history ph
+            LEFT JOIN \`public\`.tenants t ON trim(ph.tenant_id::text) = t.id::text
+            LEFT JOIN \`public\`.saas_admins a ON ph.saas_admin_id = a.id
+            LEFT JOIN \`public\`.tenant_billing tb ON trim(tb.tenant_id::text) = trim(ph.tenant_id::text)
+            WHERE ph.id = ?
+            LIMIT 1
+            `,
+            [id],
+        );
+        const row = phRows?.[0];
+        if (!row) return res.status(404).json({ error: 'Ödeme kaydı bulunamadı' });
+        if (!(await assertResellerPaymentRowAccess(req, row))) {
+            return res.status(403).json({ error: 'Bu ödeme kaydına erişim yetkiniz yok' });
+        }
+
+        const cadence_key = paymentCadenceKey(row.payment_type, row.due_date);
+
+        let module_lines: any[] = [];
+        if (row.tenant_id) {
+            const [mods]: any = await queryPublic(
+                `
+                SELECT tm.module_code, tm.quantity, tm.setup_line_total, tm.monthly_line_total,
+                       COALESCE(bm.name, tm.module_code) AS module_name,
+                       bm.setup_price, bm.monthly_price
+                FROM \`public\`.tenant_modules tm
+                LEFT JOIN \`public\`.billing_modules bm ON tm.module_code = bm.code
+                WHERE trim(tm.tenant_id::text) = trim(?::text)
+                ORDER BY tm.module_code ASC
+                `,
+                [String(row.tenant_id)],
+            );
+            module_lines = mods || [];
+        }
+
+        let invoice: Record<string, unknown> | null = null;
+        if (row.invoice_number) {
+            const [invRows]: any = await queryPublic(
+                `SELECT * FROM \`public\`.invoices WHERE invoice_number = ? LIMIT 1`,
+                [row.invoice_number],
+            );
+            if (invRows?.[0]) {
+                invoice = { ...invRows[0] } as Record<string, unknown>;
+                if (typeof invoice.items === 'string') {
+                    try {
+                        invoice.items = JSON.parse(invoice.items as string);
+                    } catch {
+                        /* ignore */
+                    }
+                }
+            }
+        }
+
+        if (!invoice && row.invoice_number) {
+            const amount = Number(row.amount || 0);
+            const taxRate = 19;
+            const taxAmount = Math.round((amount * taxRate) / (100 + taxRate) * 100) / 100;
+            const subtotal = Math.round((amount - taxAmount) * 100) / 100;
+            invoice = {
+                source: 'payment_fallback',
+                invoice_number: row.invoice_number,
+                tenant_id: row.tenant_id,
+                tenant_name: row.tenant_name,
+                items: [
+                    {
+                        description: paymentTypeDescription(row.payment_type),
+                        quantity: 1,
+                        unit_price: subtotal,
+                        total: subtotal,
+                    },
+                ],
+                subtotal,
+                tax_rate: taxRate,
+                tax_amount: taxAmount,
+                total: amount,
+                currency: row.currency || 'EUR',
+                status: row.status,
+                notes: String(row.description || ''),
+            };
+        }
+
+        const tenant_billing =
+            row.plan_code != null || row.setup_fee_total != null
+                ? {
+                      plan_code: row.plan_code,
+                      billing_cycle: row.billing_cycle,
+                      setup_fee_total: row.setup_fee_total != null ? Number(row.setup_fee_total) : null,
+                      monthly_recurring_total: row.monthly_recurring_total != null ? Number(row.monthly_recurring_total) : null,
+                      yearly_prepay_total: row.yearly_prepay_total != null ? Number(row.yearly_prepay_total) : null,
+                      next_payment_due: row.next_payment_due,
+                      payment_current: row.payment_current,
+                  }
+                : null;
+
+        const payment = {
+            id: row.id,
+            tenant_id: row.tenant_id,
+            tenant_name: row.tenant_name,
+            saas_admin_id: row.saas_admin_id,
+            amount: row.amount != null ? Number(row.amount) : null,
+            currency: row.currency,
+            payment_type: row.payment_type,
+            payment_method: row.payment_method,
+            status: row.status,
+            description: row.description,
+            due_date: row.due_date,
+            paid_at: row.paid_at,
+            created_at: row.created_at,
+            invoice_number: row.invoice_number,
+            created_by: row.created_by,
+            cadence_key,
+        };
+
+        res.json({
+            payment,
+            tenant_billing,
+            tenant_contact: {
+                contact_email: row.contact_email,
+                contact_phone: row.contact_phone,
+                tax_office: row.tax_office,
+                tax_number: row.tax_number,
+                authorized_person: row.authorized_person,
+                company_title: row.company_title,
+                tenant_address: row.tenant_address,
+            },
+            module_lines,
+            invoice,
+        });
+    } catch (error) {
+        console.error('getPaymentFinanceDetail error:', error);
+        res.status(500).json({ error: 'Ödeme detayı alınamadı' });
     }
 };
 
@@ -761,7 +1094,7 @@ export const getFinancialSummary = async (req: Request, res: Response) => {
         const resellerId = userId != null ? Number(userId) : null;
 
         /**
-         * Bayi komisyon satırları: tenant_id üzerinden JOIN bazen PG tür uyumsuzluğunda 0 döner;
+         * Bayi komisyon satÄ±rlarÄ±: tenant_id Ã¼zerinden JOIN bazen PG tÃ¼r uyumsuzluÄŸunda 0 dÃ¶ner;
          * saas_admin_id = bayi veya tenant bu bayiye ait ise dahil et.
          */
         const resellerPaymentScope = `
@@ -776,7 +1109,7 @@ export const getFinancialSummary = async (req: Request, res: Response) => {
         `;
         const resellerScopeParams = resellerId != null ? [resellerId, resellerId] : [];
 
-        // ─── Bayi: komisyon = payment_history.reseller_income (+ kapsam) ───
+        // â”€â”€â”€ Bayi: komisyon = payment_history.reseller_income (+ kapsam) â”€â”€â”€
         if (isReseller && resellerId != null) {
             const [walletRows]: any = await queryPublic(
                 `SELECT COALESCE(wallet_balance, 0) as wallet_balance FROM \`public\`.saas_admins WHERE id = ? LIMIT 1`,
@@ -810,37 +1143,50 @@ export const getFinancialSummary = async (req: Request, res: Response) => {
                 [resellerId]
             );
 
-            const [commBreak]: any = await queryPublic(
-                `SELECT
-                    COALESCE(SUM(CASE WHEN ph.description ILIKE '%(monthly)%' THEN ph.amount ELSE 0 END), 0) as monthly_cycle,
-                    COALESCE(SUM(CASE WHEN ph.description ILIKE '%(yearly)%' THEN ph.amount ELSE 0 END), 0) as yearly_cycle,
-                    COALESCE(SUM(CASE
-                        WHEN ph.description ILIKE '%modül%' OR ph.description ILIKE '%modul%' OR ph.description ILIKE '%module%'
-                        THEN ph.amount ELSE 0 END), 0) as with_modules,
-                    COALESCE(SUM(CASE WHEN
-                        ph.description ILIKE '%(setup)%' OR ph.description ILIKE '%kurulum%' OR ph.description ILIKE '%onboarding%'
-                        OR ph.description ILIKE '%kurumsal%' OR ph.description ILIKE '%(license)%'
-                        THEN ph.amount ELSE 0 END), 0) as setup_corporate
+            const [commRows]: any = await queryPublic(
+                `SELECT ph.amount, ph.description, ph.tenant_id::text as tenant_id
                  FROM \`public\`.payment_history ph
                  WHERE ph.status = 'paid' AND ph.payment_type = 'reseller_income' AND ${resellerPaymentScope}`,
                 resellerScopeParams
             );
+            const b = await aggregateResellerIncomeBreakdownAsync(commRows || []);
 
-            const b = commBreak?.[0] || {};
+            let estimatedMonthlyCommission = 0;
+            try {
+                const [st]: any = await queryPublic(
+                    `SELECT reseller_monthly_rate FROM "public"."system_settings" LIMIT 1`,
+                );
+                const mrate = Number(st?.[0]?.reseller_monthly_rate ?? 50) / 100;
+                const [est]: any = await queryPublic(
+                    `SELECT COALESCE(SUM(
+                        CASE WHEN tb.billing_cycle::text = 'yearly'
+                        THEN COALESCE(tb.yearly_prepay_total, 0) ELSE COALESCE(tb.monthly_recurring_total, 0) END
+                    ), 0) AS base
+                    FROM "public"."tenant_billing" tb
+                    INNER JOIN "public"."tenants" t ON trim(tb.tenant_id::text) = trim(t.id::text)
+                    WHERE t.reseller_id = ? AND t.status = 'active'`,
+                    [resellerId],
+                );
+                estimatedMonthlyCommission = Math.round(Number(est?.[0]?.base || 0) * mrate * 100) / 100;
+            } catch {
+                estimatedMonthlyCommission = 0;
+            }
+
             return res.json({
                 totalEarnings: totalEarnings[0]?.total ?? 0,
                 pendingRevenue: pendingRevenue[0]?.total ?? 0,
                 walletBalance: Number(walletRows?.[0]?.wallet_balance ?? 0),
                 monthlyEarnings,
                 planDistribution,
+                estimatedMonthlyCommission,
                 commissionBreakdown: {
-                    /** Açıklamada (monthly) geçen doğrudan satış komisyonları (ödeme döngüsü) */
-                    monthlyBillingCycle: Number(b.monthly_cycle ?? 0),
-                    yearlyBillingCycle: Number(b.yearly_cycle ?? 0),
-                    /** Açıklamada ek modül geçen satırların tutarı (kurulum+servis komisyonu tek satırda) */
-                    salesWithAddonModules: Number(b.with_modules ?? 0),
-                    /** Kurulum / lisans / kurumsal anahtar kelimeleri (açıklama metnine göre) */
-                    setupAndCorporate: Number(b.setup_corporate ?? 0),
+                    /** Dönem payı (aylık faturalama döngüsü) — açıklama kırılımı veya eski (monthly) satırları */
+                    monthlyBillingCycle: b.monthlyBillingCycle,
+                    yearlyBillingCycle: b.yearlyBillingCycle,
+                    /** Modül kurulum komisyon payı (yeni format) veya açıklamada modül geçen eski satırlar */
+                    salesWithAddonModules: b.salesWithAddonModules,
+                    /** Plan kurulum komisyon payı (yeni format) veya kurulum/kurumsal anahtar kelimeli eski satırlar */
+                    setupAndCorporate: b.setupAndCorporate,
                 },
                 totalRevenue: 0,
                 monthlyRevenue: [],
@@ -855,7 +1201,7 @@ export const getFinancialSummary = async (req: Request, res: Response) => {
         const whereClause = ' WHERE 1=1 ';
         const params: any[] = [];
 
-        // Toplam gelir (Kazançlar) — süper admin
+        // Toplam gelir (KazanÃ§lar) â€” sÃ¼per admin
         const [totalEarnings]: any = await queryPublic(
             `SELECT COALESCE(SUM(amount), 0) as total FROM \`public\`.payment_history ph ${joinClause} ${whereClause} AND ph.status = 'paid' AND ph.payment_type = 'reseller_income'`,
             params
@@ -881,7 +1227,7 @@ export const getFinancialSummary = async (req: Request, res: Response) => {
             []
         );
 
-        // Süper admin: restoran ödemeleri (abonelik / lisans / kurulum / ek)
+        // SÃ¼per admin: restoran Ã¶demeleri (abonelik / lisans / kurulum / ek)
         let totalRevenue = 0;
         let monthlyRevenue: any[] = [];
         let nextMonthEstimatedRevenue: number | undefined;
@@ -996,120 +1342,227 @@ export const getFinancialSummary = async (req: Request, res: Response) => {
             lastUpdate: new Date().toISOString()
         });
     } catch (error) {
-        console.error('❌ Financial summary error:', error);
-        res.status(500).json({ error: 'Finansal özet alınamadı' });
+        console.error('âŒ Financial summary error:', error);
+        res.status(500).json({ error: 'Finansal Ã¶zet alÄ±namadÄ±' });
     }
 };
 
-/** Bayi: komisyon oranlarını değiştirdikten sonra tüm eski reseller_income kayıtlarını yeni oranlara göre yeniden hesaplar */
-export const recalculateResellerCommissionsHandler = async (req: Request, res: Response) => {
-    try {
-        if (req.user?.role !== 'reseller') {
-            return res.status(403).json({ error: 'Yalnızca bayi hesabı erişebilir' });
-        }
-        const resellerId = Number(req.user.userId);
+/** Bayi komisyon yeniden hesaplama (payment_type her zaman reseller_income; dÃ¼zeltme tutarÄ± = hedef âˆ’ mevcut toplam) */
+export async function runResellerCommissionRecalculation(resellerId: number): Promise<{
+    updatedTenants: number;
+    oldTotalCommission: number;
+    newTotalCommission: number;
+    diff: number;
+    adjustmentRows: number;
+    adjustmentNet: number;
+    rates: { setupRate: number; monthlyRate: number };
+}> {
+    const [settingsRows]: any = await queryPublic(
+        `SELECT reseller_setup_rate, reseller_monthly_rate FROM "public"."system_settings" LIMIT 1`,
+    );
+    const settings = settingsRows?.[0] || {};
+    const setupRate = Number(settings.reseller_setup_rate ?? 75) / 100;
+    const monthlyRate = Number(settings.reseller_monthly_rate ?? 50) / 100;
 
-        // Güncel komisyon oranlarını al
-        const [settingsRows]: any = await queryPublic(`SELECT reseller_setup_rate, reseller_monthly_rate FROM "public"."system_settings" LIMIT 1`);
-        const settings = settingsRows?.[0] || {};
-        const setupRate = Number(settings.reseller_setup_rate ?? 75) / 100;
-        const monthlyRate = Number(settings.reseller_monthly_rate ?? 50) / 100;
+    const [tenantBillings]: any = await queryPublic(
+        `SELECT tb.tenant_id, t.name as tenant_name, tb.billing_cycle, tb.plan_code,
+                tb.setup_fee_total, tb.monthly_recurring_total, tb.yearly_prepay_total
+         FROM "public"."tenant_billing" tb
+         JOIN "public"."tenants" t ON trim(tb.tenant_id::text) = trim(t.id::text)
+         WHERE t.reseller_id = $1`,
+        [resellerId],
+    );
 
-        // Bu bayiye ait tüm tenant'ların billing bilgilerini al
-        const [tenantBillings]: any = await queryPublic(
-            `SELECT tb.tenant_id, t.name as tenant_name, tb.billing_cycle, tb.plan_code,
-                    tb.setup_fee_total, tb.monthly_recurring_total, tb.yearly_prepay_total
-             FROM "public"."tenant_billing" tb
-             JOIN "public"."tenants" t ON trim(tb.tenant_id::text) = trim(t.id::text)
-             WHERE t.reseller_id = $1`,
-            [resellerId]
+    let updatedCount = 0;
+    let totalOldCommission = 0;
+    let totalNewCommission = 0;
+    let adjustmentRows = 0;
+    let adjustmentNet = 0;
+
+    for (const tb of tenantBillings || []) {
+        const [oldCommRows]: any = await queryPublic(
+            `SELECT COALESCE(SUM(amount), 0) as total FROM "public"."payment_history"
+             WHERE trim(tenant_id::text) = trim($1::text) AND payment_type = 'reseller_income' AND status = 'paid'`,
+            [tb.tenant_id],
+        );
+        const oldTotal = Number(oldCommRows?.[0]?.total || 0);
+        totalOldCommission += oldTotal;
+
+        const [modRows]: any = await queryPublic(
+            `SELECT tm.module_code, tm.quantity, bm.setup_price, bm.monthly_price
+             FROM "public"."tenant_modules" tm
+             JOIN "public"."billing_modules" bm ON tm.module_code = bm.code
+             WHERE trim(tm.tenant_id::text) = trim($1::text)`,
+            [tb.tenant_id],
         );
 
-        // tenant_billing'den plan koduna göre modulesSetup hesapla
-        const [allModules]: any = await queryPublic(`SELECT code, setup_price, monthly_price FROM "public"."billing_modules" WHERE is_active = true`);
+        let modulesSetup = 0;
+        for (const m of modRows || []) {
+            modulesSetup += Number(m.setup_price || 0) * Number(m.quantity || 1);
+        }
 
-        let updatedCount = 0;
-        let totalOldCommission = 0;
-        let totalNewCommission = 0;
-
-        for (const tb of (tenantBillings || [])) {
-            // Bu tenant için mevcut toplam komisyonu al (eski)
-            const [oldCommRows]: any = await queryPublic(
-                `SELECT COALESCE(SUM(amount), 0) as total FROM "public"."payment_history"
-                 WHERE trim(tenant_id::text) = trim($1::text) AND payment_type = 'reseller_income' AND status = 'paid'`,
-                [tb.tenant_id]
-            );
-            const oldTotal = Number(oldCommRows?.[0]?.total || 0);
-            totalOldCommission += oldTotal;
-
-            // Mevcut modülleri al
-            const [modRows]: any = await queryPublic(
-                `SELECT tm.module_code, tm.quantity, bm.setup_price, bm.monthly_price
-                 FROM "public"."tenant_modules" tm
-                 JOIN "public"."billing_modules" bm ON tm.module_code = bm.code
-                 WHERE trim(tm.tenant_id::text) = trim($1::text)`,
-                [tb.tenant_id]
-            );
-
-            // modulesSetup ve modulesMonthly hesapla
-            let modulesSetup = 0;
-            let modulesMonthly = 0;
-            for (const m of (modRows || [])) {
-                modulesSetup += Number(m.setup_price || 0) * Number(m.quantity || 1);
-                modulesMonthly += Number(m.monthly_price || 0) * Number(m.quantity || 1);
-            }
-
-            const planSetupFee = Number(tb.setup_fee_total || 0) - modulesSetup; // plan setup fee
-            const setupTotal = planSetupFee + modulesSetup;
-            const monthlyTotal = tb.billing_cycle === 'yearly'
+        const planSetupFee = Number(tb.setup_fee_total || 0) - modulesSetup;
+        const setupTotal = planSetupFee + modulesSetup;
+        const monthlyTotal =
+            tb.billing_cycle === 'yearly'
                 ? Number(tb.yearly_prepay_total || 0)
                 : Number(tb.monthly_recurring_total || 0);
 
-            const newCommission =
-                setupTotal * setupRate +
-                monthlyTotal * monthlyRate;
+        const newCommission = setupTotal * setupRate + monthlyTotal * monthlyRate;
+        totalNewCommission += newCommission;
 
-            totalNewCommission += newCommission;
-
-            // Eski reseller_income kayıtlarını sil ve yeni tek kayıt ekle
+        const diff = Math.round((newCommission - oldTotal) * 100) / 100;
+        if (Math.abs(diff) >= 0.01) {
+            const invNo = `COMM-RECALC-${Date.now().toString(36).toUpperCase()}-${updatedCount}`;
             await queryPublic(
-                `DELETE FROM "public"."payment_history" WHERE trim(tenant_id::text) = trim($1::text) AND payment_type = 'reseller_income'`,
-                [tb.tenant_id]
+                `INSERT INTO "public"."payment_history" (tenant_id, saas_admin_id, amount, currency, payment_type, payment_method, status, description, invoice_number, paid_at)
+                 VALUES ($1, $2, $3, 'EUR', 'reseller_income', 'adjustment', 'paid', $4, $5, NOW())`,
+                [
+                    tb.tenant_id,
+                    resellerId,
+                    diff,
+                    `Komisyon düzeltmesi (${tb.billing_cycle}) — ${tb.tenant_name} [hedef: ${newCommission.toFixed(2)} €, önceki toplam: ${oldTotal.toFixed(2)} €]`,
+                    invNo,
+                ],
             );
-            if (newCommission > 0) {
-                const invNo = `COMM-RECALC-${Date.now().toString(36).toUpperCase()}`;
-                await queryPublic(
-                    `INSERT INTO "public"."payment_history" (tenant_id, saas_admin_id, amount, currency, payment_type, payment_method, status, description, invoice_number, paid_at)
-                     VALUES ($1, $2, $3, 'EUR', 'reseller_income', 'adjustment', 'paid', $4, $5, NOW())`,
-                    [
-                        tb.tenant_id,
-                        resellerId,
-                        Math.round(newCommission * 100) / 100,
-                        `Komisyon düzeltmesi (${tb.billing_cycle}) — ${tb.tenant_name} [oransal güncelleme]`,
-                        invNo,
-                    ]
-                );
-            }
-            updatedCount++;
+            adjustmentRows += 1;
+            adjustmentNet += diff;
         }
+        updatedCount++;
+    }
 
+    return {
+        updatedTenants: updatedCount,
+        oldTotalCommission: Math.round(totalOldCommission * 100) / 100,
+        newTotalCommission: Math.round(totalNewCommission * 100) / 100,
+        diff: Math.round((totalNewCommission - totalOldCommission) * 100) / 100,
+        adjustmentRows,
+        adjustmentNet: Math.round(adjustmentNet * 100) / 100,
+        rates: { setupRate: Math.round(setupRate * 100), monthlyRate: Math.round(monthlyRate * 100) },
+    };
+}
+
+/** Bayi: komisyon oranlarÄ±nÄ± deÄŸiÅŸtirdikten sonra tÃ¼m eski reseller_income kayÄ±tlarÄ±nÄ± yeni oranlara gÃ¶re yeniden hesaplar */
+export const recalculateResellerCommissionsHandler = async (req: Request, res: Response) => {
+    try {
+        if (req.user?.role !== 'reseller') {
+            return res.status(403).json({ error: 'YalnÄ±zca bayi hesabÄ± eriÅŸebilir' });
+        }
+        const resellerId = Number(req.user.userId);
+        const result = await runResellerCommissionRecalculation(resellerId);
         res.json({
             ok: true,
-            updatedTenants: updatedCount,
-            oldTotalCommission: Math.round(totalOldCommission * 100) / 100,
-            newTotalCommission: Math.round(totalNewCommission * 100) / 100,
-            diff: Math.round((totalNewCommission - totalOldCommission) * 100) / 100,
-            rates: { setupRate: Math.round(setupRate * 100), monthlyRate: Math.round(monthlyRate * 100) },
+            ...result,
         });
     } catch (error) {
-        console.error('❌ recalculateResellerCommissions error:', error);
-        res.status(500).json({ error: 'Komisyon yeniden hesaplanamadı' });
+        console.error('âŒ recalculateResellerCommissions error:', error);
+        res.status(500).json({ error: 'Komisyon yeniden hesaplanamadÄ±' });
     }
 };
 
-// ═══════════════════════════════════════════════════════════════
-// 2. GÜVENLİK & DENETİM
-// ═══════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// BUG-2 FIX: Bayi bazlÄ± komisyon Ã¶zet raporu (Admin paneli)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+export const getResellerCommissionSummary = async (req: Request, res: Response) => {
+    try {
+        if (req.user?.role !== 'super_admin') {
+            return res.status(403).json({ error: 'YalnÄ±zca sÃ¼per admin eriÅŸebilir' });
+        }
+        const { reseller_id, from, to } = req.query;
+
+        let dateFilter = '';
+        const params: any[] = [];
+
+        if (reseller_id) {
+            params.push(Number(reseller_id));
+        }
+
+        if (from) { dateFilter += ' AND ph.created_at >= ?'; params.push(from); }
+        if (to)   { dateFilter += ' AND ph.created_at <= ?'; params.push(to); }
+
+        // TÃ¼m bayilerin komisyon Ã¶zeti
+        const resellerScope = reseller_id ? ' AND ph.saas_admin_id = ?' : '';
+        const [summary]: any = await queryPublic(
+            `SELECT
+                a.id             AS reseller_id,
+                a.username       AS reseller_username,
+                a.company_name   AS company_name,
+                a.wallet_balance AS wallet_balance,
+                COALESCE(SUM(CASE WHEN ph.status = 'paid' THEN ph.amount ELSE 0 END), 0)    AS total_earned,
+                COALESCE(SUM(CASE WHEN ph.status = 'pending' THEN ph.amount ELSE 0 END), 0) AS total_pending,
+                COUNT(DISTINCT t.id)::int AS tenant_count
+             FROM \`public\`.saas_admins a
+             LEFT JOIN \`public\`.payment_history ph
+                    ON ph.saas_admin_id = a.id
+                   AND ph.payment_type = 'reseller_income'
+                   ${dateFilter}
+             LEFT JOIN \`public\`.tenants t ON t.reseller_id = a.id
+             WHERE a.role = 'reseller'
+             ${reseller_id ? 'AND a.id = ?' : ''}
+             GROUP BY a.id, a.username, a.company_name, a.wallet_balance
+             ORDER BY total_earned DESC`,
+            reseller_id ? [...params, Number(reseller_id)] : params
+        );
+
+        // AylÄ±k kÄ±rÄ±lÄ±m
+        const [monthly]: any = await queryPublic(
+            `SELECT
+                ph.saas_admin_id AS reseller_id,
+                TO_CHAR(ph.created_at, 'YYYY-MM') AS month,
+                SUM(ph.amount)::numeric AS total
+             FROM \`public\`.payment_history ph
+             WHERE ph.payment_type = 'reseller_income'
+               AND ph.status = 'paid'
+               ${reseller_id ? 'AND ph.saas_admin_id = ?' : ''}
+               ${dateFilter}
+             GROUP BY ph.saas_admin_id, TO_CHAR(ph.created_at, 'YYYY-MM')
+             ORDER BY month ASC`,
+            reseller_id ? [Number(reseller_id), ...(from ? [from] : []), ...(to ? [to] : [])] : [...(from ? [from] : []), ...(to ? [to] : [])]
+        );
+
+        // Restoran bazlÄ± komisyon detayÄ± (sadece tek bayi filtrelendiyse)
+        let tenantBreakdown: any[] = [];
+        if (reseller_id) {
+            const [tb]: any = await queryPublic(
+                `SELECT
+                    t.id            AS tenant_id,
+                    t.name          AS tenant_name,
+                    t.created_at    AS tenant_created_at,
+                    t.created_by    AS created_by,
+                    tb.billing_cycle,
+                    tb.monthly_recurring_total,
+                    tb.setup_fee_total,
+                    COALESCE(SUM(CASE WHEN ph.status='paid' THEN ph.amount ELSE 0 END), 0) AS commission_paid,
+                    COALESCE(SUM(CASE WHEN ph.status='pending' THEN ph.amount ELSE 0 END), 0) AS commission_pending
+                 FROM \`public\`.tenants t
+                 LEFT JOIN \`public\`.tenant_billing tb ON trim(tb.tenant_id::text) = t.id::text
+                 LEFT JOIN \`public\`.payment_history ph
+                        ON trim(ph.tenant_id::text) = t.id::text
+                       AND ph.payment_type = 'reseller_income'
+                       AND ph.saas_admin_id = ?
+                 WHERE t.reseller_id = ?
+                 GROUP BY t.id, t.name, t.created_at, t.created_by, tb.billing_cycle, tb.monthly_recurring_total, tb.setup_fee_total
+                 ORDER BY commission_paid DESC`,
+                [Number(reseller_id), Number(reseller_id)]
+            );
+            tenantBreakdown = tb || [];
+        }
+
+        res.json({
+            summary: summary || [],
+            monthly: monthly || [],
+            tenantBreakdown,
+            generatedAt: new Date().toISOString(),
+        });
+    } catch (error) {
+        console.error('âŒ getResellerCommissionSummary error:', error);
+        res.status(500).json({ error: 'Komisyon Ã¶zeti alÄ±namadÄ±' });
+    }
+};
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// 2. GÃœVENLÄ°K & DENETÄ°M
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async function logAudit(req: Request, action: string, entityType: string, entityId: any, oldValue: any, newValue: any) {
     try {
@@ -1176,7 +1629,7 @@ export const getAuditLogs = async (req: Request, res: Response) => {
         const [rows] = await queryPublic(query, params);
         res.json(rows);
     } catch (error) {
-        res.status(500).json({ error: 'Audit loglar alınamadı' });
+        res.status(500).json({ error: 'Audit loglar alÄ±namadÄ±' });
     }
 };
 
@@ -1189,7 +1642,7 @@ export const getLoginAttempts = async (req: Request, res: Response) => {
         );
         res.json(rows);
     } catch (error) {
-        res.status(500).json({ error: 'Giriş denemeleri alınamadı' });
+        res.status(500).json({ error: 'GiriÅŸ denemeleri alÄ±namadÄ±' });
     }
 };
 
@@ -1219,8 +1672,8 @@ export const getSecuritySummary = async (_req: Request, res: Response) => {
             recentActivity
         });
     } catch (error) {
-        console.error('❌ Security summary error:', error);
-        res.status(500).json({ error: 'Güvenlik özeti alınamadı' });
+        console.error('âŒ Security summary error:', error);
+        res.status(500).json({ error: 'GÃ¼venlik Ã¶zeti alÄ±namadÄ±' });
     }
 };
 
@@ -1235,7 +1688,7 @@ export const getApiKeys = async (req: Request, res: Response) => {
         `);
         res.json(rows);
     } catch (error) {
-        res.status(500).json({ error: 'API anahtarları alınamadı' });
+        res.status(500).json({ error: 'API anahtarlarÄ± alÄ±namadÄ±' });
     }
 };
 
@@ -1252,9 +1705,9 @@ export const createApiKey = async (req: Request, res: Response) => {
         `, [tenant_id, key, name, JSON.stringify(permissions || []), expires_at || null]);
 
         await logAudit(req, 'create_api_key', 'api_key', result.insertId, null, { tenant_id, name });
-        res.status(201).json({ message: 'API anahtarı oluşturuldu', id: result.insertId, key });
+        res.status(201).json({ message: 'API anahtarÄ± oluÅŸturuldu', id: result.insertId, key });
     } catch (error) {
-        res.status(500).json({ error: 'API anahtarı oluşturulamadı' });
+        res.status(500).json({ error: 'API anahtarÄ± oluÅŸturulamadÄ±' });
     }
 };
 
@@ -1263,15 +1716,15 @@ export const revokeApiKey = async (req: Request, res: Response) => {
         const { id } = req.params;
         await queryPublic('UPDATE `public`.api_keys SET is_active = false WHERE id = ?', [id]);
         await logAudit(req, 'revoke_api_key', 'api_key', id, null, { revoked: true });
-        res.json({ message: 'API anahtarı iptal edildi' });
+        res.json({ message: 'API anahtarÄ± iptal edildi' });
     } catch (error) {
-        res.status(500).json({ error: 'API anahtarı iptal edilemedi' });
+        res.status(500).json({ error: 'API anahtarÄ± iptal edilemedi' });
     }
 };
 
-// ═══════════════════════════════════════════════════════════════
-// 3. RAPORLAMA & ANALİTİK
-// ═══════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// 3. RAPORLAMA & ANALÄ°TÄ°K
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 export const getGrowthReport = async (req: Request, res: Response) => {
     const isReseller = req.user?.role === 'reseller';
@@ -1315,7 +1768,7 @@ export const getGrowthReport = async (req: Request, res: Response) => {
         totalTenantCount = tot[0]?.count ?? 0;
     } catch (e) { console.warn('getGrowthReport totalTenants:', e); }
 
-    // ─── AI INSIGHT: CHURN RISK (Licansı bitmek üzere olanlar) ───
+    // â”€â”€â”€ AI INSIGHT: CHURN RISK (LicansÄ± bitmek Ã¼zere olanlar) â”€â”€â”€
     try {
         const [risk]: any = await queryPublic(
             `SELECT COUNT(*)::int as count FROM \`public\`.tenants t 
@@ -1327,7 +1780,7 @@ export const getGrowthReport = async (req: Request, res: Response) => {
         churnRiskCount = risk[0]?.count ?? 0;
     } catch {}
 
-    // ─── REVENUE FORECAST (Gelecek ay beklenen tahsilat) ───
+    // â”€â”€â”€ REVENUE FORECAST (Gelecek ay beklenen tahsilat) â”€â”€â”€
     try {
         const [forecast]: any = await queryPublic(`
             SELECT COALESCE(SUM(amount), 0) as total 
@@ -1340,7 +1793,7 @@ export const getGrowthReport = async (req: Request, res: Response) => {
         revenueForecast = Number(forecast[0]?.total || 0);
     } catch {}
 
-    // ─── PLAN REVENUE DISTRIBUTION ───
+    // â”€â”€â”€ PLAN REVENUE DISTRIBUTION â”€â”€â”€
     try {
         const [prefRows]: any = await queryPublic(`
             SELECT t.subscription_plan as plan, SUM(ph.amount) as revenue
@@ -1378,6 +1831,36 @@ export const getGrowthReport = async (req: Request, res: Response) => {
 
     const churnRate = totalTenantCount > 0 ? ((churnedCount / totalTenantCount) * 100).toFixed(1) : '0';
 
+    let estimatedMonthlyResellerCommission: number | undefined;
+    if (isReseller && resellerId != null) {
+        try {
+            const [st]: any = await queryPublic(
+                `SELECT reseller_monthly_rate FROM "public"."system_settings" LIMIT 1`,
+            );
+            const mrate = Number(st?.[0]?.reseller_monthly_rate ?? 50) / 100;
+            const [est]: any = await queryPublic(
+                `SELECT COALESCE(SUM(
+                    CASE WHEN tb.billing_cycle::text = 'yearly'
+                    THEN COALESCE(tb.yearly_prepay_total, 0) ELSE COALESCE(tb.monthly_recurring_total, 0) END
+                ), 0) AS base
+                FROM "public"."tenant_billing" tb
+                INNER JOIN "public"."tenants" t ON trim(tb.tenant_id::text) = trim(t.id::text)
+                WHERE t.reseller_id = ? AND t.status = 'active'`,
+                [resellerId],
+            );
+            estimatedMonthlyResellerCommission = Math.round(Number(est?.[0]?.base || 0) * mrate * 100) / 100;
+        } catch {
+            estimatedMonthlyResellerCommission = 0;
+        }
+    }
+
+    const forecastDisplay =
+        revenueForecast > 0
+            ? revenueForecast
+            : estimatedMonthlyResellerCommission != null && estimatedMonthlyResellerCommission > 0
+              ? estimatedMonthlyResellerCommission
+              : 0;
+
     res.json({
         monthlyGrowth,
         churnRate,
@@ -1386,17 +1869,21 @@ export const getGrowthReport = async (req: Request, res: Response) => {
         topTenants,
         planDistribution: planRevenueDist, // Use revenue scale for distribution
         revenueForecast,
+        estimatedMonthlyResellerCommission,
         churnRiskCount,
         aiInsights: {
-            forecastMessage: revenueForecast > 0 ? `Next 30 days projection: +€${revenueForecast.toLocaleString()}` : 'Stable pipeline',
+            forecastMessage:
+                forecastDisplay > 0
+                    ? `Next 30 days projection: +â‚¬${forecastDisplay.toLocaleString()}`
+                    : 'Stable pipeline',
             riskLevel: churnRiskCount > (totalTenantCount * 0.1) ? 'critical' : (churnRiskCount > 0 ? 'warning' : 'healthy')
         }
     });
 };
 
-// ═══════════════════════════════════════════════════════════════
-// 4. ABONELİK & PLAN YÖNETİMİ
-// ═══════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// 4. ABONELÄ°K & PLAN YÃ–NETÄ°MÄ°
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 export const getSubscriptionPlans = async (_req: Request, res: Response) => {
     try {
@@ -1404,7 +1891,7 @@ export const getSubscriptionPlans = async (_req: Request, res: Response) => {
         const [rows] = await queryPublic('SELECT * FROM `public`.subscription_plans ORDER BY sort_order ASC');
         res.json(rows);
     } catch (error) {
-        res.status(500).json({ error: 'Planlar alınamadı' });
+        res.status(500).json({ error: 'Planlar alÄ±namadÄ±' });
     }
 };
 
@@ -1445,15 +1932,15 @@ export const updateSubscriptionPlan = async (req: Request, res: Response) => {
         if (trial_days !== undefined) { updates.push('trial_days = ?'); values.push(trial_days); }
         if (is_active !== undefined) { updates.push('is_active = ?'); values.push(is_active); }
 
-        if (updates.length === 0) return res.status(400).json({ error: 'Güncellenecek alan yok' });
+        if (updates.length === 0) return res.status(400).json({ error: 'GÃ¼ncellenecek alan yok' });
 
         values.push(id);
         await queryPublic(`UPDATE \`public\`.subscription_plans SET ${updates.join(', ')} WHERE id = ?`, values);
         await logAudit(req, 'update_plan', 'subscription_plan', id, null, req.body);
 
-        res.json({ message: 'Plan güncellendi' });
+        res.json({ message: 'Plan gÃ¼ncellendi' });
     } catch (error) {
-        res.status(500).json({ error: 'Plan güncellenemedi' });
+        res.status(500).json({ error: 'Plan gÃ¼ncellenemedi' });
     }
 };
 
@@ -1505,11 +1992,11 @@ export const createSubscriptionPlan = async (req: Request, res: Response) => {
         );
 
         await logAudit(req, 'create_plan', 'subscription_plan', result.insertId, null, req.body);
-        res.status(201).json({ message: 'Yeni plan oluşturuldu', id: result.insertId });
+        res.status(201).json({ message: 'Yeni plan oluÅŸturuldu', id: result.insertId });
     } catch (error: any) {
         if (error.code === '23505' || error.code === 'ER_DUP_ENTRY')
-            return res.status(409).json({ error: 'Bu plan kodu bir başkası tarafından kullanılıyor' });
-        res.status(500).json({ error: 'Plan oluşturulamadı' });
+            return res.status(409).json({ error: 'Bu plan kodu bir baÅŸkasÄ± tarafÄ±ndan kullanÄ±lÄ±yor' });
+        res.status(500).json({ error: 'Plan oluÅŸturulamadÄ±' });
     }
 };
 
@@ -1518,7 +2005,7 @@ export const deleteSubscriptionPlan = async (req: Request, res: Response) => {
         const { id } = req.params;
         await queryPublic('DELETE FROM `public`.subscription_plans WHERE id = ?', [id]);
         await logAudit(req, 'delete_plan', 'subscription_plan', id, null, { deleted: true });
-        res.json({ message: 'Plan sistemden kaldırıldı' });
+        res.json({ message: 'Plan sistemden kaldÄ±rÄ±ldÄ±' });
     } catch (error) {
         res.status(500).json({ error: 'Plan silinemedi' });
     }
@@ -1529,7 +2016,7 @@ export const getPromoCodes = async (_req: Request, res: Response) => {
         const [rows] = await queryPublic('SELECT * FROM `public`.promo_codes ORDER BY created_at DESC');
         res.json(rows);
     } catch (error) {
-        res.status(500).json({ error: 'Promosyon kodları alınamadı' });
+        res.status(500).json({ error: 'Promosyon kodlarÄ± alÄ±namadÄ±' });
     }
 };
 
@@ -1541,10 +2028,10 @@ export const createPromoCode = async (req: Request, res: Response) => {
             VALUES (?, ?, ?, ?, ?, ?)
         `, [code.toUpperCase(), discount_type, discount_value, max_uses || 100, valid_from || null, valid_until || null]);
 
-        res.status(201).json({ message: 'Promosyon kodu oluşturuldu', id: result.insertId });
+        res.status(201).json({ message: 'Promosyon kodu oluÅŸturuldu', id: result.insertId });
     } catch (error: any) {
         if (error.code === '23505' || error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Bu kod zaten mevcut' });
-        res.status(500).json({ error: 'Promosyon kodu oluşturulamadı' });
+        res.status(500).json({ error: 'Promosyon kodu oluÅŸturulamadÄ±' });
     }
 };
 
@@ -1552,15 +2039,15 @@ export const togglePromoCode = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         await queryPublic('UPDATE `public`.promo_codes SET is_active = NOT is_active WHERE id = ?', [id]);
-        res.json({ message: 'Promosyon kodu durumu güncellendi' });
+        res.json({ message: 'Promosyon kodu durumu gÃ¼ncellendi' });
     } catch (error) {
-        res.status(500).json({ error: 'Güncelleme başarısız' });
+        res.status(500).json({ error: 'GÃ¼ncelleme baÅŸarÄ±sÄ±z' });
     }
 };
 
-// ═══════════════════════════════════════════════════════════════
-// 5. CRM — Müşteri İlişkileri
-// ═══════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// 5. CRM â€” MÃ¼ÅŸteri Ä°liÅŸkileri
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 export const getCustomerNotes = async (req: Request, res: Response) => {
     try {
@@ -1588,7 +2075,7 @@ export const getCustomerNotes = async (req: Request, res: Response) => {
         res.json(rows);
     } catch (error) {
         console.error('[ERROR] getCustomerNotes:', error);
-        res.status(500).json({ error: 'Müşteri notları alınamadı', detail: (error as Error).message });
+        res.status(500).json({ error: 'MÃ¼ÅŸteri notlarÄ± alÄ±namadÄ±', detail: (error as Error).message });
     }
 };
 
@@ -1598,7 +2085,7 @@ export const createCustomerNote = async (req: Request, res: Response) => {
 
         if (req.user?.role === 'reseller') {
             const [check]: any = await queryPublic('SELECT id FROM "public".tenants WHERE id = $1::uuid AND reseller_id = $2', [tenant_id, req.user.userId]);
-            if (check.length === 0) return res.status(403).json({ error: 'Bu restoran için not ekleme yetkiniz yok' });
+            if (check.length === 0) return res.status(403).json({ error: 'Bu restoran iÃ§in not ekleme yetkiniz yok' });
         }
 
         const [result]: any = await queryPublic(`
@@ -1639,7 +2126,7 @@ export const getContracts = async (req: Request, res: Response) => {
         res.json(rows);
     } catch (error) {
         console.error('[ERROR] getContracts:', error);
-        res.status(500).json({ error: 'Sözleşmeler alınamadı', detail: (error as Error).message });
+        res.status(500).json({ error: 'SÃ¶zleÅŸmeler alÄ±namadÄ±', detail: (error as Error).message });
     }
 };
 
@@ -1649,7 +2136,7 @@ export const createContract = async (req: Request, res: Response) => {
 
         if (req.user?.role === 'reseller') {
             const [check]: any = await queryPublic('SELECT id FROM "public".tenants WHERE id = $1::uuid AND reseller_id = $2', [tenant_id, req.user.userId]);
-            if (check.length === 0) return res.status(403).json({ error: 'Bu restoran için sözleşme oluşturma yetkiniz yok' });
+            if (check.length === 0) return res.status(403).json({ error: 'Bu restoran iÃ§in sÃ¶zleÅŸme oluÅŸturma yetkiniz yok' });
         }
 
         const contractNumber = `CTR-${Date.now().toString(36).toUpperCase()}`;
@@ -1659,20 +2146,20 @@ export const createContract = async (req: Request, res: Response) => {
             VALUES ($1, $2, $3, $4, $5, $6)
         `, [tenant_id, contractNumber, start_date, end_date || null, monthly_amount || 0, notes || '']);
 
-        res.status(201).json({ message: 'Sözleşme oluşturuldu', id: result.insertId, contract_number: contractNumber });
+        res.status(201).json({ message: 'SÃ¶zleÅŸme oluÅŸturuldu', id: result.insertId, contract_number: contractNumber });
     } catch (error) {
         console.error('[ERROR] createContract:', error);
-        res.status(500).json({ error: 'Sözleşme oluşturulamadı' });
+        res.status(500).json({ error: 'SÃ¶zleÅŸme oluÅŸturulamadÄ±' });
     }
 };
 
-// ═══════════════════════════════════════════════════════════════
-// 6. MONİTÖRİNG & SİSTEM SAĞLIĞI
-// ═══════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// 6. MONÄ°TÃ–RÄ°NG & SÄ°STEM SAÄžLIÄžI
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 export const getSystemHealth = async (_req: Request, res: Response) => {
     try {
-        // DB bağlantı testi
+        // DB baÄŸlantÄ± testi
         const dbStart = Date.now();
         await queryPublic('SELECT 1');
         const dbLatency = Date.now() - dbStart;
@@ -1699,10 +2186,10 @@ export const getSystemHealth = async (_req: Request, res: Response) => {
             `);
             recentMetrics = rows ?? [];
         } catch {
-            /* tablo yoksa boş */
+            /* tablo yoksa boÅŸ */
         }
 
-        // Sistem metriği kaydet
+        // Sistem metriÄŸi kaydet
         try {
             await queryPublic(
                 `INSERT INTO \`public\`.system_metrics (metric_type, metric_value, unit, metadata) VALUES (?, ?, 'ms', ?::jsonb)`,
@@ -1722,8 +2209,8 @@ export const getSystemHealth = async (_req: Request, res: Response) => {
             recentMetrics
         });
     } catch (error) {
-        console.error('❌ System health error:', error);
-        res.status(500).json({ status: 'unhealthy', error: 'Sistem sağlığı kontrol edilemedi' });
+        console.error('âŒ System health error:', error);
+        res.status(500).json({ status: 'unhealthy', error: 'Sistem saÄŸlÄ±ÄŸÄ± kontrol edilemedi' });
     }
 };
 
@@ -1739,7 +2226,7 @@ export const getAlertRules = async (_req: Request, res: Response) => {
         const [rows] = await queryPublic('SELECT * FROM `public`.alert_rules ORDER BY created_at DESC');
         res.json(rows);
     } catch (error) {
-        res.status(500).json({ error: 'Alert kuralları alınamadı' });
+        res.status(500).json({ error: 'Alert kurallarÄ± alÄ±namadÄ±' });
     }
 };
 
@@ -1751,9 +2238,9 @@ export const createAlertRule = async (req: Request, res: Response) => {
             VALUES (?, ?, ?, ?, ?)
         `, [name, metric_type, threshold, operator || 'gt', severity || 'warning']);
 
-        res.status(201).json({ message: 'Alert kuralı oluşturuldu', id: result.insertId });
+        res.status(201).json({ message: 'Alert kuralÄ± oluÅŸturuldu', id: result.insertId });
     } catch (error) {
-        res.status(500).json({ error: 'Alert kuralı oluşturulamadı' });
+        res.status(500).json({ error: 'Alert kuralÄ± oluÅŸturulamadÄ±' });
     }
 };
 
@@ -1761,15 +2248,15 @@ export const toggleAlertRule = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
         await queryPublic('UPDATE `public`.alert_rules SET is_active = NOT is_active WHERE id = ?', [id]);
-        res.json({ message: 'Alert kuralı durumu güncellendi' });
+        res.json({ message: 'Alert kuralÄ± durumu gÃ¼ncellendi' });
     } catch (error) {
-        res.status(500).json({ error: 'Güncelleme başarısız' });
+        res.status(500).json({ error: 'GÃ¼ncelleme baÅŸarÄ±sÄ±z' });
     }
 };
 
-// ═══════════════════════════════════════════════════════════════
-// 7. GELİŞMİŞ DESTEK SİSTEMİ
-// ═══════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// 7. GELÄ°ÅžMÄ°Åž DESTEK SÄ°STEMÄ°
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 export const getTicketMessages = async (req: Request, res: Response) => {
     try {
@@ -1787,7 +2274,18 @@ export const getTicketMessages = async (req: Request, res: Response) => {
             if (!check?.length) return res.status(403).json({ error: 'Bu mesajları görme yetkiniz yok' });
         }
         const [rows] = await queryPublic(
-            'SELECT * FROM `public`.ticket_messages WHERE ticket_id = ? ORDER BY created_at ASC',
+            `SELECT tm.*, 
+                    COALESCE(sa.username, sa2.username) as reseller_username,
+                    COALESCE(sa.company_name, sa2.company_name) as reseller_company_name,
+                    COALESCE(sa.email, sa2.email) as reseller_email,
+                    COALESCE(sa.mobile_phone, sa2.mobile_phone) as reseller_phone
+             FROM \`public\`.ticket_messages tm
+             LEFT JOIN \`public\`.support_tickets st ON tm.ticket_id = st.id
+             LEFT JOIN \`public\`.tenants ten ON trim(st.tenant_id::text) = trim(ten.id::text)
+             LEFT JOIN \`public\`.saas_admins sa ON ten.reseller_id = sa.id
+             LEFT JOIN \`public\`.saas_admins sa2 ON st.created_by_reseller_id = sa2.id
+             WHERE tm.ticket_id = ?
+             ORDER BY tm.created_at ASC`,
             [ticketId]
         );
         res.json(rows);
@@ -1855,16 +2353,33 @@ export const getTicketDetail = async (req: Request, res: Response) => {
         }
 
         const [ticket]: any = await queryPublic(`
-            SELECT st.*, t.name as tenant_name 
+            SELECT st.*, t.name as tenant_name,
+                   COALESCE(sa.username, sa2.username) as reseller_username, 
+                   COALESCE(sa.company_name, sa2.company_name) as reseller_company_name,
+                   COALESCE(sa.email, sa2.email) as reseller_email,
+                   COALESCE(sa.mobile_phone, sa2.mobile_phone) as reseller_phone
             FROM \`public\`.support_tickets st
             LEFT JOIN \`public\`.tenants t ON trim(st.tenant_id::text) = trim(t.id::text)
+            LEFT JOIN \`public\`.saas_admins sa ON t.reseller_id = sa.id
+            LEFT JOIN \`public\`.saas_admins sa2 ON st.created_by_reseller_id = sa2.id
             WHERE st.id = ?
         `, [id]);
 
         if (ticket.length === 0) return res.status(404).json({ error: 'Ticket bulunamadı' });
 
         const [messages]: any = await queryPublic(
-            'SELECT * FROM `public`.ticket_messages WHERE ticket_id = ? ORDER BY created_at ASC',
+            `SELECT tm.*, 
+                    COALESCE(sa.username, sa2.username) as reseller_username,
+                    COALESCE(sa.company_name, sa2.company_name) as reseller_company_name,
+                    COALESCE(sa.email, sa2.email) as reseller_email,
+                    COALESCE(sa.mobile_phone, sa2.mobile_phone) as reseller_phone
+             FROM \`public\`.ticket_messages tm
+             LEFT JOIN \`public\`.support_tickets st ON tm.ticket_id = st.id
+             LEFT JOIN \`public\`.tenants ten ON trim(st.tenant_id::text) = trim(ten.id::text)
+             LEFT JOIN \`public\`.saas_admins sa ON ten.reseller_id = sa.id
+             LEFT JOIN \`public\`.saas_admins sa2 ON st.created_by_reseller_id = sa2.id
+             WHERE tm.ticket_id = ?
+             ORDER BY tm.created_at ASC`,
             [id]
         );
 
@@ -1889,7 +2404,7 @@ export const getSupportStats = async (req: Request, res: Response) => {
         const [inProgress]: any = await queryPublic(`SELECT COUNT(*)::int as c FROM \`public\`.support_tickets st ${joinClause} WHERE st.status = 'in_progress' ${whereClause}`, params);
         const [closed]: any = await queryPublic(`SELECT COUNT(*)::int as c FROM \`public\`.support_tickets st ${joinClause} WHERE st.status = 'closed' ${whereClause}`, params);
 
-        /* Şemada first_response_at yok; güncelleme süresi ile yaklaşık yanıt süresi */
+        /* Åžemada first_response_at yok; gÃ¼ncelleme sÃ¼resi ile yaklaÅŸÄ±k yanÄ±t sÃ¼resi */
         const [avgResponse]: any = await queryPublic(
             `
             SELECT AVG(EXTRACT(EPOCH FROM (st.updated_at - st.created_at)) / 60.0) as avg_minutes
@@ -1907,8 +2422,8 @@ export const getSupportStats = async (req: Request, res: Response) => {
             avgResponseMinutes: Math.round(avgResponse[0]?.avg_minutes || 0)
         });
     } catch (error) {
-        console.error('❌ Support stats error:', error);
-        res.status(500).json({ error: 'Destek istatistikleri alınamadı' });
+        console.error('âŒ Support stats error:', error);
+        res.status(500).json({ error: 'Destek istatistikleri alÄ±namadÄ±' });
     }
 };
 
@@ -1918,7 +2433,7 @@ export const getKnowledgeBase = async (_req: Request, res: Response) => {
         const [rows] = await queryPublic('SELECT * FROM `public`.knowledge_base WHERE is_published = true ORDER BY view_count DESC');
         res.json(rows);
     } catch (error) {
-        res.status(500).json({ error: 'Bilgi bankası alınamadı' });
+        res.status(500).json({ error: 'Bilgi bankasÄ± alÄ±namadÄ±' });
     }
 };
 
@@ -1929,15 +2444,15 @@ export const createKBArticle = async (req: Request, res: Response) => {
             INSERT INTO \`public\`.knowledge_base (title, category, content, tags) VALUES (?, ?, ?, ?)
         `, [title, category || 'general', content, tags || '']);
 
-        res.status(201).json({ message: 'Makale oluşturuldu', id: result.insertId });
+        res.status(201).json({ message: 'Makale oluÅŸturuldu', id: result.insertId });
     } catch (error) {
-        res.status(500).json({ error: 'Makale oluşturulamadı' });
+        res.status(500).json({ error: 'Makale oluÅŸturulamadÄ±' });
     }
 };
 
-// ═══════════════════════════════════════════════════════════════
-// 8. GELİŞMİŞ YEDEKLEME
-// ═══════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// 8. GELÄ°ÅžMÄ°Åž YEDEKLEME
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 export const createTenantBackup = async (req: Request, res: Response) => {
     try {
@@ -1945,11 +2460,11 @@ export const createTenantBackup = async (req: Request, res: Response) => {
         
         if (req.user?.role === 'reseller') {
             const [check]: any = await queryPublic('SELECT id FROM `public`.tenants WHERE id = ? AND reseller_id = ?', [tenant_id, req.user.userId]);
-            if (check.length === 0) return res.status(403).json({ error: 'Bu restoran için yedek oluşturma yetkiniz yok' });
+            if (check.length === 0) return res.status(403).json({ error: 'Bu restoran iÃ§in yedek oluÅŸturma yetkiniz yok' });
         }
 
         const [tenant]: any = await queryPublic('SELECT name, schema_name FROM `public`.tenants WHERE id = ?', [tenant_id]);
-        if (tenant.length === 0) return res.status(404).json({ error: 'Tenant bulunamadı' });
+        if (tenant.length === 0) return res.status(404).json({ error: 'Tenant bulunamadÄ±' });
 
         const filename = `backup_${tenant[0].schema_name}_${Date.now()}.sql`;
         const [result]: any = await queryPublic(
@@ -1966,9 +2481,9 @@ export const createTenantBackup = async (req: Request, res: Response) => {
         );
 
         await logAudit(req, 'create_tenant_backup', 'backup', result.insertId, null, { tenant_id, filename });
-        res.status(201).json({ message: `${tenant[0].name} yedeği oluşturuldu`, id: result.insertId });
+        res.status(201).json({ message: `${tenant[0].name} yedeÄŸi oluÅŸturuldu`, id: result.insertId });
     } catch (error) {
-        res.status(500).json({ error: 'Tenant yedeği oluşturulamadı' });
+        res.status(500).json({ error: 'Tenant yedeÄŸi oluÅŸturulamadÄ±' });
     }
 };
 
@@ -2005,7 +2520,166 @@ export const getBackupStats = async (req: Request, res: Response) => {
             recentBackups: recent,
         });
     } catch (error) {
-        console.error('❌ Backup stats error:', error);
-        res.status(500).json({ error: 'Yedek istatistikleri alınamadı' });
+        console.error('âŒ Backup stats error:', error);
+        res.status(500).json({ error: 'Yedek istatistikleri alÄ±namadÄ±' });
+    }
+};
+export const getResellerZReportsSummary = async (req: Request, res: Response) => {
+    try {
+        const isSuper = req.user?.role === 'super_admin';
+        const saasAdminId = isSuper ? null : req.user?.userId;
+
+        let query = 'SELECT id, schema_name as schemaName, name FROM `public`.tenants';
+        const params: any[] = [];
+        if (saasAdminId) {
+            query += ' WHERE reseller_id = ?';
+            params.push(saasAdminId);
+        }
+
+        const [tenants]: any = await queryPublic(query, params);
+
+        if (tenants.length === 0) {
+            return res.json({ summary: [], totalRevenue: 0, totalOrders: 0, totalCash: 0, totalCard: 0 });
+        }
+
+        let totalRevenue = 0;
+        let totalOrders = 0;
+        let totalCash = 0;
+        let totalCard = 0;
+        const summary = [];
+
+        for (const t of tenants) {
+            if (!t.schemaName) continue;
+            try {
+                const [result]: any = await queryPublic(`
+                    SELECT 
+                        COALESCE(SUM(total_revenue), 0) as rev,
+                        COALESCE(SUM(total_orders), 0) as ord,
+                        COALESCE(SUM(cash_total), 0) as cash,
+                        COALESCE(SUM(card_total), 0) as card
+                    FROM \`${t.schemaName}\`.daily_summaries
+                `);
+
+                if (result && result.length > 0) {
+                    const rev = Number(result[0].rev) || 0;
+                    const ord = Number(result[0].ord) || 0;
+                    const cash = Number(result[0].cash) || 0;
+                    const card = Number(result[0].card) || 0;
+
+                    totalRevenue += rev;
+                    totalOrders += ord;
+                    totalCash += cash;
+                    totalCard += card;
+
+                    summary.push({
+                        tenantId: t.id,
+                        tenantName: t.name,
+                        revenue: rev,
+                        orders: ord,
+                        cash: cash,
+                        card: card
+                    });
+                }
+            } catch (err) {
+                console.error('Error fetching daily summaries for tenant ' + t.schemaName, err);
+            }
+        }
+
+        summary.sort((a, b) => b.revenue - a.revenue);
+
+        res.json({
+            summary,
+            totalRevenue,
+            totalOrders,
+            totalCash,
+            totalCard
+        });
+    } catch (error) {
+        console.error('getResellerZReportsSummary error:', error);
+        res.status(500).json({ error: 'Bayi Z-Raporu özeti alinamadi' });
+    }
+};
+
+export const suspendTenantForOverdueInvoice = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const isSuper = req.user?.role === 'super_admin';
+        if (!isSuper) {
+            return res.status(403).json({ error: 'Bu islem için yetkiniz yok' });
+        }
+
+        const [payments]: any = await queryPublic('SELECT * FROM `public`.payment_history WHERE id = ? LIMIT 1', [id]);
+        const payment = payments?.[0];
+
+        if (!payment) return res.status(404).json({ error: 'Fatura bulunamadi' });
+        if (!payment.tenant_id) return res.status(400).json({ error: 'Faturaya bagli bir restoran bulunamadi' });
+        
+        await queryPublic('UPDATE `public`.tenants SET status = ? WHERE id = ?', ['suspended', payment.tenant_id]);
+
+        if (payment.description) {
+            await queryPublic('UPDATE `public`.payment_history SET description = ? WHERE id = ?', [payment.description + ' (Sistem kilitlendi)', id]);
+        }
+
+        res.json({ message: 'Restoran basariyla askiya alindi (Suspended)' });
+    } catch (error) {
+        console.error('suspendTenantForOverdueInvoice error:', error);
+        res.status(500).json({ error: 'Islem basarisiz oldu' });
+    }
+};
+
+export const getExpenses = async (req: Request, res: Response) => {
+    try {
+        const isSuper = req.user?.role === 'super_admin';
+        const saasAdminId = isSuper ? null : req.user?.userId;
+
+        let q = 'SELECT * FROM `public`.payment_history WHERE payment_type = ?';
+        const p: any[] = ['expense'];
+        if (saasAdminId) {
+            q += ' AND saas_admin_id = ?';
+            p.push(saasAdminId);
+        }
+        q += ' ORDER BY created_at DESC LIMIT 100';
+
+        const [expenses]: any = await queryPublic(q, p);
+
+        const totalExpense = (expenses || []).reduce((acc: number, curr: any) => acc + Number(curr.amount), 0);
+
+        res.json({
+            expenses: (expenses || []).map((e: any) => ({
+                id: e.id,
+                amount: Number(e.amount),
+                category: e.payment_method || 'other',
+                description: e.description,
+                createdAt: e.created_at
+            })),
+            totalExpense
+        });
+    } catch (error) {
+        console.error('getExpenses error:', error);
+        res.status(500).json({ error: 'Giderler alinamadi' });
+    }
+};
+
+export const createExpense = async (req: Request, res: Response) => {
+    try {
+        const { amount, category, description } = req.body;
+        const saasAdminId = req.user?.role === 'super_admin' ? null : req.user?.userId;
+
+        if (!amount || amount <= 0) {
+            return res.status(400).json({ error: 'Geçerli bir tutar giriniz' });
+        }
+
+        const [expense]: any = await queryPublic(`
+            INSERT INTO \`public\`.payment_history 
+            (saas_admin_id, amount, currency, payment_type, payment_method, status, description, paid_at, created_by, created_at)
+            VALUES (?, ?, 'EUR', 'expense', ?, 'paid', ?, NOW(), ?, NOW())
+        `, [
+            saasAdminId || null, amount, category || 'other', description || 'Sistem gideri', req.user?.username || 'system'
+        ]);
+
+        res.json({ message: 'Gider basariyla eklendi', expenseId: expense?.insertId });
+    } catch (error) {
+        console.error('createExpense error:', error);
+        res.status(500).json({ error: 'Gider eklenemedi' });
     }
 };

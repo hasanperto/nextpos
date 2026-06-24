@@ -13,21 +13,21 @@ async function sendTestOrder() {
         notes: "Lutfen temassiz teslimat yapiniz.",
         items: [
             {
-                productId: 1, // Margarita (Varsayilan ID)
+                productId: 358, // Pizza Margherita
                 quantity: 2,
                 notes: "Extra acili olsun"
             },
             {
-                productId: 5, // Kola
+                productId: 362, // Kola 33cl
                 quantity: 1
             }
         ]
     };
 
     try {
-        const response = await axios.post('http://localhost:3001/api/v1/qr/external-order', orderData, {
+        const response = await axios.post('http://localhost:3101/api/v1/qr/external-order', orderData, {
             headers: {
-                'x-tenant-id': 'DEMO', // Yerel test icin tenant ID
+                'x-tenant-id': 'a1111111-1111-4111-8111-111111111111', // Yerel test icin tenant ID
                 'Content-Type': 'application/json'
             }
         });

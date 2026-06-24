@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { withTenant } from '../lib/db.js';
 
 export const simulateEventHandler = async (req: any, res: Response) => {
     try {
@@ -34,6 +35,7 @@ export const simulateEventHandler = async (req: any, res: Response) => {
                           ]
                     )
                         .map((x: any) => ({
+                            productId: 0,
                             name: String(x?.name || 'Ürün'),
                             price: asNumber(x?.price),
                             quantity: Math.max(1, Math.floor(asNumber(x?.quantity) || 1)),
@@ -57,10 +59,52 @@ export const simulateEventHandler = async (req: any, res: Response) => {
                 break;
 
             case 'call':
+            case 'call_registered':
+                await withTenant(tenantId, async (connection) => {
+                    const [customerRows]: any = await connection.query(
+                        `SELECT c.id, c.name, c.phone,
+                                (SELECT address FROM customer_addresses WHERE customer_id = c.id ORDER BY is_default DESC, id DESC LIMIT 1) as address
+                         FROM customers c
+                         INNER JOIN customer_addresses ca ON ca.customer_id = c.id
+                         WHERE ca.address IS NOT NULL AND ca.address != ''
+                         LIMIT 1`
+                    );
+
+                    let customer = customerRows?.[0] || null;
+                    if (!customer) {
+                        const [anyCustRows]: any = await connection.query(
+                            `SELECT id, name, phone FROM customers LIMIT 1`
+                        );
+                        customer = anyCustRows?.[0] || null;
+                    }
+
+                    if (customer) {
+                        io.to(`tenant:${tenantId}`).emit('INCOMING_CALL', {
+                            number: customer.phone,
+                            name: customer.name,
+                            customerId: customer.id,
+                            address: customer.address || null,
+                            timestamp: new Date().toISOString()
+                        });
+                    } else {
+                        // fallback if absolutely no customers exist in DB
+                        io.to(`tenant:${tenantId}`).emit('INCOMING_CALL', {
+                            number: '+905321112233',
+                            name: 'Hasan Bey (Simüle)',
+                            customerId: 9999,
+                            address: 'Akcakoyun mah 124 nolu sk no 6',
+                            timestamp: new Date().toISOString()
+                        });
+                    }
+                });
+                break;
+
+            case 'call_new':
                 io.to(`tenant:${tenantId}`).emit('INCOMING_CALL', {
-                    number: '+49 7071 ' + Math.floor(Math.random() * 900000 + 100000),
-                    name: 'Arayan Test (Simülasyon)',
-                    address: 'Holzmarkt 1, 72070 Tübingen',
+                    number: '+90555' + Math.floor(Math.random() * 9000000 + 1000000),
+                    name: 'Bilinmeyen Numara',
+                    customerId: null,
+                    address: null,
                     timestamp: new Date().toISOString()
                 });
                 break;

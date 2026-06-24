@@ -159,22 +159,22 @@ const PlanEditorModal: React.FC<{
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-            <div className="bg-slate-900 border border-white/10 w-full max-w-3xl rounded-[24px] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[92vh]">
+            <div className="bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-3xl rounded-xl overflow-hidden shadow-sm animate-in zoom-in-95 duration-200 flex flex-col max-h-[92vh]">
 
                 {/* Header */}
-                <div className="p-5 border-b border-white/5 bg-white/5 flex justify-between items-center shrink-0">
+                <div className="p-5 border-b border-slate-200 dark:border-slate-800 bg-white/5 flex justify-between items-center shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-blue-600/20 flex items-center justify-center">
                             {editMode ? <FiEdit2 className="text-blue-400" /> : <FiPlus className="text-blue-400" />}
                         </div>
                         <div>
-                            <h3 className="text-lg font-black text-white">{editMode ? t('plans.editor.editTitle') : t('plans.editor.newTitle')}</h3>
+                            <h3 className="text-lg font-black text-slate-800 dark:text-white">{editMode ? t('plans.editor.editTitle') : t('plans.editor.newTitle')}</h3>
                             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
                                 {t('plans.editor.step').replace('{step}', String(step)).replace('{part}', step === 1 ? t('plans.editor.step1') : t('plans.editor.step2'))}
                             </p>
                         </div>
                     </div>
-                    <button type="button" onClick={onClose} aria-label="Kapat" title="Kapat" className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-all"><FiX size={20} /></button>
+                    <button type="button" onClick={onClose} aria-label="Kapat" title="Kapat" className="p-2 hover:bg-white/10 rounded-full text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white transition-all"><FiX size={20} /></button>
                 </div>
 
                 {/* Steps indicator */}
@@ -211,14 +211,14 @@ const PlanEditorModal: React.FC<{
                                 <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><FiSliders size={12} /> {t('plans.editor.limits')}</div>
                                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                                     <div>
-                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.editor.maxDevices')}</label>
+                                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.editor.maxDevices')}</label>
                                         <div className="flex items-center gap-3">
                                             <input type="range" min={1} max={50} value={form.max_devices} onChange={e => F('max_devices', Number(e.target.value))} className="flex-1 accent-blue-500" />
-                                            <span className="text-lg font-black text-white w-8 text-center">{form.max_devices}</span>
+                                            <span className="text-lg font-black text-slate-800 dark:text-white w-8 text-center">{form.max_devices}</span>
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.editor.maxPrinters')}</label>
+                                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.editor.maxPrinters')}</label>
                                         <div className="flex items-center gap-3">
                                             <input
                                                 type="range"
@@ -228,12 +228,12 @@ const PlanEditorModal: React.FC<{
                                                 onChange={(e) => F('max_printers', Number(e.target.value))}
                                                 className="flex-1 accent-violet-500"
                                             />
-                                            <span className="text-lg font-black text-white w-8 text-center">{form.max_printers}</span>
+                                            <span className="text-lg font-black text-slate-800 dark:text-white w-8 text-center">{form.max_printers}</span>
                                         </div>
                                         <p className="mt-1.5 text-[9px] font-medium text-slate-500 leading-snug">{t('plans.editor.maxPrintersHint')}</p>
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Aylık Cihaz Sıfırlama</label>
+                                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">Aylık Cihaz Sıfırlama</label>
                                         <div className="flex items-center gap-3">
                                             <input
                                                 type="range"
@@ -243,21 +243,21 @@ const PlanEditorModal: React.FC<{
                                                 onChange={(e) => F('device_reset_quota_monthly', Number(e.target.value))}
                                                 className="flex-1 accent-rose-500"
                                             />
-                                            <span className="text-lg font-black text-white w-8 text-center">{form.device_reset_quota_monthly}</span>
+                                            <span className="text-lg font-black text-slate-800 dark:text-white w-8 text-center">{form.device_reset_quota_monthly}</span>
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.maxBranch')}</label>
+                                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.maxBranch')}</label>
                                         <div className="flex items-center gap-3">
                                             <input type="range" min={1} max={50} value={form.max_branches} onChange={e => F('max_branches', Number(e.target.value))} className="flex-1 accent-blue-500" />
-                                            <span className="text-lg font-black text-white w-8 text-center">{form.max_branches}</span>
+                                            <span className="text-lg font-black text-slate-800 dark:text-white w-8 text-center">{form.max_branches}</span>
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.maxUser')}</label>
+                                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.maxUser')}</label>
                                         <div className="flex items-center gap-3">
                                             <input type="range" min={1} max={100} value={form.max_users} onChange={e => F('max_users', Number(e.target.value))} className="flex-1 accent-blue-500" />
-                                            <span className="text-lg font-black text-white w-8 text-center">{form.max_users}</span>
+                                            <span className="text-lg font-black text-slate-800 dark:text-white w-8 text-center">{form.max_users}</span>
                                         </div>
                                     </div>
                                     <InputGroup label={t('plans.maxProduct')} type="number" value={form.max_products} onChange={v => F('max_products', Number(v))} />
@@ -273,11 +273,11 @@ const PlanEditorModal: React.FC<{
                             <div className="bg-blue-500/5 border border-blue-500/10 rounded-2xl p-4">
                                 <div className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2">{t('plans.summary')}</div>
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                                    <div className="text-center"><span className="text-2xl font-black text-white">{currency}{form.monthly_fee}</span><div className="text-[10px] text-slate-500">{t('plans.monthlyLabel')}</div></div>
-                                    <div className="text-center"><span className="text-2xl font-black text-white">{form.max_devices}</span><div className="text-[10px] text-slate-500">{t('plans.deviceLabel')}</div></div>
-                                    <div className="text-center"><span className="text-2xl font-black text-white">{form.max_printers}</span><div className="text-[10px] text-slate-500">{t('plans.printerLabel')}</div></div>
-                                    <div className="text-center"><span className="text-2xl font-black text-white">{form.device_reset_quota_monthly}</span><div className="text-[10px] text-slate-500">Reset/Ay</div></div>
-                                    <div className="text-center"><span className="text-2xl font-black text-white">{form.max_branches}</span><div className="text-[10px] text-slate-500">{t('plans.branchLabel')}</div></div>
+                                    <div className="text-center"><span className="text-2xl font-black text-slate-800 dark:text-white">{currency}{form.monthly_fee}</span><div className="text-[10px] text-slate-500">{t('plans.monthlyLabel')}</div></div>
+                                    <div className="text-center"><span className="text-2xl font-black text-slate-800 dark:text-white">{form.max_devices}</span><div className="text-[10px] text-slate-500">{t('plans.deviceLabel')}</div></div>
+                                    <div className="text-center"><span className="text-2xl font-black text-slate-800 dark:text-white">{form.max_printers}</span><div className="text-[10px] text-slate-500">{t('plans.printerLabel')}</div></div>
+                                    <div className="text-center"><span className="text-2xl font-black text-slate-800 dark:text-white">{form.device_reset_quota_monthly}</span><div className="text-[10px] text-slate-500">Reset/Ay</div></div>
+                                    <div className="text-center"><span className="text-2xl font-black text-slate-800 dark:text-white">{form.max_branches}</span><div className="text-[10px] text-slate-500">{t('plans.branchLabel')}</div></div>
                                 </div>
                             </div>
                         </div>
@@ -293,7 +293,7 @@ const PlanEditorModal: React.FC<{
                     {step === 2 && catalog.length > 0 && (
                         <div className="space-y-4 animate-in fade-in duration-300">
                             {/* Toplu işlem */}
-                            <div className="flex flex-wrap items-center gap-3 pb-3 border-b border-white/5">
+                            <div className="flex flex-wrap items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
                                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('plans.bulk')}</span>
                                 {(['included', 'addon', 'locked'] as const).map(m => (
                                     <button key={m} type="button" onClick={() => applyBulk(m)} className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-all ${MODE_STYLE[m]}`}>
@@ -318,7 +318,7 @@ const PlanEditorModal: React.FC<{
                                             <div className="flex gap-1">
                                                 {(['included', 'addon', 'locked'] as const).map(m => (
                                                     <button key={m} type="button" onClick={() => applyBulk(m, cat)}
-                                                        className="text-[9px] text-slate-600 hover:text-white px-2 py-0.5 rounded border border-white/5 hover:border-white/20 transition-all">
+                                                        className="text-[9px] text-slate-600 hover:text-slate-800 dark:text-white px-2 py-0.5 rounded border border-slate-200 dark:border-slate-800 hover:border-white/20 transition-all">
                                                         {modeLabel(m)}
                                                     </button>
                                                 ))}
@@ -330,7 +330,7 @@ const PlanEditorModal: React.FC<{
                                                 return (
                                                     <div key={mod.code} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.04] transition-all group">
                                                         <div className="flex-1 min-w-0">
-                                                            <div className="text-sm font-bold text-white truncate">{mod.name}</div>
+                                                            <div className="text-sm font-bold text-slate-800 dark:text-white truncate">{mod.name}</div>
                                                             <div className="text-[10px] text-slate-500 truncate">{mod.description || mod.code}</div>
                                                         </div>
                                                         <div className="text-[10px] text-slate-600 text-right shrink-0 w-20">
@@ -343,10 +343,10 @@ const PlanEditorModal: React.FC<{
                                                                 <button key={m} type="button" onClick={() => setRules(prev => ({ ...prev, [mod.code]: m }))}
                                                                     className={`w-7 h-7 rounded-lg text-[10px] font-black flex items-center justify-center transition-all border ${
                                                                         mode === m
-                                                                            ? m === 'included' ? 'bg-emerald-500 text-white border-emerald-400'
-                                                                            : m === 'addon' ? 'bg-blue-500 text-white border-blue-400'
-                                                                            : 'bg-slate-600 text-white border-slate-500'
-                                                                            : 'bg-white/5 text-slate-600 border-white/5 hover:border-white/20'
+                                                                            ? m === 'included' ? 'bg-emerald-500 text-slate-800 dark:text-white border-emerald-400'
+                                                                            : m === 'addon' ? 'bg-blue-500 text-slate-800 dark:text-white border-blue-400'
+                                                                            : 'bg-slate-600 text-slate-800 dark:text-white border-slate-500'
+                                                                            : 'bg-white/5 text-slate-600 border-slate-200 dark:border-slate-800 hover:border-white/20'
                                                                     }`}
                                                                     title={modeLabel(m)}
                                                                 >
@@ -366,20 +366,20 @@ const PlanEditorModal: React.FC<{
                 </div>
 
                 {/* Footer */}
-                <div className="p-5 border-t border-white/5 bg-white/[0.02] flex items-center justify-between shrink-0">
+                <div className="p-5 border-t border-slate-200 dark:border-slate-800 bg-white/[0.02] flex items-center justify-between shrink-0">
                     {step === 1 ? (
                         <>
-                            <button type="button" onClick={onClose} className="px-5 py-3 text-sm font-bold text-slate-400 hover:text-white transition-all">{t('plans.editor.cancel')}</button>
+                            <button type="button" onClick={onClose} className="px-5 py-3 text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white transition-all">{t('plans.editor.cancel')}</button>
                             <button type="button" onClick={() => setStep(2)} disabled={!form.name || !form.code}
-                                className="px-8 py-3 bg-blue-600 text-white font-black text-sm rounded-xl hover:bg-blue-500 transition-all disabled:opacity-30 flex items-center gap-2">
+                                className="px-8 py-3 bg-blue-600 text-slate-800 dark:text-white font-black text-sm rounded-xl hover:bg-blue-500 transition-all disabled:opacity-30 flex items-center gap-2">
                                 {t('plans.configureModules')} <FiGrid size={14} />
                             </button>
                         </>
                     ) : (
                         <>
-                            <button type="button" onClick={() => setStep(1)} className="px-5 py-3 text-sm font-bold text-slate-400 hover:text-white transition-all flex items-center gap-2"><FiSliders size={14} /> {t('plans.editor.back')}</button>
+                            <button type="button" onClick={() => setStep(1)} className="px-5 py-3 text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white transition-all flex items-center gap-2"><FiSliders size={14} /> {t('plans.editor.back')}</button>
                             <button type="button" onClick={handleSubmit} disabled={saving}
-                                className="px-8 py-3 bg-emerald-600 text-white font-black text-sm rounded-xl hover:bg-emerald-500 transition-all disabled:opacity-50 flex items-center gap-2">
+                                className="px-8 py-3 bg-emerald-600 text-slate-800 dark:text-white font-black text-sm rounded-xl hover:bg-emerald-500 transition-all disabled:opacity-50 flex items-center gap-2">
                                 <FiSave size={14} /> {saving ? t('plans.saving') : editMode ? t('plans.updatePlanBtn') : t('plans.createPlanBtn')}
                             </button>
                         </>
@@ -443,14 +443,14 @@ const ResellerPackageModal: React.FC<{
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-            <div className="bg-slate-900 border border-emerald-500/20 w-full max-w-lg rounded-[24px] overflow-hidden shadow-2xl shadow-emerald-900/20 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
-                <div className="p-5 border-b border-white/5 bg-gradient-to-r from-emerald-950/80 to-teal-950/50 flex justify-between items-center shrink-0">
+            <div className="bg-slate-900 border border-emerald-500/20 w-full max-w-lg rounded-xl overflow-hidden shadow-sm shadow-emerald-900/20 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+                <div className="p-5 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-emerald-950/80 to-teal-950/50 flex justify-between items-center shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 flex items-center justify-center ring-1 ring-emerald-400/30">
                             <FiPackage className="text-emerald-400" size={22} />
                         </div>
                         <div>
-                            <h3 className="text-lg font-black text-white">
+                            <h3 className="text-lg font-black text-slate-800 dark:text-white">
                                 {editId ? t('plans.resellerModal.editTitle') : t('plans.resellerModal.newTitle')}
                             </h3>
                             <p className="text-[11px] text-emerald-200/70 font-medium">
@@ -461,7 +461,7 @@ const ResellerPackageModal: React.FC<{
                     <button
                         type="button"
                         onClick={onClose}
-                        className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition-all"
+                        className="p-2 hover:bg-white/10 rounded-full text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white transition-all"
                         aria-label={t('plans.resellerModal.close')}
                     >
                         <FiX size={20} />
@@ -472,16 +472,16 @@ const ResellerPackageModal: React.FC<{
                     <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
-                                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.resellerModal.pkgName')}</label>
+                                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.resellerModal.pkgName')}</label>
                                 <input
                                     value={form.name}
                                     onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-emerald-500/50 transition-all placeholder:text-slate-600"
+                                    className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-slate-800 dark:text-white outline-none focus:border-emerald-500/50 transition-all placeholder:text-slate-600"
                                     placeholder={t('plans.resellerModal.pkgNamePh')}
                                 />
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.resellerModal.sysCode')}</label>
+                                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.resellerModal.sysCode')}</label>
                                 <input
                                     value={form.code}
                                     onChange={(e) =>
@@ -490,14 +490,14 @@ const ResellerPackageModal: React.FC<{
                                             code: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''),
                                         }))
                                     }
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-sm outline-none focus:border-emerald-500/50 transition-all"
+                                    className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-slate-800 dark:text-white font-mono text-sm outline-none focus:border-emerald-500/50 transition-all"
                                     placeholder={t('plans.resellerModal.sysCodePh')}
                                 />
                             </div>
                         </div>
 
                         <div>
-                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-2">
+                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-2">
                                 <FiKey size={12} /> {t('plans.resellerModal.licensePool')}
                             </label>
                             <div className="flex items-center gap-4">
@@ -509,7 +509,7 @@ const ResellerPackageModal: React.FC<{
                                     onChange={(e) => setForm((f) => ({ ...f, license_count: Number(e.target.value) }))}
                                     className="flex-1 accent-emerald-500"
                                 />
-                                <span className="text-2xl font-black text-white w-14 text-center tabular-nums">{form.license_count}</span>
+                                <span className="text-2xl font-black text-slate-800 dark:text-white w-14 text-center tabular-nums">{form.license_count}</span>
                             </div>
                             <p className="text-[10px] text-slate-500 mt-2">
                                 {t('plans.resellerModal.poolHint')}
@@ -517,14 +517,14 @@ const ResellerPackageModal: React.FC<{
                         </div>
 
                         <div>
-                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.resellerModal.totalPrice')}</label>
+                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.resellerModal.totalPrice')}</label>
                             <input
                                 type="number"
                                 min={0}
                                 step={1}
                                 value={form.price}
                                 onChange={(e) => setForm((f) => ({ ...f, price: Number(e.target.value) }))}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-emerald-500/50 transition-all"
+                                className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-slate-800 dark:text-white outline-none focus:border-emerald-500/50 transition-all"
                             />
                             <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
                                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-bold">
@@ -534,29 +534,29 @@ const ResellerPackageModal: React.FC<{
                         </div>
 
                         <div>
-                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.resellerModal.desc')}</label>
+                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">{t('plans.resellerModal.desc')}</label>
                             <textarea
                                 value={form.description}
                                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                                 rows={3}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-emerald-500/50 transition-all resize-y min-h-[80px] placeholder:text-slate-600"
+                                className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-slate-800 dark:text-white text-sm outline-none focus:border-emerald-500/50 transition-all resize-y min-h-[80px] placeholder:text-slate-600"
                                 placeholder={t('plans.resellerModal.descPh')}
                             />
                         </div>
                     </div>
 
-                    <div className="p-5 border-t border-white/5 bg-white/[0.02] flex items-center justify-between gap-3 shrink-0">
+                    <div className="p-5 border-t border-slate-200 dark:border-slate-800 bg-white/[0.02] flex items-center justify-between gap-3 shrink-0">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-5 py-3 text-sm font-bold text-slate-400 hover:text-white transition-all"
+                            className="px-5 py-3 text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white transition-all"
                         >
                             {t('plans.resellerModal.cancel')}
                         </button>
                         <button
                             type="submit"
                             disabled={saving || !form.name.trim() || !form.code.trim()}
-                            className="px-8 py-3 bg-emerald-600 text-white font-black text-sm rounded-xl hover:bg-emerald-500 transition-all disabled:opacity-40 flex items-center gap-2"
+                            className="px-8 py-3 bg-emerald-600 text-slate-800 dark:text-white font-black text-sm rounded-xl hover:bg-emerald-500 transition-all disabled:opacity-40 flex items-center gap-2"
                         >
                             <FiSave size={16} />
                             {saving ? t('plans.resellerModal.saving') : editId ? t('plans.resellerModal.update') : t('plans.resellerModal.savePkg')}
@@ -736,7 +736,7 @@ export const PlansTab: React.FC = () => {
                 title={t('plans.compareTitle')}
                 icon={<FiCreditCard className="text-blue-400" />}
                 action={
-                    <button onClick={openNewPlan} className="text-xs bg-blue-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-1.5 hover:bg-blue-500 transition-all">
+                    <button onClick={openNewPlan} className="text-xs bg-blue-600 text-slate-800 dark:text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-1.5 hover:bg-blue-500 transition-all">
                         <FiPlus size={12} /> {t('plans.newPlan')}
                     </button>
                 }
@@ -750,33 +750,33 @@ export const PlansTab: React.FC = () => {
                             const addonCount = modules.filter(m => m.mode === 'addon').length;
 
                             return (
-                                <div key={p.id} className={`bg-gradient-to-br ${c.bg} rounded-3xl border border-white/10 ring-1 ${c.ring} overflow-hidden flex flex-col group`}>
+                                <div key={p.id} className={`bg-gradient-to-br ${c.bg} rounded-3xl border border-slate-200 dark:border-slate-800 ring-1 ${c.ring} overflow-hidden flex flex-col group`}>
                                     <div className="p-6 pb-4">
                                         <div className="flex items-center justify-between mb-2">
-                                            <span className={`text-[10px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-md text-white ${c.badge}`}>{p.code}</span>
+                                            <span className={`text-[10px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-md text-slate-800 dark:text-white ${c.badge}`}>{p.code}</span>
                                             <div className="flex items-center gap-2">
-                                                <button type="button" onClick={() => openEditPlan(p)} className="text-white/30 hover:text-white transition-all" title={t('plans.edit')} aria-label={t('plans.edit')}><FiEdit2 size={14} /></button>
-                                                <button type="button" onClick={() => updatePlan(p.id, { is_active: !p.is_active })} className="text-white/40 hover:text-white" title={p.is_active ? t('plans.deactivate') : t('plans.activate')} aria-label={p.is_active ? t('plans.deactivate') : t('plans.activate')}>
+                                                <button type="button" onClick={() => openEditPlan(p)} className="text-slate-800 dark:text-white/30 hover:text-slate-800 dark:text-white transition-all" title={t('plans.edit')} aria-label={t('plans.edit')}><FiEdit2 size={14} /></button>
+                                                <button type="button" onClick={() => updatePlan(p.id, { is_active: !p.is_active })} className="text-slate-800 dark:text-white/40 hover:text-slate-800 dark:text-white" title={p.is_active ? t('plans.deactivate') : t('plans.activate')} aria-label={p.is_active ? t('plans.deactivate') : t('plans.activate')}>
                                                     {p.is_active ? <FiToggleRight size={18} /> : <FiToggleLeft size={18} />}
                                                 </button>
                                             </div>
                                         </div>
-                                        <h3 className="text-2xl font-black text-white">{p.name}</h3>
+                                        <h3 className="text-2xl font-black text-slate-800 dark:text-white">{p.name}</h3>
                                         <div className="flex items-baseline gap-1 mt-3">
-                                            <span className="text-3xl font-black text-white">{currency}{p.monthly_fee}</span>
-                                            <span className="text-sm text-white/50 font-bold">{t('plans.perMonth')}</span>
+                                            <span className="text-3xl font-black text-slate-800 dark:text-white">{currency}{p.monthly_fee}</span>
+                                            <span className="text-sm text-slate-800 dark:text-white/50 font-bold">{t('plans.perMonth')}</span>
                                         </div>
-                                        <div className="text-xs text-white/40 mt-1">{t('plans.setupFee')}: {currency}{p.setup_fee}</div>
+                                        <div className="text-xs text-slate-800 dark:text-white/40 mt-1">{t('plans.setupFee')}: {currency}{p.setup_fee}</div>
                                     </div>
 
                                     <div className="px-6 grid grid-cols-2 gap-2 text-[11px]">
-                                        <div className="flex items-center gap-1.5 text-white/70"><FiLayers size={12} /><span>{(p as any).max_branches || 1} {t('plans.branch')}</span></div>
-                                        <div className="flex items-center gap-1.5 text-white/70"><FiUsers size={12} /><span>{p.max_users} {t('plans.user')}</span></div>
-                                        <div className="flex items-center gap-1.5 text-white/70"><FiMonitor size={12} /><span>{(p as any).max_devices || 1} {t('plans.device')}</span></div>
-                                        <div className="flex items-center gap-1.5 text-white/70"><FiPrinter size={12} /><span>{(p as any).max_printers ?? 2} {t('plans.printer')}</span></div>
+                                        <div className="flex items-center gap-1.5 text-slate-800 dark:text-white/70"><FiLayers size={12} /><span>{(p as any).max_branches || 1} {t('plans.branch')}</span></div>
+                                        <div className="flex items-center gap-1.5 text-slate-800 dark:text-white/70"><FiUsers size={12} /><span>{p.max_users} {t('plans.user')}</span></div>
+                                        <div className="flex items-center gap-1.5 text-slate-800 dark:text-white/70"><FiMonitor size={12} /><span>{(p as any).max_devices || 1} {t('plans.device')}</span></div>
+                                        <div className="flex items-center gap-1.5 text-slate-800 dark:text-white/70"><FiPrinter size={12} /><span>{(p as any).max_printers ?? 2} {t('plans.printer')}</span></div>
                                         <div className="flex items-center gap-1.5 text-rose-300"><FiKey size={12} /><span>{(p as any).device_reset_quota_monthly ?? 3} reset/ay</span></div>
-                                        <div className="flex items-center gap-1.5 text-white/70"><FiClock size={12} /><span>{(p as any).support_hours || '09-17'}</span></div>
-                                        <div className="flex items-center gap-1.5 text-white/70"><FiDatabase size={12} /><span>{p.max_products} {t('plans.product')}</span></div>
+                                        <div className="flex items-center gap-1.5 text-slate-800 dark:text-white/70"><FiClock size={12} /><span>{(p as any).support_hours || '09-17'}</span></div>
+                                        <div className="flex items-center gap-1.5 text-slate-800 dark:text-white/70"><FiDatabase size={12} /><span>{p.max_products} {t('plans.product')}</span></div>
                                         <div className="flex items-center gap-1.5 text-emerald-400"><FiCheck size={12} /><span>{t('plans.includedCount').replace('{n}', String(includedCount))}</span></div>
                                     </div>
 
@@ -786,12 +786,12 @@ export const PlansTab: React.FC = () => {
                                             if (!catMods.length) return null;
                                             return (
                                                 <div key={cat}>
-                                                    <div className="text-[9px] font-black uppercase tracking-widest text-white/30 mb-1">{t(`plans.category.${cat}`)}</div>
+                                                    <div className="text-[9px] font-black uppercase tracking-widest text-slate-800 dark:text-white/30 mb-1">{t(`plans.category.${cat}`)}</div>
                                                     <div className="space-y-1">
                                                         {catMods.map(m => (
                                                             <div key={m.code} className="flex items-center gap-2 text-[11px]">
                                                                 <ModeIcon mode={m.mode} />
-                                                                <span className={m.mode === 'locked' ? 'text-slate-600 line-through' : 'text-white/80'}>{m.name}</span>
+                                                                <span className={m.mode === 'locked' ? 'text-slate-600 line-through' : 'text-slate-800 dark:text-white/80'}>{m.name}</span>
                                                                 {m.mode === 'addon' && <span className="text-[11px] text-blue-300/60 ml-auto">+{currency}{m.monthly_price}{t('plans.perMonth')}</span>}
                                                             </div>
                                                         ))}
@@ -801,8 +801,8 @@ export const PlansTab: React.FC = () => {
                                         })}
                                     </div>
 
-                                    <div className="border-t border-white/10 p-4 flex items-center justify-between">
-                                        <span className="text-[10px] text-white/40">{t('plans.addonSellable').replace('{n}', String(addonCount))}</span>
+                                    <div className="border-t border-slate-200 dark:border-slate-800 p-4 flex items-center justify-between">
+                                        <span className="text-[10px] text-slate-800 dark:text-white/40">{t('plans.addonSellable').replace('{n}', String(addonCount))}</span>
                                         <button onClick={() => { if (confirm(t('plans.deleteConfirm'))) deletePlan(p.id); }} className="text-red-400 text-[10px] font-black uppercase hover:text-red-300">{t('plans.delete')}</button>
                                     </div>
                                 </div>
@@ -820,13 +820,13 @@ export const PlansTab: React.FC = () => {
                     <button
                         type="button"
                         onClick={openResellerCreate}
-                        className="text-xs bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-900/30 hover:from-emerald-500 hover:to-teal-500 transition-all"
+                        className="text-xs bg-gradient-to-r from-emerald-600 to-teal-600 text-slate-800 dark:text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-900/30 hover:from-emerald-500 hover:to-teal-500 transition-all"
                     >
                         <FiPlus size={12} /> {t('plans.newPackage')}
                     </button>
                 }
             >
-                <p className="text-sm text-slate-400 mb-6 max-w-3xl leading-relaxed">
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 max-w-3xl leading-relaxed">
                     {t('plans.resellerIntro')}
                 </p>
                 {resellerPlans.length > 0 ? (
@@ -849,25 +849,25 @@ export const PlansTab: React.FC = () => {
                                         <button
                                             type="button"
                                             onClick={() => openResellerEdit(rp)}
-                                            className="p-2 rounded-xl text-slate-500 hover:text-white hover:bg-white/10 transition-colors"
+                                            className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:text-white hover:bg-white/10 transition-colors"
                                             title={t('plans.edit')}
                                         >
                                             <FiEdit2 size={16} />
                                         </button>
                                     </div>
-                                    <h4 className="relative text-xl font-black text-white mt-4 tracking-tight">{rp.name}</h4>
+                                    <h4 className="relative text-xl font-black text-slate-800 dark:text-white mt-4 tracking-tight">{rp.name}</h4>
                                     {rp.description ? (
-                                        <p className="relative text-xs text-slate-400 mt-2 line-clamp-2 leading-relaxed">{rp.description}</p>
+                                        <p className="relative text-xs text-slate-500 dark:text-slate-400 mt-2 line-clamp-2 leading-relaxed">{rp.description}</p>
                                     ) : (
                                         <p className="relative text-[11px] text-slate-600 mt-2 italic">{t('plans.noDesc')}</p>
                                     )}
                                     <div className="relative mt-6 grid grid-cols-2 gap-4">
-                                        <div className="rounded-2xl bg-black/25 border border-white/5 p-4">
+                                        <div className="rounded-2xl bg-black/25 border border-slate-200 dark:border-slate-800 p-4">
                                             <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{t('plans.licensePool')}</div>
-                                            <div className="text-3xl font-black text-white tabular-nums">{rp.license_count}</div>
+                                            <div className="text-3xl font-black text-slate-800 dark:text-white tabular-nums">{rp.license_count}</div>
                                             <div className="text-[10px] text-slate-500 mt-1">{t('plans.installCount')}</div>
                                         </div>
-                                        <div className="rounded-2xl bg-black/25 border border-white/5 p-4">
+                                        <div className="rounded-2xl bg-black/25 border border-slate-200 dark:border-slate-800 p-4">
                                             <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{t('plans.packagePrice')}</div>
                                             <div className="text-3xl font-black text-emerald-400 tabular-nums">{currency}{rp.price}</div>
                                             <div className="text-[10px] text-emerald-500/80 mt-1">{t('plans.perLicense').replace('{price}', `${currency}${per}`)}</div>
@@ -877,7 +877,7 @@ export const PlansTab: React.FC = () => {
                                         <button
                                             type="button"
                                             onClick={() => openResellerEdit(rp)}
-                                            className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-white hover:bg-white/10 transition-colors"
+                                            className="flex-1 py-2.5 rounded-xl bg-white/5 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-800 dark:text-white hover:bg-white/10 transition-colors"
                                         >
                                             {t('plans.edit')}
                                         </button>
@@ -891,7 +891,7 @@ export const PlansTab: React.FC = () => {
                                                 )
                                                     deleteResellerPlan(rp.id);
                                             }}
-                                            className="px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs font-bold text-red-400 hover:bg-red-500 hover:text-white transition-colors"
+                                            className="px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs font-bold text-red-400 hover:bg-red-500 hover:text-slate-800 dark:text-white transition-colors"
                                         >
                                             {t('plans.deleteShort')}
                                         </button>
@@ -901,11 +901,11 @@ export const PlansTab: React.FC = () => {
                         })}
                     </div>
                 ) : (
-                    <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-12 text-center">
+                    <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white/[0.02] p-12 text-center">
                         <div className="inline-flex p-4 rounded-2xl bg-emerald-500/10 text-emerald-400/50 mb-4">
                             <FiPackage size={40} />
                         </div>
-                        <p className="text-slate-400 font-medium">{t('plans.noResellerPackages')}</p>
+                        <p className="text-slate-500 dark:text-slate-400 font-medium">{t('plans.noResellerPackages')}</p>
                         <button
                             type="button"
                             onClick={openResellerCreate}
@@ -922,7 +922,7 @@ export const PlansTab: React.FC = () => {
                 title={t('plans.promoTitle')}
                 icon={<FiGift className="text-pink-400" />}
                 action={
-                    <button onClick={() => setShowPromoModal(true)} className="text-xs bg-pink-600 text-white px-3 py-2 rounded-xl font-bold flex items-center gap-1" type="button">
+                    <button onClick={() => setShowPromoModal(true)} className="text-xs bg-pink-600 text-slate-800 dark:text-white px-3 py-2 rounded-xl font-bold flex items-center gap-1" type="button">
                         <FiPlus size={12} /> {t('plans.newCode')}
                     </button>
                 }
@@ -930,17 +930,17 @@ export const PlansTab: React.FC = () => {
                 {promoCodes.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {promoCodes.map(p => (
-                            <div key={p.id} className={`p-4 rounded-xl border transition-all ${p.is_active ? 'bg-black/20 border-white/5' : 'bg-red-500/5 border-red-500/10 opacity-50'}`}>
+                            <div key={p.id} className={`p-4 rounded-xl border transition-all ${p.is_active ? 'bg-black/20 border-slate-200 dark:border-slate-800' : 'bg-red-500/5 border-red-500/10 opacity-50'}`}>
                                 <div className="flex justify-between items-start">
                                     <div>
                                         <span className="text-lg font-black text-pink-400 font-mono">{p.code}</span>
-                                        <div className="text-sm font-bold text-white mt-1">
+                                        <div className="text-sm font-bold text-slate-800 dark:text-white mt-1">
                                             {p.discount_type === 'percent'
                                                 ? t('plans.discountPct').replace('{n}', String(p.discount_value))
                                                 : t('plans.discountEur').replace('{n}', String(p.discount_value))}
                                         </div>
                                     </div>
-                                    <button onClick={() => togglePromoCode(p.id)} className="text-slate-400 hover:text-white">{p.is_active ? <FiToggleRight size={18} /> : <FiToggleLeft size={18} />}</button>
+                                    <button onClick={() => togglePromoCode(p.id)} className="text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white">{p.is_active ? <FiToggleRight size={18} /> : <FiToggleLeft size={18} />}</button>
                                 </div>
                             </div>
                         ))}
@@ -986,7 +986,7 @@ export const PlansTab: React.FC = () => {
                         ]}
                     />
                     <InputGroup label={t('plans.discountValue')} type="number" value={promo.discount_value} onChange={v => setPromo({ ...promo, discount_value: Number(v) })} />
-                    <button type="submit" className="w-full bg-pink-600 py-4 rounded-xl text-white font-black text-xs uppercase">{t('plans.promoCreate')}</button>
+                    <button type="submit" className="w-full bg-pink-600 py-4 rounded-xl text-slate-800 dark:text-white font-black text-xs uppercase">{t('plans.promoCreate')}</button>
                 </form>
             </Modal>
         </div>

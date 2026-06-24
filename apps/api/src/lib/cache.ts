@@ -17,7 +17,7 @@ async function getRedis(): Promise<any> {
     if (redisInit) return redisClient;
     redisInit = true;
     try {
-        const client = createClient({ url: process.env.REDIS_URL || 'redis://localhost:6379' });
+        const client = createClient({ url: process.env.REDIS_URL || 'redis://127.0.0.1:6380' });
         client.on('error', () => {
             /* sessiz degrade */
         });

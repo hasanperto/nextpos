@@ -36,6 +36,7 @@ export const listActiveWaitersHandler = async (req: Request, res: Response) => {
                         waiter_section_id
                  FROM users
                  WHERE role = 'waiter' AND status = 'active'
+                   AND COALESCE(waiter_on_break, FALSE) = FALSE
                  ORDER BY name ASC`
             );
             return Array.isArray(r) ? r : [];
@@ -177,11 +178,27 @@ export const createUserHandler = async (req: Request, res: Response) => {
 
         const result = await withTenant(tenantId, async (connection) => {
             await ensureUsersWaiterSectionColumns(connection);
+            // Postgres sequence kayması durumunda (ör. manuel id insert), users_pkey çakışmasını önle.
+            // MySQL tarafında bu sorgu desteklenmez; hata alırsa sessizce geç.
+            try {
+                await connection.query(
+                    `SELECT setval(
+                        pg_get_serial_sequence('users', 'id'),
+                        COALESCE((SELECT MAX(id) FROM users), 0) + 1,
+                        false
+                    )`
+                );
+            } catch {
+                // no-op
+            }
             // Mevcut kullanıcı sayısını say
             const [countRows]: any = await connection.query('SELECT COUNT(*) as count FROM users');
             const currentCount = countRows[0].count;
 
-            if (currentCount >= maxUsers) {
+            // 0 or 9999 means unlimited
+            const isUnlimited = maxUsers === 0 || maxUsers >= 9999;
+
+            if (!isUnlimited && currentCount >= maxUsers) {
                 throw new Error(`Kullanıcı limitine ulaşıldı (${maxUsers}). Lütfen paketinizi yükseltin.`);
             }
 
@@ -219,6 +236,16 @@ export const createUserHandler = async (req: Request, res: Response) => {
         res.status(201).json(result);
     } catch (error: any) {
         console.error('❌ Kullanıcı oluşturma hatası:', error.message);
+        if (error?.code === '23505') {
+            if (String(error?.constraint || '').includes('users_pkey')) {
+                return res.status(409).json({
+                    error: 'Kullanıcı ID sırası bozulmuştu, tekrar deneyin. Devam ederse sistemi yeniden başlatın.',
+                });
+            }
+            if (String(error?.constraint || '').includes('users_username')) {
+                return res.status(409).json({ error: 'Bu kullanıcı adı zaten kayıtlı.' });
+            }
+        }
         res.status(400).json({ error: error.message });
     }
 };
@@ -286,6 +313,38 @@ export const updateUserHandler = async (req: Request, res: Response) => {
         res.json({ message: 'Kullanıcı güncellendi' });
     } catch (error: any) {
         res.status(400).json({ error: error.message });
+    }
+};
+
+const waiterBreakSchema = z.object({
+    onBreak: z.boolean(),
+});
+
+/** PATCH /api/v1/users/waiter-break — garson mola (çağrılar başka garsona yönlenir) */
+export const patchWaiterBreakHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const userId = req.user?.userId != null ? Number(req.user.userId) : NaN;
+        if (req.user?.role !== 'waiter' || !Number.isFinite(userId)) {
+            return res.status(403).json({ error: 'Sadece garson hesabı mola verebilir' });
+        }
+        const body = waiterBreakSchema.parse(req.body);
+
+        await withTenant(tenantId, async (connection) => {
+            await ensureUsersWaiterSectionColumns(connection);
+            await connection.query(`UPDATE users SET waiter_on_break = ? WHERE id = ? AND role = 'waiter'`, [
+                body.onBreak,
+                userId,
+            ]);
+        });
+
+        res.json({ success: true, waiterOnBreak: body.onBreak });
+    } catch (error: any) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Geçersiz veri', details: error.issues });
+        }
+        console.error('patchWaiterBreakHandler', error);
+        res.status(500).json({ error: 'Mola durumu güncellenemedi' });
     }
 };
 

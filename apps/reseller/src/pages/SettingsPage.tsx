@@ -26,8 +26,11 @@ function readPrefs(): Prefs {
 }
 
 export function SettingsPage() {
-    const { admin, lang, setLang, token } = useResellerStore();
-    const t = (k: string) => messages[lang][k] || k;
+    const admin = useResellerStore(s => s.admin);
+    const lang = useResellerStore(s => s.lang);
+    const setLang = useResellerStore(s => s.setLang);
+    const token = useResellerStore(s => s.token);
+    const t = (k: string) => messages[lang]?.[k] || messages['de']?.[k] || messages['en']?.[k] || messages['tr']?.[k] || k;
     const [prefs, setPrefs] = useState<Prefs>(() => readPrefs());
     const [loading, setLoading] = useState(false);
     const [profile, setProfile] = useState({
@@ -44,6 +47,8 @@ export function SettingsPage() {
         district: '',
         postal_code: '',
         country: 'Türkiye',
+        bank_iban: '',
+        bank_account_name: '',
         two_factor_enabled: false,
         two_factor_method: 'none',
         backup_codes_remaining: 0,
@@ -89,6 +94,8 @@ export function SettingsPage() {
                 district: String(json.district || ''),
                 postal_code: String(json.postal_code || ''),
                 country: String(json.country || 'Türkiye'),
+                bank_iban: String(json.bank_iban || ''),
+                bank_account_name: String(json.bank_account_name || ''),
                 two_factor_enabled: Boolean(json.two_factor_enabled),
                 two_factor_method: String(json.two_factor_method || 'none'),
                 backup_codes_remaining: Number(json.backup_codes_remaining || 0),
@@ -314,6 +321,14 @@ export function SettingsPage() {
                     <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                         <p className="text-slate-500 mb-1">{t('settings.country')}</p>
                         <input value={profile.country} onChange={(e) => setProfile((p) => ({ ...p, country: e.target.value }))} className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white" />
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                        <p className="text-slate-500 mb-1">Hesap Sahibi Adı</p>
+                        <input value={profile.bank_account_name} onChange={(e) => setProfile((p) => ({ ...p, bank_account_name: e.target.value }))} placeholder="Örn: Hasan Perto" className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white" />
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                        <p className="text-slate-500 mb-1">IBAN</p>
+                        <input value={profile.bank_iban} onChange={(e) => setProfile((p) => ({ ...p, bank_iban: e.target.value }))} placeholder="TR00 0000 0000 0000 0000 0000 00" className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white" />
                     </div>
                 </div>
                 <button

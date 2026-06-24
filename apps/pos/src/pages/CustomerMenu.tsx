@@ -244,20 +244,50 @@ export const CustomerMenu: React.FC = () => {
             socket.emit('join:table', { tenantId: tenant, tableId: tableInfo.tableId });
         });
         
+        const applyLiveOrderStatus = (orderId: number, status: string) => {
+            if (Number(orderId) !== pendingOrderId) return;
+            const statusMap: Record<string, string> = {
+                pending: 'pending',
+                confirmed: 'confirmed',
+                preparing: 'preparing',
+                ready: 'ready',
+                delivered: 'delivered',
+                completed: 'delivered',
+                cancelled: 'cancelled',
+            };
+            const mapped = statusMap[status];
+            if (mapped) setLiveStatus(mapped as any);
+            if (status === 'ready') {
+                try { new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play(); } catch {}
+                toast.success(t.ready, { icon: '🔔', duration: 5000 });
+            }
+            if (status === 'cancelled') {
+                toast.error('Sipariş reddedildi');
+            }
+            if (status === 'confirmed') {
+                toast.success('Sipariş onaylandı');
+            }
+        };
+
         socket.on('order:status_update', (data: { orderId: number; status: string }) => {
+            applyLiveOrderStatus(data.orderId, data.status);
+        });
+
+        socket.on('order:status_changed', (data: { orderId: number; status: string }) => {
+            applyLiveOrderStatus(data.orderId, data.status);
+        });
+
+        socket.on('customer:order_approved', (data: { orderId: number }) => {
             if (Number(data.orderId) === pendingOrderId) {
-                const statusMap: Record<string, string> = {
-                    preparing: 'preparing',
-                    ready: 'ready',
-                    delivered: 'delivered',
-                    completed: 'delivered'
-                };
-                const mapped = statusMap[data.status];
-                if (mapped) setLiveStatus(mapped as any);
-                if (data.status === 'ready') {
-                    try { new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play(); } catch {}
-                    toast.success(t.ready, { icon: '🔔', duration: 5000 });
-                }
+                setLiveStatus('confirmed');
+                toast.success('Sipariş onaylandı');
+            }
+        });
+
+        socket.on('customer:order_rejected', (data: { orderId: number }) => {
+            if (Number(data.orderId) === pendingOrderId) {
+                setLiveStatus('cancelled');
+                toast.error('Sipariş reddedildi');
             }
         });
 
@@ -278,22 +308,32 @@ export const CustomerMenu: React.FC = () => {
     }, [tenant, tableInfo, pendingOrderId, t.ready, loadMenu]);
 
     const handleServiceRequest = async (type: string) => {
-        if (!tableInfo) return;
+        if (!tableInfo || !tableQr) return;
+        const callTypeMap: Record<string, string> = {
+            waiter: 'call_waiter',
+            bill: 'request_bill',
+            water: 'water',
+        };
+        const callType = callTypeMap[type] || 'call_waiter';
         try {
-            await fetch('/api/v1/qr/service-request', {
+            const res = await fetch('/api/v1/qr/service-call', {
                 method: 'POST',
                 headers: qrHeaders,
                 body: JSON.stringify({
-                    tableId: tableInfo.tableId,
-                    type,
-                    guestName: guestName || 'Guest'
-                })
+                    qrCode: tableQr,
+                    callType,
+                }),
             });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                toast.error((data as { error?: string }).error || t.error || 'İstek gönderilemedi');
+                return;
+            }
             toast.success(t.serviceSent, { 
                 icon: type === 'waiter' ? '🔔' : type === 'bill' ? '💳' : '💧',
                 style: { background: '#0f172a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }
             });
-        } catch (e) {
+        } catch {
             toast.error('Network Error');
         }
     };

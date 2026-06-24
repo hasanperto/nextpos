@@ -29,6 +29,7 @@ import {
     listStockMovements,
     getProductRecipe,
     putProductRecipe,
+    uploadProductImage,
 } from '../controllers/menu.admin.controller.js';
 
 export const menuRouter = Router();
@@ -50,6 +51,7 @@ menuRouter.post('/admin/products', adminOnly, createProduct);
 menuRouter.put('/admin/products/:id', adminOnly, updateProduct);
 menuRouter.delete('/admin/products/:id', adminOnly, deleteProduct);
 menuRouter.post('/admin/products/bulk-price', adminOnly, bulkUpdatePrices);
+menuRouter.post('/admin/products/upload-image', adminOnly, uploadProductImage);
 
 menuRouter.get('/admin/categories', adminOnly, getCategoriesAdmin);
 menuRouter.post('/admin/categories', adminOnly, createCategory);

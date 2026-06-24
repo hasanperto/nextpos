@@ -5,8 +5,10 @@ import { messages } from '../i18n/messages.ts';
 import { EmptyState } from '../components/Shared.tsx';
 
 export function CommissionsPage() {
-    const { lang, financeSummary, fetchFinanceSummary } = useResellerStore();
-    const t = (k: string) => messages[lang][k] || k;
+    const lang = useResellerStore(s => s.lang);
+    const financeSummary = useResellerStore(s => s.financeSummary);
+    const fetchFinanceSummary = useResellerStore(s => s.fetchFinanceSummary);
+    const t = (k: string) => messages[lang]?.[k] || messages['de']?.[k] || messages['en']?.[k] || messages['tr']?.[k] || k;
 
     useEffect(() => {
         fetchFinanceSummary();
@@ -17,6 +19,7 @@ export function CommissionsPage() {
     const total = Number(financeSummary?.total_earnings ?? 0);
     const pending = Number(financeSummary?.total_pending ?? 0);
     const wallet = Number(financeSummary?.wallet_balance ?? 0);
+    const estMonthly = Number(financeSummary?.estimated_monthly_commission ?? 0);
     const br = financeSummary?.commission_breakdown;
 
     return (
@@ -36,6 +39,10 @@ export function CommissionsPage() {
                     <div className="bg-sky-600/10 border border-sky-500/20 rounded-2xl px-6 py-3">
                         <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">{t('comm.wallet')}</span>
                         <span className="text-xl font-black text-sky-300">€{wallet.toFixed(2)}</span>
+                    </div>
+                    <div className="bg-violet-600/10 border border-violet-500/20 rounded-2xl px-6 py-3">
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">{t('comm.estimatedMonthly')}</span>
+                        <span className="text-xl font-black text-violet-300">€{estMonthly.toFixed(2)}</span>
                     </div>
                 </div>
                 <button

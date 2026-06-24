@@ -215,17 +215,17 @@ export const listPosInvoicesHandler = async (req: Request, res: Response) => {
                     COALESCE((
                         SELECT SUM(p.amount)
                         FROM payments p
-                        WHERE p.order_id = o.id AND p.status = 'completed'
+                        WHERE p.order_id = o.id
                     ), 0) as paid_amount,
                     COALESCE((
                         SELECT SUM(p.tip_amount)
                         FROM payments p
-                        WHERE p.order_id = o.id AND p.status = 'completed'
+                        WHERE p.order_id = o.id
                     ), 0) as tip_total,
                     (
-                        SELECT string_agg(DISTINCT p.method, ',')
+                        SELECT string_agg(DISTINCT p.method::text, ',')
                         FROM payments p
-                        WHERE p.order_id = o.id AND p.status = 'completed'
+                        WHERE p.order_id = o.id
                     ) as methods
                 FROM orders o
                 LEFT JOIN branches b ON o.branch_id = b.id
@@ -261,8 +261,9 @@ export const listPosInvoicesHandler = async (req: Request, res: Response) => {
         return res.json(shaped);
     } catch (e: any) {
         if (e instanceof z.ZodError) return res.status(400).json({ error: 'Geçersiz filtre', details: e.issues });
-        console.error('listPosInvoicesHandler:', e);
-        return res.status(500).json({ error: 'Satış faturaları alınamadı' });
+        console.error('❌ listPosInvoicesHandler Error:', e);
+        if (e.stack) console.error(e.stack);
+        return res.status(500).json({ error: 'Satış faturaları alınamadı: ' + e.message });
     }
 };
 
@@ -312,7 +313,7 @@ async function fetchInvoiceDetail(tenantId: string, orderId: number): Promise<In
                     WHERE p.order_id = o.id AND p.status = 'completed'
                 ), 0) as tip_total,
                 (
-                    SELECT string_agg(DISTINCT p.method, ',')
+                    SELECT string_agg(DISTINCT p.method::text, ',')
                     FROM payments p
                     WHERE p.order_id = o.id AND p.status = 'completed'
                 ) as methods

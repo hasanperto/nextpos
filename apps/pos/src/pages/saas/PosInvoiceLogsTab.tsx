@@ -83,62 +83,62 @@ export const PosInvoiceLogsTab: React.FC = () => {
         <div className="space-y-8">
             <div className="flex items-start justify-between gap-6">
                 <div>
-                    <h1 className="text-3xl font-black text-white tracking-tight">{t('tab.posInvoiceLogs')}</h1>
-                    <p className="text-slate-400 text-sm">PDF üretim, e‑posta gönderim ve hata logları (POS satış faturası).</p>
+                    <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">{t('tab.posInvoiceLogs')}</h1>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">{t('posInvoiceLogs.subtitle')}</p>
                 </div>
                 <button
                     type="button"
                     onClick={load}
                     disabled={loading || !tenantId}
-                    className="px-5 py-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 text-white font-bold flex items-center gap-2 disabled:opacity-50"
+                    className="px-5 py-3 rounded-2xl bg-white/5 border border-slate-200 dark:border-slate-800 hover:bg-white/10 text-slate-800 dark:text-white font-bold flex items-center gap-2 disabled:opacity-50"
                 >
                     <FiRefreshCw />
-                    Yenile
+                    {t('posInvoiceLogs.refresh')}
                 </button>
             </div>
 
-            <SectionCard title="Filtreler">
+            <SectionCard title={t('posInvoiceLogs.filters')}>
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                     <SelectGroup
-                        label="Restoran"
+                        label={t('posInvoiceLogs.tenant')}
                         value={tenantId}
                         onChange={(v) => setTenantIdLocal(v)}
                         options={tenantOptions}
                     />
-                    <InputGroup label="Başlangıç" value={from} onChange={setFrom} type="date" />
-                    <InputGroup label="Bitiş" value={to} onChange={setTo} type="date" />
-                    <InputGroup label="Fatura no" value={posInvoiceNo} onChange={setPosInvoiceNo} placeholder="POS-123" />
-                    <InputGroup label="Event type" value={eventType} onChange={setEventType} placeholder="POS_INVOICE_EMAILED" />
+                    <InputGroup label={t('posInvoiceLogs.dateFrom')} value={from} onChange={setFrom} type="date" />
+                    <InputGroup label={t('posInvoiceLogs.dateTo')} value={to} onChange={setTo} type="date" />
+                    <InputGroup label={t('posInvoiceLogs.invoiceNo')} value={posInvoiceNo} onChange={setPosInvoiceNo} placeholder="POS-123" />
+                    <InputGroup label={t('posInvoiceLogs.eventType')} value={eventType} onChange={setEventType} placeholder="POS_INVOICE_EMAILED" />
                 </div>
             </SectionCard>
 
-            <SectionCard title="Loglar">
+            <SectionCard title={t('posInvoiceLogs.logs')}>
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                         <thead>
-                            <tr className="text-left text-slate-400 border-b border-white/10">
-                                <th className="py-3 pr-4">Zaman</th>
-                                <th className="py-3 pr-4">Event</th>
-                                <th className="py-3 pr-4">Fatura</th>
-                                <th className="py-3 pr-4">Actor</th>
-                                <th className="py-3 pr-2 text-right">Aksiyon</th>
+                            <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                                <th className="py-3 pr-4">{t('posInvoiceLogs.colTime')}</th>
+                                <th className="py-3 pr-4">{t('posInvoiceLogs.colEvent')}</th>
+                                <th className="py-3 pr-4">{t('posInvoiceLogs.colInvoice')}</th>
+                                <th className="py-3 pr-4">{t('posInvoiceLogs.colActor')}</th>
+                                <th className="py-3 pr-2 text-right">{t('posInvoiceLogs.colActions')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {rows.map((r) => (
-                                <tr key={String(r.id)} className="border-b border-white/5 hover:bg-white/5">
-                                    <td className="py-3 pr-4 text-slate-300">{String(r.created_at).replace('T', ' ').slice(0, 19)}</td>
-                                    <td className="py-3 pr-4 text-white font-bold">{String(r.event_type)}</td>
-                                    <td className="py-3 pr-4 text-slate-300">{String(r.pos_invoice_no || '—')}</td>
-                                    <td className="py-3 pr-4 text-slate-300">{String(r.created_by || '—')}</td>
+                                <tr key={String(r.id)} className="border-b border-slate-200 dark:border-slate-800 hover:bg-white/5">
+                                    <td className="py-3 pr-4 text-slate-600 dark:text-slate-500 dark:text-slate-400">{String(r.created_at).replace('T', ' ').slice(0, 19)}</td>
+                                    <td className="py-3 pr-4 text-slate-800 dark:text-white font-bold">{String(r.event_type)}</td>
+                                    <td className="py-3 pr-4 text-slate-600 dark:text-slate-500 dark:text-slate-400">{String(r.pos_invoice_no || '—')}</td>
+                                    <td className="py-3 pr-4 text-slate-600 dark:text-slate-500 dark:text-slate-400">{String(r.created_by || '—')}</td>
                                     <td className="py-3 pr-2 text-right">
                                         <button
                                             type="button"
                                             onClick={() => openInvoice(r)}
-                                            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white"
+                                            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-slate-200 dark:border-slate-800 hover:bg-white/10 text-slate-800 dark:text-white"
                                         >
                                             <FiSearch />
-                                            Aç
+                                            {t('posInvoiceLogs.open')}
                                         </button>
                                     </td>
                                 </tr>
@@ -146,7 +146,7 @@ export const PosInvoiceLogsTab: React.FC = () => {
                             {!rows.length && (
                                 <tr>
                                     <td colSpan={5} className="py-8 text-center text-slate-500">
-                                        {loading ? 'Yükleniyor…' : 'Kayıt yok.'}
+                                        {loading ? t('posInvoiceLogs.loading') : t('posInvoiceLogs.noData')}
                                     </td>
                                 </tr>
                             )}

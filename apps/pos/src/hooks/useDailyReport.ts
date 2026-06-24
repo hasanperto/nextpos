@@ -22,7 +22,7 @@ export interface DailyReportData {
 }
 
 export const useDailyReport = () => {
-    const { token, tenantId } = useAuthStore();
+    const { token, getAuthHeaders } = useAuthStore();
     const [data, setData] = useState<DailyReportData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -32,10 +32,7 @@ export const useDailyReport = () => {
         try {
             const today = new Date().toISOString().split('T')[0];
             const res = await fetch(`/api/v1/admin/reports/z-report?date=${today}`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'x-tenant-id': tenantId || ''
-                }
+                headers: getAuthHeaders()
             });
 
             if (!res.ok) throw new Error('Report fetch failed');

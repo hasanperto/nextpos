@@ -62,7 +62,8 @@ export const TenantEditModal: React.FC<{
     onClose: () => void;
 }> = ({ tenant, onClose }) => {
     const { t } = useSaaSLocale();
-    const { updateTenant, error } = useSaaSStore();
+    const { updateTenant, error, admin } = useSaaSStore();
+    const isSuperAdmin = admin?.role === 'super_admin';
     const [saving, setSaving] = useState(false);
     const [generatingMaster, setGeneratingMaster] = useState(false);
     const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -119,9 +120,31 @@ export const TenantEditModal: React.FC<{
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (form.name.trim().length < 2) return;
+        if (isSuperAdmin && form.name.trim().length < 2) return;
         setSaving(true);
-        const ok = await updateTenant(tenant.id, toPatchBody(form));
+        const payload = isSuperAdmin
+            ? toPatchBody(form)
+            : (() => {
+                  const b: Record<string, unknown> = {};
+                  const em = form.contactEmail.trim();
+                  if (em) b.contactEmail = em;
+                  const ph = form.contactPhone.trim();
+                  if (ph) b.contactPhone = ph;
+                  const ap = form.authorizedPerson.trim();
+                  if (ap) b.authorizedPerson = ap;
+                  const txo = form.taxOffice.trim();
+                  if (txo) b.taxOffice = txo;
+                  const txn = form.taxNumber.trim();
+                  if (txn) b.taxNumber = txn;
+                  const ad = form.address.trim();
+                  if (ad) b.address = ad;
+                  return b;
+              })();
+        if (!isSuperAdmin && Object.keys(payload).length === 0) {
+            setSaving(false);
+            return;
+        }
+        const ok = await updateTenant(tenant.id, payload);
         setSaving(false);
         if (ok) onClose();
     };
@@ -129,15 +152,16 @@ export const TenantEditModal: React.FC<{
     return (
         <Modal show={true} title={t('tenantEdit.title')} onClose={onClose} maxWidth="max-w-2xl" titleUppercase={false}>
             <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-slate-300 text-xs space-y-3">
+                <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-slate-600 dark:text-slate-500 dark:text-slate-400 text-xs space-y-3">
                     <div className="flex items-start gap-3">
                         <FiEdit3 className="text-blue-400 shrink-0 mt-0.5" size={18} />
                         <div className="min-w-0 flex-1">
-                            <span className="font-mono text-slate-400 block">{tenant.schema_name}</span>
+                            <span className="font-mono text-slate-500 dark:text-slate-400 block">{tenant.schema_name}</span>
                             <span className="text-[10px] text-slate-500">{t('tenantEdit.schemaHint')}</span>
                         </div>
                     </div>
 
+                    {isSuperAdmin ? (
                     <div className="space-y-2 pl-0 sm:pl-8 border-t border-blue-500/20 pt-3">
                         <div className="flex flex-col gap-1">
                             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{t('tenantEdit.licenseUuid')}</span>
@@ -147,7 +171,7 @@ export const TenantEditModal: React.FC<{
                                     type="button"
                                     onClick={() => void copyToClipboard(tenant.id, 'uuid')}
                                     className={`shrink-0 p-1 rounded-md transition-colors ${
-                                        copiedField === 'uuid' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500 hover:text-white hover:bg-white/10'
+                                        copiedField === 'uuid' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500 hover:text-slate-800 dark:text-white hover:bg-white/10'
                                     }`}
                                     title={copiedField === 'uuid' ? t('tenants.copied') : t('tenantEdit.copyValue')}
                                     aria-label={t('tenantEdit.copyValue')}
@@ -166,7 +190,7 @@ export const TenantEditModal: React.FC<{
                                         type="button"
                                         onClick={() => void copyToClipboard(tenant.special_license_key!, 'special')}
                                         className={`shrink-0 p-1 rounded-md transition-colors ${
-                                            copiedField === 'special' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500 hover:text-white hover:bg-white/10'
+                                            copiedField === 'special' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500 hover:text-slate-800 dark:text-white hover:bg-white/10'
                                         }`}
                                         title={copiedField === 'special' ? t('tenants.copied') : t('tenantEdit.copyValue')}
                                         aria-label={t('tenantEdit.copyValue')}
@@ -188,7 +212,7 @@ export const TenantEditModal: React.FC<{
                                         type="button"
                                         onClick={() => void copyToClipboard(tenant.master_password!.trim(), 'master')}
                                         className={`shrink-0 p-1 rounded-md transition-colors ${
-                                            copiedField === 'master' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500 hover:text-white hover:bg-white/10'
+                                            copiedField === 'master' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500 hover:text-slate-800 dark:text-white hover:bg-white/10'
                                         }`}
                                         title={copiedField === 'master' ? t('tenants.copied') : t('tenantEdit.copyValue')}
                                         aria-label={t('tenantEdit.copyValue')}
@@ -211,10 +235,23 @@ export const TenantEditModal: React.FC<{
 
                         <p className="text-[10px] text-slate-500 pt-1">{t('tenantEdit.sensitiveNote')}</p>
                     </div>
+                    ) : (
+                        <p className="text-[10px] text-slate-500 border-t border-blue-500/20 pt-3">
+                            Bayi hesabı: lisans anahtarı ve master şifre yalnızca süper yönetici tarafından yönetilir.
+                        </p>
+                    )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <InputGroup label={t('tenantEdit.name')} value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder={t('tenantEdit.namePh')} />
+                    {isSuperAdmin ? (
+                        <InputGroup label={t('tenantEdit.name')} value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder={t('tenantEdit.namePh')} />
+                    ) : (
+                        <div className="sm:col-span-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">{t('tenantEdit.name')}</div>
+                            <div className="text-sm font-semibold text-slate-200">{form.name}</div>
+                        </div>
+                    )}
+                    {isSuperAdmin && (
                     <SelectGroup
                         label={t('tenantEdit.status')}
                         value={form.status}
@@ -225,6 +262,8 @@ export const TenantEditModal: React.FC<{
                             { label: t('tenantEdit.status.inactive'), value: 'inactive' },
                         ]}
                     />
+                    )}
+                    {isSuperAdmin && (
                     <SelectGroup
                         label={t('modal.tenant.plan')}
                         value={form.subscriptionPlan}
@@ -235,6 +274,7 @@ export const TenantEditModal: React.FC<{
                             { label: 'Enterprise', value: 'enterprise' },
                         ]}
                     />
+                    )}
                     <InputGroup label={t('modal.tenant.email')} type="email" value={form.contactEmail} onChange={(v) => setForm({ ...form, contactEmail: v })} placeholder={t('modal.tenant.emailPh')} />
                     <InputGroup label={t('modal.tenant.phone')} value={form.contactPhone} onChange={(v) => setForm({ ...form, contactPhone: v })} placeholder={t('modal.tenant.phonePh')} />
                     <InputGroup label={t('modal.tenant.contact')} value={form.authorizedPerson} onChange={(v) => setForm({ ...form, authorizedPerson: v })} />
@@ -243,6 +283,7 @@ export const TenantEditModal: React.FC<{
                 </div>
                 <InputGroup label={t('modal.tenant.address')} value={form.address} onChange={(v) => setForm({ ...form, address: v })} placeholder={t('modal.tenant.addressPh')} />
 
+                {isSuperAdmin && (
                 <div className="grid grid-cols-2 gap-4">
                     <InputGroup
                         label={t('modal.tenant.maxUsers')}
@@ -255,6 +296,8 @@ export const TenantEditModal: React.FC<{
                         onChange={(v) => setForm({ ...form, maxBranches: Math.max(1, parseInt(v, 10) || 1) })}
                     />
                 </div>
+                )}
+                {isSuperAdmin && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <InputGroup
                         label="Cihaz Kilidi Reset Kotası (Ay)"
@@ -271,19 +314,20 @@ export const TenantEditModal: React.FC<{
                         placeholder="Boş bırak: plan varsayılanı"
                     />
                 </div>
+                )}
 
                 {error && (
                     <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium">{error}</div>
                 )}
 
                 <div className="flex justify-end gap-3 pt-2">
-                    <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl text-slate-400 hover:bg-white/10 font-bold text-sm">
+                    <button type="button" onClick={onClose} className="px-5 py-2.5 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-white/10 font-bold text-sm">
                         {t('tenantEdit.cancel')}
                     </button>
                     <button
                         type="submit"
-                        disabled={saving || form.name.trim().length < 2}
-                        className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-sm disabled:opacity-50"
+                        disabled={saving || (isSuperAdmin && form.name.trim().length < 2)}
+                        className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-slate-800 dark:text-white font-black text-sm disabled:opacity-50"
                     >
                         {saving ? t('tenantEdit.saving') : t('tenantEdit.save')}
                     </button>

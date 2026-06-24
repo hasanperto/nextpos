@@ -5,6 +5,8 @@
 
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { withTenant } from '../lib/db.js';
+import { getEffectiveMaxDevices } from '../services/billing.service.js';
 
 // ═══════════════════════════════════════
 // TypeScript Tip Tanımları
@@ -44,7 +46,7 @@ declare global {
  * Authorization header'dan Bearer token'ı alır, doğrular ve
  * req.user, req.tenantId, req.branchId'yi set eder.
  */
-export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
     try {
         const authHeader = req.headers.authorization;
 
@@ -75,6 +77,100 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
             req.user = decoded;
             req.tenantId = decoded.tenantId;
             req.branchId = decoded.branchId;
+
+            // Enforce device count limit for operational roles (exclude admin and SaaS admin)
+            const role = decoded.role?.toLowerCase();
+            const isOperational = ['waiter', 'cashier', 'kitchen', 'courier'].includes(role);
+            const devSkip = process.env.DEV_SKIP_DEVICE_BINDING === '1' || process.env.DEV_SKIP_DEVICE_BINDING === 'true';
+
+            if (isOperational && !devSkip && decoded.tenantId) {
+                const tenantId = decoded.tenantId;
+                const headerDevice = req.headers['x-device-id'];
+                const deviceId = String(headerDevice ?? '').trim().toLowerCase();
+
+                if (!deviceId) {
+                    return res.status(400).json({
+                        error: 'Cihaz kimliği gerekli (x-device-id header eksik). Lütfen bu cihazdan tekrar giriş yapın.',
+                        code: 'DEVICE_ID_REQUIRED',
+                    });
+                }
+
+                const deviceStatus = await withTenant(tenantId, async (connection) => {
+                    const [rows]: any = await connection.query(
+                        `SELECT id, device_id FROM users WHERE id = ? LIMIT 1`,
+                        [decoded.userId]
+                    );
+                    const user = rows?.[0];
+                    if (!user) {
+                        return { ok: false, status: 404, error: 'Kullanıcı bulunamadı', code: 'USER_NOT_FOUND' };
+                    }
+
+                    const boundDevice = String(user.device_id ?? '').trim().toLowerCase();
+                    if (boundDevice && boundDevice !== deviceId) {
+                        return { ok: false, status: 403, error: 'Bu cihaz yetkili değil veya başka bir kullanıcı kilitli.', code: 'DEVICE_MISMATCH' };
+                    }
+
+                    // Count total distinct devices
+                    const [{ total } = { total: 3 }]: any = await Promise.all([getEffectiveMaxDevices(tenantId)]);
+                    const [cntRows]: any = await connection.query(
+                        `SELECT COUNT(DISTINCT device_id) as c FROM users WHERE device_id IS NOT NULL AND TRIM(device_id) <> ''`
+                    );
+                    const userDeviceCount = Number(cntRows?.[0]?.c ?? 0);
+
+                    // Get kiosk device count from branch settings
+                    const [branchRows]: any = await connection.query(
+                        `SELECT settings FROM branches ORDER BY id ASC LIMIT 1`
+                    );
+                    const rawSettings = branchRows?.[0]?.settings;
+                    let kioskDeviceCount = 0;
+                    if (rawSettings) {
+                        let settings: any = {};
+                        try {
+                            settings = typeof rawSettings === 'string' ? JSON.parse(rawSettings) : rawSettings;
+                            const linked = settings?.integrations?.kiosk?.linkedDevices;
+                            if (Array.isArray(linked)) {
+                                kioskDeviceCount = linked.length;
+                            }
+                        } catch { /* ignore */ }
+                    }
+
+                    const distinctCount = userDeviceCount + kioskDeviceCount;
+
+                    // If user is not yet bound to this device, but we are at/over quota, block binding.
+                    if (!boundDevice && distinctCount >= Number(total || 3)) {
+                        return {
+                            ok: false,
+                            status: 403,
+                            error: `Cihaz kotası doldu (en fazla ${Number(total || 3)}). Plan yükseltmesi veya «Ek Cihaz» gerekir.`,
+                            code: 'DEVICE_QUOTA',
+                        };
+                    }
+
+                    // Downgrade check: if distinctCount exceeds total allowed
+                    if (distinctCount > Number(total || 3)) {
+                        return {
+                            ok: false,
+                            status: 403,
+                            error: `Cihaz kotası aşıldı (Kullanılan: ${distinctCount}, En fazla: ${Number(total || 3)}). Yönetici panelinden cihaz kilitlerini sıfırlayın veya paketinizi yükseltin.`,
+                            code: 'DEVICE_QUOTA',
+                        };
+                    }
+
+                    if (!boundDevice) {
+                        // Bind it now
+                        await connection.query(`UPDATE users SET device_id = ? WHERE id = ?`, [deviceId, decoded.userId]);
+                    }
+
+                    return { ok: true };
+                });
+
+                if (!deviceStatus.ok) {
+                    return res.status(deviceStatus.status!).json({
+                        error: deviceStatus.error,
+                        code: deviceStatus.code,
+                    });
+                }
+            }
 
             next();
         } catch (jwtErr: any) {

@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/useAuthStore';
 import { usePosStore } from '../store/usePosStore';
 import { posMessages, type PosLang } from '../i18n/posMessages';
 import toast from 'react-hot-toast';
+import { getSocketOrigin } from '../lib/socketOrigin';
 
 function tpl(t: (k: string) => string, key: string, vars: Record<string, string | number>): string {
     let s = t(key);
@@ -61,6 +62,11 @@ export function useCourierRealtimeSync(onRefresh: () => void, currentLocation?: 
         writeQueue([]);
     };
 
+    const currentLocationRef = useRef(currentLocation);
+    useEffect(() => {
+        currentLocationRef.current = currentLocation;
+    }, [currentLocation]);
+
     // Update location via socket every 20s if changed
     useEffect(() => {
         if (!currentLocation || !tenantId) return;
@@ -76,6 +82,21 @@ export function useCourierRealtimeSync(onRefresh: () => void, currentLocation?: 
         }
     }, [currentLocation, tenantId, courierId]);
 
+    // Heartbeat: regularly broadcast location every 15 seconds if connected
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const latestLoc = currentLocationRef.current;
+            if (latestLoc && tenantId && socketRef.current?.connected) {
+                socketRef.current.emit('courier:location_update', {
+                    tenantId,
+                    courierId,
+                    location: latestLoc
+                });
+            }
+        }, 15000);
+        return () => clearInterval(interval);
+    }, [tenantId, courierId]);
+
     // Update the ref whenever onRefresh changes
     useEffect(() => {
         refreshRef.current = onRefresh;
@@ -87,11 +108,9 @@ export function useCourierRealtimeSync(onRefresh: () => void, currentLocation?: 
         const t = makeT(lang);
         const tplMsg = (key: string, vars: Record<string, string | number>) => tpl(t, key, vars);
 
-        /** Kasiyer paneli ile aynı: API doğrudan (VITE_API_URL) veya Vite proxy (origin). */
-        const socketUrl = import.meta.env.VITE_API_URL || window.location.origin;
-        const socket = io(socketUrl, {
+        const socket = io(getSocketOrigin(), {
             path: '/socket.io',
-            transports: ['websocket'],
+            transports: ['polling', 'websocket'],
             auth: { token },
             query: { tenantId },
             reconnection: true,
@@ -113,6 +132,16 @@ export function useCourierRealtimeSync(onRefresh: () => void, currentLocation?: 
         const onConnect = () => {
             socket.emit('join:tenant', tenantId);
             socket.emit('presence:staff_register', { tenantId });
+            
+            // Send the latest location immediately upon connection to bypass race conditions
+            const latestLoc = currentLocationRef.current;
+            if (latestLoc) {
+                socket.emit('courier:location_update', {
+                    tenantId,
+                    courierId,
+                    location: latestLoc
+                });
+            }
             flushQueuedLocations();
         };
 
@@ -156,11 +185,12 @@ export function useCourierRealtimeSync(onRefresh: () => void, currentLocation?: 
         };
 
         const onLocationRequest = () => {
-            if (currentLocation && tenantId) {
+            const latestLoc = currentLocationRef.current;
+            if (latestLoc && tenantId) {
                 socket.emit('courier:location_update', {
                     tenantId,
                     courierId,
-                    location: currentLocation
+                    location: latestLoc
                 });
                 toast.success(t('courier.ws_location_ok'), { icon: '📍', duration: 2000, position: 'bottom-center' });
             }
@@ -185,6 +215,7 @@ export function useCourierRealtimeSync(onRefresh: () => void, currentLocation?: 
             socket.off('courier:location_request', onLocationRequest);
             socket.removeAllListeners();
             socket.disconnect();
+            socketRef.current = null;
         };
     }, [tenantId, token, courierId, lang]);
 

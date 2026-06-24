@@ -1,7 +1,19 @@
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
+import {
+    FiMessageSquare,
+    FiHome,
+    FiFlag,
+    FiType,
+    FiSend,
+    FiPlusCircle,
+    FiChevronDown,
+    FiAlertCircle,
+    FiMinusCircle,
+} from 'react-icons/fi';
 import { useResellerStore } from '../store/useResellerStore.ts';
 import { messages } from '../i18n/messages.ts';
+import { translateApiError } from '../i18n/translateApiError.ts';
 import { EmptyState } from '../components/Shared.tsx';
 
 type TicketMessage = {
@@ -13,8 +25,13 @@ type TicketMessage = {
 };
 
 export function SupportPage() {
-    const { lang, supportTickets, fetchSupportTickets, token, tenants, fetchTenants } = useResellerStore();
-    const t = (k: string) => messages[lang][k] || k;
+    const lang = useResellerStore(s => s.lang);
+    const supportTickets = useResellerStore(s => s.supportTickets);
+    const fetchSupportTickets = useResellerStore(s => s.fetchSupportTickets);
+    const token = useResellerStore(s => s.token);
+    const tenants = useResellerStore(s => s.tenants);
+    const fetchTenants = useResellerStore(s => s.fetchTenants);
+    const t = (k: string) => messages[lang]?.[k] || messages['de']?.[k] || messages['en']?.[k] || messages['tr']?.[k] || k;
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [messagesList, setMessagesList] = useState<TicketMessage[]>([]);
     const [reply, setReply] = useState('');
@@ -46,7 +63,7 @@ export function SupportPage() {
             });
             const json = (await res.json().catch(() => ({}))) as { error?: string };
             if (!res.ok) {
-                toast.error(json.error || t('support.createErr'));
+                toast.error(translateApiError(json.error, (json as { code?: string }).code, lang) || t('support.createErr'));
                 return;
             }
             toast.success(t('support.createOk'));
@@ -132,71 +149,138 @@ export function SupportPage() {
     };
 
     const priorityCls: Record<string, string> = {
-        high: 'bg-red-500/10 text-red-400',
-        medium: 'bg-orange-500/10 text-orange-400',
-        low: 'bg-slate-500/10 text-slate-400',
+        high: 'bg-red-500/10 text-red-400 border-red-500/30',
+        medium: 'bg-orange-500/10 text-orange-400 border-orange-500/30',
+        low: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
     };
 
-    return (
-        <div className="space-y-6 animate-in">
-            <p className="text-slate-500 text-sm">{t('support.subtitle')}</p>
+    const priorityLabel = (p: 'low' | 'medium' | 'high') => {
+        if (p === 'high') return t('support.priorityHigh');
+        if (p === 'low') return t('support.priorityLow');
+        return t('support.priorityMedium');
+    };
 
-            <div className="rounded-2xl border border-white/10 bg-slate-900/50 p-4 space-y-3">
-                <h3 className="text-xs font-black text-white uppercase tracking-widest">{t('support.createTitle')}</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                        <label className="text-[10px] text-slate-500 font-bold uppercase">{t('support.tenantSelect')}</label>
-                        <select
-                            value={newTenantId}
-                            onChange={(e) => setNewTenantId(e.target.value)}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
-                        >
-                            <option value="">{t('support.tenantPlatform')}</option>
-                            {tenants.map((r) => (
-                                <option key={r.id} value={r.id}>
-                                    {r.name}
-                                </option>
-                            ))}
-                        </select>
+    const fieldClass =
+        'w-full bg-black/20 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 text-sm text-white placeholder-slate-600 outline-none focus:border-blue-500/40 focus:ring-2 focus:ring-blue-500/20 transition-all';
+
+    return (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-3 duration-500">
+            <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600/15 border border-blue-500/25 flex items-center justify-center text-blue-400 shrink-0">
+                    <FiMessageSquare size={18} />
+                </div>
+                <div>
+                    <h2 className="text-lg font-black text-white tracking-tight">{t('support.title')}</h2>
+                    <p className="text-slate-500 text-sm mt-0.5">{t('support.subtitle')}</p>
+                </div>
+            </div>
+
+            <div className="rounded-2xl sm:rounded-[24px] border border-white/10 bg-slate-900/40 backdrop-blur-xl overflow-hidden shadow-2xl shadow-black/20">
+                <div className="px-4 sm:px-6 py-4 border-b border-white/5 bg-gradient-to-r from-blue-600/10 via-transparent to-violet-600/5 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-300">
+                        <FiPlusCircle size={18} />
                     </div>
-                    <div className="space-y-1">
-                        <label className="text-[10px] text-slate-500 font-bold uppercase">{t('support.priority')}</label>
-                        <select
-                            value={newPriority}
-                            onChange={(e) => setNewPriority(e.target.value as 'low' | 'medium' | 'high')}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
-                        >
-                            <option value="low">low</option>
-                            <option value="medium">medium</option>
-                            <option value="high">high</option>
-                        </select>
+                    <div>
+                        <h3 className="text-xs font-black text-white uppercase tracking-widest">{t('support.createTitle')}</h3>
+                        <p className="text-[10px] text-slate-500 mt-0.5 font-medium">{t('support.createDesc')}</p>
                     </div>
                 </div>
-                <div className="space-y-1">
-                    <label className="text-[10px] text-slate-500 font-bold uppercase">{t('support.subject')}</label>
-                    <input
-                        value={newSubject}
-                        onChange={(e) => setNewSubject(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
-                    />
+
+                <div className="p-4 sm:p-6 space-y-5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] text-slate-500 font-black uppercase tracking-wider flex items-center gap-1.5">
+                                <FiHome size={11} className="text-blue-400" />
+                                {t('support.tenantSelect')}
+                            </label>
+                            <div className="relative">
+                                <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={14} />
+                                <select
+                                    value={newTenantId}
+                                    onChange={(e) => setNewTenantId(e.target.value)}
+                                    className={`${fieldClass} appearance-none cursor-pointer`}
+                                >
+                                    <option value="">{t('support.tenantPlatform')}</option>
+                                    {tenants.map((r) => (
+                                        <option key={r.id} value={r.id}>
+                                            {r.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <FiHome className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={14} />
+                            </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] text-slate-500 font-black uppercase tracking-wider flex items-center gap-1.5">
+                                <FiFlag size={11} className="text-orange-400" />
+                                {t('support.priority')}
+                            </label>
+                            <div className="flex gap-2 p-1 bg-black/20 border border-white/10 rounded-xl">
+                                {(['low', 'medium', 'high'] as const).map((p) => (
+                                    <button
+                                        key={p}
+                                        type="button"
+                                        onClick={() => setNewPriority(p)}
+                                        className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-black uppercase transition-all border ${
+                                            newPriority === p
+                                                ? priorityCls[p] + ' shadow-lg'
+                                                : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                                        }`}
+                                    >
+                                        {p === 'high' ? <FiAlertCircle size={12} /> : p === 'low' ? <FiMinusCircle size={12} /> : <FiFlag size={12} />}
+                                        {priorityLabel(p)}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] text-slate-500 font-black uppercase tracking-wider flex items-center gap-1.5">
+                            <FiType size={11} className="text-violet-400" />
+                            {t('support.subject')}
+                        </label>
+                        <div className="relative">
+                            <FiType className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={14} />
+                            <input
+                                value={newSubject}
+                                onChange={(e) => setNewSubject(e.target.value)}
+                                placeholder={t('support.subjectPlaceholder')}
+                                className={fieldClass}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] text-slate-500 font-black uppercase tracking-wider flex items-center gap-1.5">
+                            <FiMessageSquare size={11} className="text-emerald-400" />
+                            {t('support.message')}
+                        </label>
+                        <div className="relative">
+                            <FiMessageSquare className="absolute left-3 top-3 text-slate-500 pointer-events-none" size={14} />
+                            <textarea
+                                value={newMessage}
+                                onChange={(e) => setNewMessage(e.target.value)}
+                                rows={4}
+                                placeholder={t('support.messagePlaceholder')}
+                                className={`${fieldClass} min-h-[100px] resize-y pt-2.5`}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row sm:justify-end pt-1 border-t border-white/5">
+                        <button
+                            type="button"
+                            disabled={busy || !newSubject.trim() || !newMessage.trim()}
+                            onClick={() => void createTicket()}
+                            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-black text-white uppercase tracking-wider shadow-xl shadow-blue-600/25 active:scale-[0.98] transition-all"
+                        >
+                            <FiSend size={14} />
+                            {busy ? '…' : t('support.newTicket')}
+                        </button>
+                    </div>
                 </div>
-                <div className="space-y-1">
-                    <label className="text-[10px] text-slate-500 font-bold uppercase">{t('support.message')}</label>
-                    <textarea
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        rows={3}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
-                    />
-                </div>
-                <button
-                    type="button"
-                    disabled={busy || !newSubject.trim() || !newMessage.trim()}
-                    onClick={() => void createTicket()}
-                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-black text-white"
-                >
-                    {t('support.newTicket')}
-                </button>
             </div>
 
             {supportTickets.length === 0 ? (

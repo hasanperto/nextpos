@@ -12,7 +12,14 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, __dirname, '');
     const port = Number(env.DEV_SERVER_PORT || env.VITE_DEV_SERVER_PORT || 5173);
     const host = env.DEV_SERVER_HOST || env.VITE_DEV_SERVER_HOST || '0.0.0.0';
-    const apiTarget = env.API_PROXY_TARGET || env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:3001';
+    const apiTarget = env.API_PROXY_TARGET || env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:3101';
+
+    /** Vite proxy hata ayarı: 502 genelde hedefte API yokken oluşur; mesajı Vite terminalinde gösterir */
+    const proxyOnError = (label: string) => (err: Error, req: { url?: string } | undefined) => {
+        console.error(`[vite-proxy:${label}] ${err.message}`);
+        console.error(`[vite-proxy:${label}] istek: ${req?.url ?? '—'} → hedef: ${apiTarget}`);
+        console.error('[vite-proxy] API çalışmıyor olabilir. Kök dizinde: npm run check:api  veya  npm run dev:stack');
+    };
 
     const strictPortRaw = env.DEV_SERVER_STRICT_PORT ?? env.VITE_DEV_SERVER_STRICT_PORT;
     const strictPort = strictPortRaw == null ? true : strictPortRaw === '1' || strictPortRaw === 'true';
@@ -46,9 +53,27 @@ export default defineConfig(({ mode }) => {
                             purpose: 'any',
                         },
                         {
+                            src: '/icons/icon-192x192.png',
+                            sizes: '192x192',
+                            type: 'image/png',
+                            purpose: 'any',
+                        },
+                        {
+                            src: '/icons/icon-512x512.png',
+                            sizes: '512x512',
+                            type: 'image/png',
+                            purpose: 'any',
+                        },
+                        {
                             src: '/favicon.svg',
                             sizes: 'any',
                             type: 'image/svg+xml',
+                            purpose: 'maskable',
+                        },
+                        {
+                            src: '/icons/icon-192x192.png',
+                            sizes: '192x192',
+                            type: 'image/png',
                             purpose: 'maskable',
                         },
                     ],
@@ -129,20 +154,39 @@ export default defineConfig(({ mode }) => {
             port,
             host,
             strictPort,
+            hmr: {
+                clientPort: port,
+            },
             proxy: {
                 '/api': {
                     target: apiTarget,
                     changeOrigin: true,
+                    configure(proxy) {
+                        proxy.on('error', proxyOnError('api'));
+                    },
                 },
                 '/socket.io': {
                     target: apiTarget,
                     ws: true,
+                    configure(proxy) {
+                        proxy.on('error', proxyOnError('socket.io'));
+                        proxy.on('proxyReqWs', (_proxyReq, _req, socket) => {
+                            socket.on('error', (err) => {
+                                console.error(`[vite-proxy:socket.io] socket error: ${err.message}`);
+                            });
+                        });
+                    },
                 },
                 /** Yerel yazıcı köprüsü: npm run printer-agent (127.0.0.1:3910) */
                 '/__printer_agent': {
                     target: 'http://127.0.0.1:3910',
                     changeOrigin: true,
                     rewrite: (path) => path.replace(/^\/__printer_agent/, ''),
+                    configure(proxy) {
+                        proxy.on('error', () => {
+                            /* silent - printer-agent is optional */
+                        });
+                    },
                 },
             },
         },

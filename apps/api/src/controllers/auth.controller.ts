@@ -67,6 +67,12 @@ async function enforceRoleModuleAccess(params: {
     };
     const moduleCode = moduleByRole[role];
     if (!moduleCode) return { ok: true };
+
+    const skip = process.env.DEV_SKIP_TENANT_MODULE_ENFORCEMENT;
+    if (skip === '1' || skip === 'true') {
+        return { ok: true };
+    }
+
     await migrateBillingTables();
     const enabled = await isTenantModuleEnabled(params.tenantId, moduleCode);
     if (!enabled) {
@@ -110,6 +116,43 @@ async function enforceOrBindDevice(params: {
             return { ok: false, status: 404, error: 'Kullanıcı bulunamadı', code: 'USER_NOT_FOUND' };
         }
 
+        const [{ total } = { total: 3 }]: any = await Promise.all([getEffectiveMaxDevices(params.tenantId)]);
+        const [cntRows]: any = await connection.query(
+            `SELECT COUNT(DISTINCT device_id) as c FROM users WHERE device_id IS NOT NULL AND TRIM(device_id) <> ''`,
+        );
+        const userDeviceCount = Number(cntRows?.[0]?.c ?? 0);
+
+        // Get kiosk device count from branch settings
+        const [branchRows]: any = await connection.query(
+            `SELECT settings FROM branches ORDER BY id ASC LIMIT 1`,
+        );
+        const rawSettings = branchRows?.[0]?.settings;
+        let kioskDeviceCount = 0;
+        if (rawSettings) {
+            let settings: any = {};
+            try {
+                settings = typeof rawSettings === 'string' ? JSON.parse(rawSettings) : rawSettings;
+                const linked = settings?.integrations?.kiosk?.linkedDevices;
+                if (Array.isArray(linked)) {
+                    kioskDeviceCount = linked.length;
+                }
+            } catch { /* ignore */ }
+        }
+
+        const distinctCount = userDeviceCount + kioskDeviceCount;
+
+        // Downgrade Check: Eğer toplam aktif cihaz sayısı, izin verilenden fazlaysa (ör. paket düşürme)
+        // Girişi tamamen engelleyerek yöneticiye cihaz kilitlerini sıfırlama veya yükseltme uyarısı veriyoruz.
+        if (distinctCount > Number(total || 3)) {
+            return {
+                ok: false,
+                status: 403,
+                error: `Cihaz kotası aşıldı (Kullanılan: ${distinctCount}, En fazla: ${Number(total || 3)}). Yönetici panelinden cihaz kilitlerini sıfırlayın veya paketinizi yükseltin.`,
+                code: 'DEVICE_QUOTA',
+                maxDevices: Number(total || 3),
+            };
+        }
+
         const current = String(row.device_id ?? '').trim().toLowerCase();
         if (current) {
             if (current !== normalized) {
@@ -117,12 +160,6 @@ async function enforceOrBindDevice(params: {
             }
             return { ok: true };
         }
-
-        const [{ total } = { total: 3 }]: any = await Promise.all([getEffectiveMaxDevices(params.tenantId)]);
-        const [cntRows]: any = await connection.query(
-            `SELECT COUNT(DISTINCT device_id) as c FROM users WHERE device_id IS NOT NULL AND TRIM(device_id) <> ''`,
-        );
-        const distinctCount = Number(cntRows?.[0]?.c ?? 0);
 
         const [sameDeviceRows]: any = await connection.query(
             `SELECT 1 FROM users WHERE LOWER(TRIM(device_id)) = LOWER(TRIM(?)) LIMIT 1`,
@@ -928,3 +965,146 @@ export const verifyAdminPin = async (req: Request, res: Response) => {
         res.status(400).json({ error: 'Doğrulama hatası' });
     }
 };
+
+// Map of code -> { tenantId, userId, expiresAt }
+export const impersonationCodes = new Map<string, { tenantId: string; userId: number; expiresAt: number }>();
+
+export const createImpersonationCode = async (req: Request, res: Response) => {
+    try {
+        if (req.user?.role !== 'super_admin' && req.user?.role !== 'reseller') {
+            return res.status(403).json({ error: 'Yetkisiz: Gölge giriş için SaaS admin olmalısınız' });
+        }
+        const { tenantId } = req.body;
+        if (!tenantId) return res.status(400).json({ error: 'tenantId gerekli' });
+
+        if (req.user.role === 'reseller') {
+            const [rows]: any = await queryPublic('SELECT reseller_id FROM `public`.tenants WHERE id = ? LIMIT 1', [tenantId]);
+            if (!rows.length || rows[0].reseller_id != req.user.userId) {
+                return res.status(403).json({ error: 'Bu restoran üzerinde gölge giriş yetkiniz yok' });
+            }
+        }
+
+        const adminUser = await withTenant(tenantId, async (connection) => {
+            const [rows]: any = await connection.query(`SELECT id FROM users WHERE role = 'admin' AND status = 'active' LIMIT 1`);
+            return rows[0] || null;
+        });
+
+        if (!adminUser) {
+            return res.status(404).json({ error: 'Restoran admin kullanıcısı bulunamadı' });
+        }
+
+        const code = 'imp_' + crypto.randomBytes(24).toString('hex');
+        impersonationCodes.set(code, {
+            tenantId,
+            userId: Number(adminUser.id),
+            expiresAt: Date.now() + 30 * 1000,
+        });
+
+        try {
+            await queryPublic(
+                `INSERT INTO \`public\`.audit_logs (user_id, action, entity_type, entity_id, old_value, new_value, ip_address, user_agent)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    String(req.user.userId),
+                    'saas_impersonation_requested',
+                    'tenant',
+                    tenantId,
+                    null,
+                    JSON.stringify({ username: req.user.username, role: req.user.role }),
+                    getClientIp(req),
+                    String(req.headers['user-agent'] || ''),
+                ],
+            );
+        } catch {
+            /* ignore audit log failure */
+        }
+
+        res.json({ code });
+    } catch (error) {
+        console.error('Impersonation code error:', error);
+        res.status(500).json({ error: 'Gölge giriş kodu oluşturulamadı' });
+    }
+};
+
+export const loginWithImpersonationCode = async (req: Request, res: Response) => {
+    try {
+        const { code } = req.body;
+        if (!code) return res.status(400).json({ error: 'Gölge giriş kodu gerekli' });
+
+        const entry = impersonationCodes.get(code);
+        if (!entry) {
+            return res.status(400).json({ error: 'Geçersiz veya süresi dolmuş gölge giriş kodu' });
+        }
+
+        impersonationCodes.delete(code);
+
+        if (Date.now() > entry.expiresAt) {
+            return res.status(400).json({ error: 'Gölge giriş kodunun süresi dolmuş' });
+        }
+
+        const [tenantRows]: any = await queryPublic(
+            'SELECT status, name FROM `public`.tenants WHERE id = ?',
+            [entry.tenantId]
+        );
+        if (tenantRows.length === 0 || tenantRows[0].status !== 'active') {
+            return res.status(403).json({ error: 'Restoran hesabı bulunamadı veya pasif' });
+        }
+
+        const user = await withTenant(entry.tenantId, async (connection) => {
+            const [rows]: any = await connection.query(
+                `SELECT u.*, b.name as branch_name 
+                 FROM users u 
+                 LEFT JOIN branches b ON u.branch_id = b.id 
+                 WHERE u.id = ? AND u.status = 'active'`,
+                [entry.userId]
+            );
+            return rows[0] || null;
+        });
+
+        if (!user) {
+            return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+        }
+
+        const tokenPayload: Omit<JwtPayload, 'iat' | 'exp'> = {
+            userId: user.id,
+            username: user.username,
+            role: user.role,
+            tenantId: entry.tenantId,
+            branchId: user.branch_id,
+        };
+
+        const accessToken = jwt.sign(
+            tokenPayload,
+            (process.env.JWT_SECRET || 'secret') as jwt.Secret,
+            { expiresIn: (process.env.JWT_EXPIRES_IN || '15m') as any }
+        );
+
+        const refreshToken = jwt.sign(
+            { userId: user.id, tenantId: entry.tenantId },
+            (process.env.JWT_REFRESH_SECRET || 'refresh-secret') as jwt.Secret,
+            { expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN || '7d') as any }
+        );
+
+        res.json({
+            accessToken,
+            refreshToken,
+            tenantName: tenantRows[0].name,
+            user: {
+                id: user.id,
+                username: user.username,
+                name: user.name,
+                role: user.role,
+                preferredLanguage: user.preferred_language,
+                branchId: user.branch_id,
+                branchName: user.branch_name,
+                waiter_all_sections: user.waiter_all_sections,
+                waiter_section_id: user.waiter_section_id,
+                kitchen_station: user.kitchen_station,
+            },
+        });
+    } catch (error) {
+        console.error('Impersonation login error:', error);
+        res.status(500).json({ error: 'Gölge giriş başarısız' });
+    }
+};
+

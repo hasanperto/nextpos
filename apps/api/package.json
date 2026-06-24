@@ -15,9 +15,10 @@
         "db:seed": "tsx prisma/seed.ts",
         "db:setup": "npm run db:seed && npm run billing:seed",
         "db:generate": "npx prisma generate",
-        "db:push": "npx prisma db push",
+        "db:push": "npx prisma db push --accept-data-loss",
         "db:studio": "npx prisma studio",
-        "billing:seed": "tsx scripts/billing-seed.ts"
+        "billing:seed": "tsx scripts/billing-seed.ts",
+        "test:unit": "tsx src/tests/phone.test.ts && tsx src/tests/rbac.test.ts"
     },
     "dependencies": {
         "@nextpos/shared-types": "file:../../packages/shared-types",

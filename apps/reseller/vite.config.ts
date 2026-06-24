@@ -10,7 +10,14 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, __dirname, '');
     const port = Number(env.DEV_SERVER_PORT || env.VITE_DEV_SERVER_PORT || 4001);
     const host = env.DEV_SERVER_HOST || env.VITE_DEV_SERVER_HOST || '127.0.0.1';
-    const apiTarget = env.API_PROXY_TARGET || env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:5000';
+    const apiTarget = env.API_PROXY_TARGET || env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:3101';
+
+    const proxyOnError = (label: string) => (err: Error, req: { url?: string } | undefined) => {
+        console.error(`[vite-proxy:${label}] ${err.message}`);
+        console.error(`[vite-proxy:${label}] istek: ${req?.url ?? '—'} → hedef: ${apiTarget}`);
+        console.error('[vite-proxy] API çalışmıyor olabilir. Kök: npm run check:api  veya  npm run dev:stack');
+    };
+
     const strictPort = env.DEV_SERVER_STRICT_PORT === '1' || env.VITE_DEV_SERVER_STRICT_PORT === '1';
 
     return {
@@ -20,8 +27,25 @@ export default defineConfig(({ mode }) => {
             host,
             strictPort,
             proxy: {
-                '/api': { target: apiTarget, changeOrigin: true },
-                '/socket.io': { target: apiTarget, ws: true },
+                '/api': {
+                    target: apiTarget,
+                    changeOrigin: true,
+                    configure(proxy) {
+                        proxy.on('error', proxyOnError('api'));
+                    },
+                },
+                '/socket.io': {
+                    target: apiTarget,
+                    ws: true,
+                    configure(proxy) {
+                        proxy.on('error', proxyOnError('socket.io'));
+                        proxy.on('proxyReqWs', (proxyReq, req, socket) => {
+                            socket.on('error', (err) => {
+                                console.error(`[vite-proxy:socket.io] socket error: ${err.message}`);
+                            });
+                        });
+                    },
+                },
             },
         },
     };

@@ -51,11 +51,12 @@ import {
     updateSettingsHandler,
     seedDemoContentHandler,
     revokeKioskHandler,
+    clearDemoContentHandler,
 } from '../controllers/admin.settings.controller.js';
 import {
     listAccountingTransactions,
     updateTransaction,
-    deleteTransaction,
+    voidTransaction,
     restoreTransaction,
 } from '../controllers/admin.accounting.controller.js';
 import {
@@ -68,6 +69,18 @@ import {
     updateBranchAdmin,
     deleteBranchAdmin,
 } from '../controllers/admin.branches.controller.js';
+import {
+    listTenantSupportTickets,
+    createTenantSupportTicket,
+    getTenantSupportTicketDetail,
+    createTenantTicketMessage,
+} from '../controllers/admin.support.controller.js';
+import {
+    getExternalOrdersHandler,
+    confirmExternalOrderHandler,
+    cancelExternalOrderHandler,
+    provisionalExternalOrderMembershipHandler,
+} from '../controllers/qr.controller.js';
 
 export const adminRouter = Router();
 
@@ -83,6 +96,12 @@ adminRouter.get('/reports/z-report/pdf', requireRole('admin', 'cashier'), getZRe
 
 // allow cashier to view performance and dashboard
 adminRouter.get('/dashboard', requireRole('admin', 'cashier'), getDashboardHandler);
+
+// Online / QR web sipariş yönetimi — yalnızca yetkili personel
+adminRouter.get('/qr/external-orders', requireRole('admin', 'cashier'), requireTenantModule('qr_menu'), getExternalOrdersHandler);
+adminRouter.post('/qr/external-orders/:id/confirm', requireRole('admin', 'cashier'), requireTenantModule('qr_menu'), confirmExternalOrderHandler);
+adminRouter.post('/qr/external-orders/:id/cancel', requireRole('admin', 'cashier'), requireTenantModule('qr_menu'), cancelExternalOrderHandler);
+adminRouter.post('/qr/external-orders/:id/provisional-membership', requireRole('admin', 'cashier'), requireTenantModule('qr_menu'), provisionalExternalOrderMembershipHandler);
 adminRouter.get('/reports/staff-performance', requireRole('admin', 'cashier'), requireTenantModule('advanced_reports'), getStaffPerformanceHandler);
 adminRouter.get('/reports/personnel-detailed', requireRole('admin', 'cashier'), requireTenantModule('advanced_reports'), getDetailedPersonnelStatsHandler);
 
@@ -93,6 +112,7 @@ adminRouter.get('/settings', getSettingsHandler);
 adminRouter.put('/settings', updateSettingsHandler);
 adminRouter.delete('/settings/kiosk/revoke/:deviceCode', revokeKioskHandler);
 adminRouter.post('/settings/demo-seed', seedDemoContentHandler);
+adminRouter.post('/settings/clear', clearDemoContentHandler);
 
 import {
     listCourierStatsHandler,
@@ -100,9 +120,20 @@ import {
     reconcileCourierCashHandler,
 } from '../controllers/admin.couriers.controller.js';
 
+import {
+    listStaffBalancesHandler,
+    settleStaffCashHandler,
+    settleStaffTipsHandler,
+} from '../controllers/admin.handovers.controller.js';
+
 adminRouter.get('/couriers/stats', requireTenantModule('courier_module'), listCourierStatsHandler);
 adminRouter.get('/couriers/:id/details', requireTenantModule('courier_module'), getCourierDetailHandler);
 adminRouter.post('/couriers/:id/reconcile', requireTenantModule('courier_module'), reconcileCourierCashHandler);
+
+// Personel Kasa Tahsilat & Bahşiş Mutabakat Rotaları
+adminRouter.get('/handovers/balances', requireRole('admin', 'cashier'), listStaffBalancesHandler);
+adminRouter.post('/handovers/:id/settle/cash', requireRole('admin', 'cashier'), settleStaffCashHandler);
+adminRouter.post('/handovers/:id/settle/tips', requireRole('admin', 'cashier'), settleStaffTipsHandler);
 
 adminRouter.post('/simulate', simulateEventHandler);
 
@@ -140,7 +171,14 @@ adminRouter.delete('/reservations/:id', requireTenantModule('table_reservation')
 // Accounting / Muhasebe
 adminRouter.get('/accounting', listAccountingTransactions);
 adminRouter.put('/accounting/:id', updateTransaction);
+adminRouter.post('/accounting/:id/void', voidTransaction);
 // adminRouter.delete('/accounting/:id', deleteTransaction); // Sadece storno (iptal/iade) izni var, sert silme yasak.
+
+// Support Tickets / Destek Talepleri
+adminRouter.get('/support/tickets', listTenantSupportTickets);
+adminRouter.post('/support/tickets', createTenantSupportTicket);
+adminRouter.get('/support/tickets/:id', getTenantSupportTicketDetail);
+adminRouter.post('/support/tickets/:ticketId/messages', createTenantTicketMessage);
 // adminRouter.post('/accounting/:id/delete', deleteTransaction);
 // adminRouter.post('/accounting/:id/restore', restoreTransaction);
 

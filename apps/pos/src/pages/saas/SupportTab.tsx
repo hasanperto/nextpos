@@ -13,13 +13,24 @@ export const SupportTab: React.FC = () => {
     const {
         tickets, ticketMessages, supportStats, knowledgeBase, selectedTicket,
         fetchTickets, fetchSupportStats, fetchTicketDetail, sendTicketMessage,
-        updateTicket, fetchKnowledgeBase, addKBArticle
+        updateTicket, fetchKnowledgeBase, addKBArticle,
+        createSupportTicket, tenants, admin
     } = useSaaSStore();
 
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [newMessage, setNewMessage] = useState('');
     const [showKBModal, setShowKBModal] = useState(false);
     const [kbForm, setKbForm] = useState({ title: '', category: 'general', content: '', tags: '' });
+
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [newTicketForm, setNewTicketForm] = useState({
+        subject: '',
+        category: 'general',
+        priority: 'medium',
+        tenant_id: '',
+        message: ''
+    });
+    const [creatingTicket, setCreatingTicket] = useState(false);
 
     useEffect(() => { 
         fetchTickets(); 
@@ -45,6 +56,37 @@ export const SupportTab: React.FC = () => {
             setShowKBModal(false); 
             setKbForm({ title: '', category: 'general', content: '', tags: '' }); 
         }
+    };
+
+    const handleCreateTicket = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newTicketForm.subject.trim() || !newTicketForm.message.trim()) return;
+
+        if (admin?.role === 'super_admin' && !newTicketForm.tenant_id) {
+            alert('Lütfen bir restoran seçin.');
+            return;
+        }
+
+        setCreatingTicket(true);
+        const success = await createSupportTicket({
+            subject: newTicketForm.subject,
+            category: newTicketForm.category,
+            priority: newTicketForm.priority,
+            tenant_id: newTicketForm.tenant_id || null,
+            message: newTicketForm.message
+        });
+
+        if (success) {
+            setShowCreateModal(false);
+            setNewTicketForm({
+                subject: '',
+                category: 'general',
+                priority: 'medium',
+                tenant_id: '',
+                message: ''
+            });
+        }
+        setCreatingTicket(false);
     };
 
     const ss = supportStats;
@@ -111,13 +153,21 @@ export const SupportTab: React.FC = () => {
                         title={t('support.listTitle')} 
                         icon={<FiMessageCircle className="text-amber-400" />}
                         action={
-                            <div className="relative group">
-                                <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={12} />
-                                <input 
-                                    type="text" 
-                                    className="bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-1.5 text-[10px] text-white outline-none focus:border-amber-500/50 transition-all w-28" 
-                                    placeholder="Ticket..."
-                                />
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => setShowCreateModal(true)}
+                                    className="text-[9px] bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl font-black flex items-center gap-1.5 shadow-lg shadow-emerald-900/20 active:scale-95 transition-all uppercase tracking-widest"
+                                >
+                                    <FiPlus size={12} /> YENİ TALEP
+                                </button>
+                                <div className="relative group">
+                                    <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={12} />
+                                    <input 
+                                        type="text" 
+                                        className="bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-3 py-1.5 text-[10px] text-slate-800 dark:text-white outline-none focus:border-amber-500/50 transition-all w-28" 
+                                        placeholder="Ticket..."
+                                    />
+                                </div>
                             </div>
                         }
                     >
@@ -131,23 +181,26 @@ export const SupportTab: React.FC = () => {
                                         className={`w-full text-left p-4 rounded-3xl transition-all border group relative overflow-hidden ${
                                             selectedId === ticket.id 
                                             ? 'bg-blue-600/10 border-blue-500/40 shadow-xl shadow-blue-500/5' 
-                                            : 'bg-slate-900/40 border-white/5 hover:bg-slate-800/60'
+                                            : 'bg-white dark:bg-slate-900 shadow-sm border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:bg-slate-800/60'
                                         }`}
                                     >
                                         <div className="flex justify-between items-start gap-4">
                                             <div className="flex-1 min-w-0">
-                                                <div className="text-sm font-black text-white tracking-tight truncate pr-4">{ticket.subject}</div>
-                                                <div className="text-[10px] font-black text-slate-500 mt-1 uppercase tracking-widest flex items-center gap-1">
+                                                <div className="text-sm font-black text-slate-800 dark:text-white tracking-tight truncate pr-4">{ticket.subject}</div>
+                                                <div className="text-[10px] font-black text-slate-500 mt-1 uppercase tracking-widest flex items-center gap-1 flex-wrap">
                                                     <FiLayers size={10} /> {ticket.tenant_name || 'Global Ops'}
+                                                    {ticket.reseller_company_name && (
+                                                        <span className="text-emerald-500 dark:text-emerald-400 font-black ml-2">• Bayi: {ticket.reseller_company_name}</span>
+                                                    )}
                                                 </div>
                                             </div>
-                                            <FiChevronRight className={`mt-1 transition-transform ${selectedId === ticket.id ? 'text-blue-400 translate-x-1' : 'text-slate-600 group-hover:text-slate-400'}`} size={16} />
+                                            <FiChevronRight className={`mt-1 transition-transform ${selectedId === ticket.id ? 'text-blue-400 translate-x-1' : 'text-slate-600 group-hover:text-slate-500 dark:text-slate-400'}`} size={16} />
                                         </div>
-                                        <div className="flex items-center gap-3 mt-4 pt-3 border-t border-white/5">
+                                        <div className="flex items-center gap-3 mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
                                             <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-xl border-2 ${
                                                 ticket.status === 'open' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 shadow-lg shadow-blue-500/10' :
                                                 ticket.status === 'in_progress' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-lg shadow-amber-500/10' :
-                                                'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                                                'bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20'
                                             } tracking-widest font-mono`}>
                                                 {ticket.status.toUpperCase()}
                                             </span>
@@ -174,7 +227,7 @@ export const SupportTab: React.FC = () => {
                                 <select 
                                     value={selectedTicket.status} 
                                     onChange={e => { updateTicket(selectedTicket.id, e.target.value); }}
-                                    className="bg-slate-900 border border-white/10 rounded-xl text-[10px] font-black px-4 py-2 outline-none text-white uppercase tracking-widest hover:border-blue-500/30 transition-all cursor-pointer"
+                                    className="bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-[10px] font-black px-4 py-2 outline-none text-slate-800 dark:text-white uppercase tracking-widest hover:border-blue-500/30 transition-all cursor-pointer"
                                 >
                                     <option value="open">{t('support.status.open')}</option>
                                     <option value="in_progress">{t('support.status.in_progress')}</option>
@@ -194,13 +247,16 @@ export const SupportTab: React.FC = () => {
                                         animate={{ opacity: 1, x: 0 }}
                                         className="max-w-[85%] group"
                                     >
-                                        <div className="flex items-center gap-3 mb-2 px-1">
+                                        <div className="flex items-center gap-3 mb-2 px-1 flex-wrap">
                                             <div className="w-6 h-6 rounded-lg bg-white/5 flex items-center justify-center text-[10px] font-black text-slate-500">OP</div>
-                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t('support.customer')}</span>
+                                            <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{t('support.customer')}</span>
+                                            {selectedTicket.reseller_company_name && (
+                                                <span className="text-[10px] font-black text-emerald-500 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 uppercase tracking-widest">Bayi: {selectedTicket.reseller_company_name}</span>
+                                            )}
                                             <span className="text-[9px] text-slate-600 font-bold">{new Date(selectedTicket.created_at).toLocaleString()}</span>
                                         </div>
-                                        <div className="p-5 bg-white/[0.03] border border-white/5 rounded-tr-[32px] rounded-bl-[32px] rounded-br-[32px] shadow-xl group-hover:border-white/10 transition-all">
-                                            <p className="text-sm text-slate-300 leading-relaxed font-bold italic opacity-90">{selectedTicket.message}</p>
+                                        <div className="p-5 bg-white/[0.03] border border-slate-200 dark:border-slate-800 rounded-tr-[32px] rounded-bl-[32px] rounded-br-[32px] shadow-xl group-hover:border-slate-200 dark:border-slate-800 transition-all">
+                                            <p className="text-sm text-slate-600 dark:text-slate-500 dark:text-slate-400 leading-relaxed font-bold italic opacity-90">{selectedTicket.message}</p>
                                         </div>
                                     </motion.div>
 
@@ -213,16 +269,16 @@ export const SupportTab: React.FC = () => {
                                                 className={`max-w-[85%] ${m.sender_type === 'admin' ? 'ml-auto' : ''} group`}
                                             >
                                                 <div className={`flex items-center gap-3 mb-2 px-1 ${m.sender_type === 'admin' ? 'flex-row-reverse' : ''}`}>
-                                                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black ${m.sender_type === 'admin' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'bg-white/5 text-slate-500'}`}>
+                                                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black ${m.sender_type === 'admin' ? 'bg-blue-600 text-slate-800 dark:text-white shadow-lg shadow-blue-900/20' : 'bg-white/5 text-slate-500'}`}>
                                                         {m.sender_type === 'admin' ? 'AD' : 'EX'}
                                                     </div>
-                                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{m.sender_name}</span>
+                                                    <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{m.sender_name}</span>
                                                     <span className="text-[9px] text-slate-600 font-bold">{new Date(m.created_at).toLocaleString()}</span>
                                                 </div>
-                                                <div className={`p-5 rounded-[32px] shadow-xl border transition-all ${
+                                                <div className={`p-5 rounded-2xl shadow-xl border transition-all ${
                                                     m.sender_type === 'admin' 
                                                     ? 'bg-blue-600/10 border-blue-500/20 text-slate-200 rounded-tr-[8px] group-hover:bg-blue-600/15' 
-                                                    : 'bg-white/[0.03] border-white/5 text-slate-300 rounded-tl-[8px] group-hover:bg-white/[0.05]'
+                                                    : 'bg-white/[0.03] border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-500 dark:text-slate-400 rounded-tl-[8px] group-hover:bg-white/[0.05]'
                                                 }`}>
                                                     <p className="text-sm leading-relaxed">{m.message}</p>
                                                 </div>
@@ -232,10 +288,10 @@ export const SupportTab: React.FC = () => {
                                 </div>
 
                                 {/* Rich Input */}
-                                <div className="border-t border-white/5 pt-6 relative">
+                                <div className="border-t border-slate-200 dark:border-slate-800 pt-6 relative">
                                     <div className="absolute -top-3 right-8 flex gap-2">
-                                        <button type="button" title="Bilgi bankası" aria-label="Bilgi bankası" className="p-2 bg-slate-900/80 border border-white/10 rounded-xl text-slate-500 hover:text-white transition-colors backdrop-blur-md shadow-2xl"><FiBook size={14} /></button>
-                                        <button type="button" title="Geçmiş" aria-label="Geçmiş" className="p-2 bg-slate-900/80 border border-white/10 rounded-xl text-slate-500 hover:text-white transition-colors backdrop-blur-md shadow-2xl"><FiClock size={14} /></button>
+                                        <button type="button" title="Bilgi bankası" aria-label="Bilgi bankası" className="p-2 bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 hover:text-slate-800 dark:text-white transition-colors backdrop-blur-md shadow-sm"><FiBook size={14} /></button>
+                                        <button type="button" title="Geçmiş" aria-label="Geçmiş" className="p-2 bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 hover:text-slate-800 dark:text-white transition-colors backdrop-blur-md shadow-sm"><FiClock size={14} /></button>
                                     </div>
                                     <div className="flex gap-4">
                                         <input 
@@ -244,11 +300,11 @@ export const SupportTab: React.FC = () => {
                                             onChange={e => setNewMessage(e.target.value)}
                                             onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
                                             placeholder={t('support.replyPlaceholder')} 
-                                            className="flex-1 bg-white/[0.03] border border-white/10 rounded-[28px] px-8 py-5 text-sm outline-none text-white focus:border-blue-500/30 transition-all font-bold placeholder:text-slate-600 shadow-inner" 
+                                            className="flex-1 bg-white/[0.03] border border-slate-200 dark:border-slate-800 rounded-[28px] px-8 py-5 text-sm outline-none text-slate-800 dark:text-white focus:border-blue-500/30 transition-all font-bold placeholder:text-slate-600 shadow-inner" 
                                         />
                                         <button 
                                             onClick={handleSendMessage} 
-                                            className="bg-gradient-to-br from-blue-600 via-blue-600 to-indigo-700 w-16 h-16 rounded-[28px] text-white flex items-center justify-center shadow-2xl shadow-blue-900/40 hover:scale-105 active:scale-95 transition-all group border border-white/10"
+                                            className="bg-gradient-to-br from-blue-600 via-blue-600 to-indigo-700 w-16 h-16 rounded-[28px] text-slate-800 dark:text-white flex items-center justify-center shadow-sm shadow-blue-900/40 hover:scale-105 active:scale-95 transition-all group border border-slate-200 dark:border-slate-800"
                                         >
                                             <FiSend size={24} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
                                         </button>
@@ -268,7 +324,7 @@ export const SupportTab: React.FC = () => {
                     action={
                         <button 
                             onClick={() => setShowKBModal(true)} 
-                            className="text-[10px] bg-cyan-700 hover:bg-cyan-600 text-white px-6 py-2.5 rounded-[18px] font-black flex items-center gap-2 shadow-lg shadow-cyan-900/20 active:scale-95 transition-all uppercase tracking-widest"
+                            className="text-[10px] bg-cyan-700 hover:bg-cyan-600 text-slate-800 dark:text-white px-6 py-2.5 rounded-xl font-black flex items-center gap-2 shadow-lg shadow-cyan-900/20 active:scale-95 transition-all uppercase tracking-widest"
                         >
                             <FiPlus size={14} /> {t('support.kbNew')}
                         </button>
@@ -280,7 +336,7 @@ export const SupportTab: React.FC = () => {
                                 <motion.div 
                                     key={kb.id} 
                                     whileHover={{ y: -5 }}
-                                    className="p-6 bg-slate-900/40 backdrop-blur-xl rounded-[40px] border border-white/5 hover:border-cyan-500/30 transition-all group relative overflow-hidden flex flex-col"
+                                    className="p-6 bg-white dark:bg-slate-900 shadow-sm rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-cyan-500/30 transition-all group relative overflow-hidden flex flex-col"
                                 >
                                     <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity rotate-12 scale-150">
                                         <FiBook size={60} />
@@ -289,13 +345,13 @@ export const SupportTab: React.FC = () => {
                                         <span className="px-2.5 py-1 bg-cyan-500/10 border border-cyan-500/20 rounded-lg text-[8px] font-black text-cyan-400 uppercase tracking-[0.2em]">{kb.category}</span>
                                         <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-pulse" />
                                     </div>
-                                    <h4 className="font-black text-base text-white tracking-tight mb-2 group-hover:text-cyan-400 transition-colors">{kb.title}</h4>
-                                    <p className="text-[11px] text-slate-400 font-bold leading-relaxed line-clamp-3 mb-6">{kb.content}</p>
+                                    <h4 className="font-black text-base text-slate-800 dark:text-white tracking-tight mb-2 group-hover:text-cyan-400 transition-colors">{kb.title}</h4>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold leading-relaxed line-clamp-3 mb-6">{kb.content}</p>
                                     
-                                    <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
+                                    <div className="mt-auto pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
                                         <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">{kb.view_count} Interactions</span>
                                         <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <FiEdit3 size={12} className="text-slate-500 hover:text-white cursor-pointer" />
+                                            <FiEdit3 size={12} className="text-slate-500 hover:text-slate-800 dark:text-white cursor-pointer" />
                                             <FiTrash2 size={12} className="text-slate-500 hover:text-rose-400 cursor-pointer" />
                                         </div>
                                     </div>
@@ -320,15 +376,92 @@ export const SupportTab: React.FC = () => {
                                 <InputGroup label={t('support.kbTags')} value={kbForm.tags} onChange={v => setKbForm({ ...kbForm, tags: v })} placeholder="e.g., pos, backup" />
                             </div>
                             <div>
-                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 block">{t('support.kbContent')}</label>
+                                <label className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3 block">{t('support.kbContent')}</label>
                                 <textarea 
                                     value={kbForm.content} 
                                     onChange={e => setKbForm({ ...kbForm, content: e.target.value })} 
-                                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white outline-none h-40 font-bold text-sm leading-relaxed focus:border-cyan-500/50 transition-all shadow-inner" 
+                                    className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-2xl px-5 py-4 text-slate-800 dark:text-white outline-none h-40 font-bold text-sm leading-relaxed focus:border-cyan-500/50 transition-all shadow-inner" 
                                     placeholder="Draft your solution here..."
                                 />
                             </div>
-                            <button type="submit" className="w-full bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-700 py-4 rounded-2xl text-white font-black shadow-xl shadow-cyan-900/40 active:scale-95 transition-all text-xs tracking-[0.2em] uppercase border border-white/10">{t('support.kbPublish')}</button>
+                            <button type="submit" className="w-full bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-700 py-4 rounded-2xl text-slate-800 dark:text-white font-black shadow-xl shadow-cyan-900/40 active:scale-95 transition-all text-xs tracking-[0.2em] uppercase border border-slate-200 dark:border-slate-800">{t('support.kbPublish')}</button>
+                        </form>
+                    </Modal>
+                )}
+            </AnimatePresence>
+            {/* Ticket Creation Modal */}
+            <AnimatePresence>
+                {showCreateModal && (
+                    <Modal show={showCreateModal} onClose={() => setShowCreateModal(false)} title="Yeni Destek Talebi Oluştur" maxWidth="max-w-xl">
+                        <form onSubmit={handleCreateTicket} className="space-y-6">
+                            <InputGroup 
+                                label="Talep Konusu" 
+                                value={newTicketForm.subject} 
+                                onChange={v => setNewTicketForm({ ...newTicketForm, subject: v })} 
+                                placeholder="Örn: Barkod okuyucu bağlantı problemi" 
+                            />
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <SelectGroup 
+                                    label="Kategori" 
+                                    value={newTicketForm.category} 
+                                    onChange={v => setNewTicketForm({ ...newTicketForm, category: v })} 
+                                    options={[
+                                        { label: 'Genel Soru / Destek', value: 'general' },
+                                        { label: 'Teknik / Donanım', value: 'technical' },
+                                        { label: 'Muhasebe / Fatura', value: 'billing' },
+                                        { label: 'Kurulum & Şema', value: 'setup' }
+                                    ]} 
+                                />
+                                <SelectGroup 
+                                    label="Öncelik" 
+                                    value={newTicketForm.priority} 
+                                    onChange={v => setNewTicketForm({ ...newTicketForm, priority: v })} 
+                                    options={[
+                                        { label: 'Düşük', value: 'low' },
+                                        { label: 'Orta', value: 'medium' },
+                                        { label: 'Yüksek (Acil)', value: 'high' }
+                                    ]} 
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3 block">İlişkili Restoran</label>
+                                <select 
+                                    value={newTicketForm.tenant_id} 
+                                    onChange={e => setNewTicketForm({ ...newTicketForm, tenant_id: e.target.value })} 
+                                    className="w-full bg-[#0c1526] border border-slate-200 dark:border-slate-800 rounded-2xl px-5 py-4 text-slate-800 dark:text-white outline-none font-bold text-sm focus:border-blue-500/50 transition-all shadow-inner"
+                                >
+                                    {admin?.role === 'reseller' && (
+                                        <option value="">Genel / Bayi Destek Talebi</option>
+                                    )}
+                                    {admin?.role === 'super_admin' && (
+                                        <option value="" disabled>Lütfen bir restoran seçin</option>
+                                    )}
+                                    {tenants.map((t: any) => (
+                                        <option key={t.id} value={t.id}>{t.name} ({t.schema_name})</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3 block">Mesajınız / Sorunun Açıklaması</label>
+                                <textarea 
+                                    value={newTicketForm.message} 
+                                    onChange={e => setNewTicketForm({ ...newTicketForm, message: e.target.value })} 
+                                    className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-2xl px-5 py-4 text-slate-800 dark:text-white outline-none h-40 font-bold text-sm leading-relaxed focus:border-cyan-500/50 transition-all shadow-inner" 
+                                    placeholder="Lütfen yaşadığınız problemi detaylıca açıklayın..."
+                                    required
+                                />
+                            </div>
+
+                            <button 
+                                type="submit" 
+                                disabled={creatingTicket}
+                                className="w-full bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-700 py-4 rounded-2xl text-slate-800 dark:text-white font-black shadow-xl shadow-blue-900/40 active:scale-95 transition-all text-xs tracking-[0.2em] uppercase border border-slate-200 dark:border-slate-800"
+                            >
+                                {creatingTicket ? 'GÖNDERİLİYOR...' : 'TALEBİ GÖNDER'}
+                            </button>
                         </form>
                     </Modal>
                 )}

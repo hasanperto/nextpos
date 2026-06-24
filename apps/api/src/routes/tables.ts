@@ -13,7 +13,9 @@ import {
     transferTableHandler,
     mergeTablesHandler,
     transferItemHandler,
-    cancelTableSessionHandler
+    cancelTableSessionHandler,
+    claimTableHandler,
+    releaseTableHandler
 } from '../controllers/tables.controller.js';
 
 export const tablesRouter = Router();
@@ -27,6 +29,8 @@ tablesRouter.post('/:id/open', openTableHandler);
 tablesRouter.post('/:id/transfer', transferTableHandler);
 tablesRouter.post('/:id/merge', mergeTablesHandler);
 tablesRouter.post('/:id/cancel', cancelTableSessionHandler);
+tablesRouter.post('/:id/claim', claimTableHandler);
+tablesRouter.post('/:id/release', releaseTableHandler);
 tablesRouter.post('/transfer-item', transferItemHandler);
 
 export default tablesRouter;

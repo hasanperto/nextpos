@@ -9,7 +9,8 @@ import {
     updateUserHandler,
     deleteUserHandler,
     resetUserDeviceHandler,
-    resetAllUserDevicesHandler
+    resetAllUserDevicesHandler,
+    patchWaiterBreakHandler,
 } from '../controllers/users.controller.js';
 
 export const usersRouter = Router();
@@ -21,6 +22,8 @@ import { getMyStatsHandler, clockInHandler, clockOutHandler } from '../controlle
 usersRouter.get('/my-stats', getMyStatsHandler);
 usersRouter.post('/clock-in', clockInHandler);
 usersRouter.post('/clock-out', clockOutHandler);
+
+usersRouter.patch('/waiter-break', requireRole('waiter'), patchWaiterBreakHandler);
 
 usersRouter.get(
     '/couriers',

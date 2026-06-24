@@ -60,10 +60,10 @@ function SectionCard({
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-transparent p-4 backdrop-blur-md shadow-2xl transition-all hover:border-white/20 ${className}`}
+            className={`rounded-2xl border border-slate-200 dark:border-slate-800 bg-gradient-to-b from-white/[0.05] to-transparent p-4 backdrop-blur-md shadow-sm transition-all hover:border-white/20 ${className}`}
         >
             <h3
-                className={`mb-4 flex items-center gap-2.5 border-l-2 ${border} pl-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 group-hover:text-white transition-colors`}
+                className={`mb-4 flex items-center gap-2.5 border-l-2 ${border} pl-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400 group-hover:text-slate-800 dark:text-white transition-colors`}
             >
                 <span className="text-slate-500 [&>svg]:shrink-0">{icon}</span>
                 {title}
@@ -296,8 +296,8 @@ export const TenantModulesModal: React.FC<{
                                 accent="violet"
                                 icon={<FiPieChart size={15} className="text-violet-400/90" />}
                             >
-                                <div className="space-y-3 rounded-2xl border border-white/5 bg-black/40 px-4 py-4 text-xs text-slate-300 shadow-inner">
-                                    <div className="flex justify-between gap-2 border-b border-white/5 pb-2">
+                                <div className="space-y-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-black/40 px-4 py-4 text-xs text-slate-600 dark:text-slate-500 dark:text-slate-400 shadow-inner">
+                                    <div className="flex justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
                                         <span className="text-slate-500 font-bold uppercase tracking-widest text-[9px]">{t('modules.planLabel')}</span>
                                         <span className="font-black text-blue-400 tracking-wider truncate">{data.billingSnapshot.planCode}</span>
                                     </div>
@@ -309,14 +309,14 @@ export const TenantModulesModal: React.FC<{
                                         <span className="text-slate-500">{t('modules.addonsMonthlyLine')}</span>
                                         <span className="tabular-nums font-bold text-violet-400">{currency}{data.billingSnapshot.monthlyFromAddons.toFixed(2)}</span>
                                     </div>
-                                    <div className="flex justify-between gap-2 border-t border-white/10 pt-3 font-black text-white text-sm">
+                                    <div className="flex justify-between gap-2 border-t border-slate-200 dark:border-slate-800 pt-3 font-black text-slate-800 dark:text-white text-sm">
                                         <span className="uppercase tracking-tighter">{t('modules.totalMonthlyService')}</span>
                                         <span className="tabular-nums text-emerald-400">{currency}{data.billingSnapshot.monthlyRecurringTotal.toFixed(2)}</span>
                                     </div>
                                     {data.billingSnapshot.nextPaymentDue && (
                                         <div className="flex justify-between gap-2 text-[10px] text-slate-600 bg-white/5 px-2 py-1.5 rounded-lg mt-2">
                                             <span className="font-bold">{t('modules.nextPaymentDue')}</span>
-                                            <span className="font-mono text-slate-400">{data.billingSnapshot.nextPaymentDue}</span>
+                                            <span className="font-mono text-slate-500 dark:text-slate-400">{data.billingSnapshot.nextPaymentDue}</span>
                                         </div>
                                     )}
                                     <p className="text-[10px] leading-relaxed text-slate-600 italic mt-2 px-1">{t('modules.monthlyRecurringNote')}</p>
@@ -333,8 +333,8 @@ export const TenantModulesModal: React.FC<{
                                 <p className="mb-2.5 text-[10px] leading-relaxed text-slate-500">{t('modules.planMatrixHelp')}</p>
                                 <div className="max-h-[min(36vh,260px)] space-y-4 overflow-y-auto pr-2 custom-scrollbar">
                                     {planMatrixByCategory.map(({ category, items }) => (
-                                        <div key={category} className="bg-white/[0.02] rounded-xl p-3 border border-white/5">
-                                            <div className="mb-2 text-[9px] font-black uppercase tracking-[0.25em] text-white/20 border-b border-white/5 pb-1">
+                                        <div key={category} className="bg-white/[0.02] rounded-xl p-3 border border-slate-200 dark:border-slate-800">
+                                            <div className="mb-2 text-[9px] font-black uppercase tracking-[0.25em] text-slate-800 dark:text-white/20 border-b border-slate-200 dark:border-slate-800 pb-1">
                                                 {categoryTitle(category)}
                                             </div>
                                             <div className="space-y-2">
@@ -356,7 +356,7 @@ export const TenantModulesModal: React.FC<{
                                                                 {e.mode === 'addon' && <FiShoppingBag size={11} />}
                                                                 {e.mode === 'locked' && <FiLock size={11} />}
                                                             </div>
-                                                            <span className="min-w-0 flex-1 truncate font-medium text-slate-300">{e.name}</span>
+                                                            <span className="min-w-0 flex-1 truncate font-medium text-slate-600 dark:text-slate-500 dark:text-slate-400">{e.name}</span>
                                                             {e.mode === 'addon' && (
                                                                 <span className="shrink-0 text-[10px] tabular-nums font-black text-sky-400/60 bg-sky-400/5 px-2 py-0.5 rounded-full border border-sky-400/10">
                                                                     +{currency}{p.monthly.toFixed(2)}
@@ -375,7 +375,7 @@ export const TenantModulesModal: React.FC<{
                         <SectionCard title={t('modules.activeTitle')} accent="emerald" icon={<FiCheck size={15} className="text-emerald-400/90" />}>
                             <p className="mb-2 text-[10px] leading-relaxed text-slate-500">{t('modules.activeSubtitle')}</p>
                             {activeModules.length === 0 ? (
-                                <div className="flex items-start gap-2 rounded-lg border border-white/5 bg-black/20 px-2.5 py-3 text-xs text-slate-500">
+                                <div className="flex items-start gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-black/20 px-2.5 py-3 text-xs text-slate-500">
                                     <FiLayers className="mt-0.5 shrink-0 text-slate-600" size={16} />
                                     <span>{t('modules.activeEmpty')}</span>
                                 </div>
@@ -388,10 +388,10 @@ export const TenantModulesModal: React.FC<{
                                         >
                                             <FiLayers className="mt-0.5 shrink-0 text-emerald-400/80" size={14} />
                                             <div className="min-w-0 flex-1">
-                                                <div className="truncate text-sm font-medium text-white">{e.name}</div>
+                                                <div className="truncate text-sm font-medium text-slate-800 dark:text-white">{e.name}</div>
                                                 <div className="font-mono text-[10px] text-slate-500">{e.code}</div>
                                                 {(e.reason === 'purchased_addon' || e.quantity) && (
-                                                    <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-slate-400">
+                                                    <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-slate-500 dark:text-slate-400">
                                                         {e.quantity != null && e.quantity > 1 && (
                                                             <span>
                                                                 {t('modules.qtyShort')}: {e.quantity}
@@ -426,7 +426,7 @@ export const TenantModulesModal: React.FC<{
                                             >
                                                 <span className="flex min-w-0 items-center gap-2">
                                                     <FiLock className="shrink-0 text-amber-400/70" size={13} />
-                                                    <span className="truncate text-slate-300">{e.name}</span>
+                                                    <span className="truncate text-slate-600 dark:text-slate-500 dark:text-slate-400">{e.name}</span>
                                                 </span>
                                                 <span className="shrink-0 tabular-nums text-[10px] text-slate-500">
                                                     {p.setup > 0 || p.monthly > 0
@@ -453,7 +453,7 @@ export const TenantModulesModal: React.FC<{
                                                 type="button"
                                                 onClick={() => setCategoryFilter('all')}
                                                 className={`rounded-lg px-2 py-0.5 text-[10px] font-semibold uppercase ${
-                                                    categoryFilter === 'all' ? 'bg-violet-500/30 text-white' : 'bg-white/5 text-slate-500'
+                                                    categoryFilter === 'all' ? 'bg-violet-500/30 text-slate-800 dark:text-white' : 'bg-white/5 text-slate-500'
                                                 }`}
                                             >
                                                 {t('modules.filterAll')}
@@ -464,7 +464,7 @@ export const TenantModulesModal: React.FC<{
                                                     type="button"
                                                     onClick={() => setCategoryFilter(cat)}
                                                     className={`rounded-lg px-2 py-0.5 text-[10px] font-semibold uppercase ${
-                                                        categoryFilter === cat ? 'bg-violet-500/30 text-white' : 'bg-white/5 text-slate-500'
+                                                        categoryFilter === cat ? 'bg-violet-500/30 text-slate-800 dark:text-white' : 'bg-white/5 text-slate-500'
                                                     }`}
                                                 >
                                                     {cat}
@@ -486,7 +486,7 @@ export const TenantModulesModal: React.FC<{
                                                     className={`relative flex cursor-pointer flex-col gap-2.5 rounded-2xl border p-4 transition-all duration-300 group shadow-lg ${
                                                         sel
                                                             ? 'border-violet-500/50 bg-violet-600/10 ring-2 ring-violet-500/20 shadow-violet-900/20'
-                                                            : 'border-white/5 bg-black/30 hover:border-white/20 hover:bg-black/40'
+                                                            : 'border-slate-200 dark:border-slate-800 bg-black/30 hover:border-white/20 hover:bg-black/40'
                                                     }`}
                                                 >
                                                     <input
@@ -496,15 +496,15 @@ export const TenantModulesModal: React.FC<{
                                                         className="absolute right-4 top-4 h-4 w-4 rounded-lg border-white/20 accent-violet-500 cursor-pointer"
                                                     />
                                                     <div className="flex items-start gap-3 pr-8">
-                                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors shadow-inner ${sel ? 'bg-violet-500 text-white' : 'bg-white/5 text-slate-500 group-hover:text-violet-400'}`}>
+                                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors shadow-inner ${sel ? 'bg-violet-500 text-slate-800 dark:text-white' : 'bg-white/5 text-slate-500 group-hover:text-violet-400'}`}>
                                                             <FiBox size={18} />
                                                         </div>
                                                         <div className="min-w-0">
-                                                            <div className={`text-sm font-bold leading-tight transition-colors ${sel ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>{e.name}</div>
+                                                            <div className={`text-sm font-bold leading-tight transition-colors ${sel ? 'text-slate-800 dark:text-white' : 'text-slate-600 dark:text-slate-500 dark:text-slate-400 group-hover:text-slate-800 dark:text-white'}`}>{e.name}</div>
                                                             <div className="font-mono text-[9px] text-slate-600 mt-0.5 tracking-widest uppercase">{e.code}</div>
                                                         </div>
                                                     </div>
-                                                    <div className={`flex justify-between border-t border-white/10 pt-3 text-[10px] font-black tabular-nums transition-colors ${sel ? 'text-violet-300' : 'text-slate-500'}`}>
+                                                    <div className={`flex justify-between border-t border-slate-200 dark:border-slate-800 pt-3 text-[10px] font-black tabular-nums transition-colors ${sel ? 'text-violet-300' : 'text-slate-500'}`}>
                                                         <div className="flex flex-col">
                                                             <span className="text-[8px] uppercase tracking-widest opacity-50 mb-0.5">{t('modules.setupLabel')}</span>
                                                             <span className="text-xs">{currency}{p.setup.toFixed(2)}</span>
@@ -521,14 +521,14 @@ export const TenantModulesModal: React.FC<{
                                     </div>
 
                                     {addonPick.includes('extra_device') && (
-                                        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
+                                        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-black/20 px-2.5 py-2">
                                             <label className="text-[10px] font-medium uppercase text-slate-500">{t('modal.tenant.extraDevices')}</label>
                                             <input
                                                 type="number"
                                                 min={1}
                                                 value={extraQty}
                                                 onChange={(ev) => setExtraQty(Number(ev.target.value) || 1)}
-                                                className="w-16 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-center text-xs text-white tabular-nums"
+                                                className="w-16 rounded-md border border-slate-200 dark:border-slate-800 bg-black/30 px-2 py-1 text-center text-xs text-slate-800 dark:text-white tabular-nums"
                                             />
                                         </div>
                                     )}
@@ -539,7 +539,7 @@ export const TenantModulesModal: React.FC<{
                                         <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-violet-300/90">
                                             <FiShoppingCart size={15} /> {t('modules.cartTitle')}
                                         </div>
-                                        <ul className="space-y-1.5 text-xs text-slate-300">
+                                        <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-500 dark:text-slate-400">
                                             {cartLines.map((l) => (
                                                 <li key={l.code} className="flex justify-between gap-2">
                                                     <span className="truncate">
@@ -552,8 +552,8 @@ export const TenantModulesModal: React.FC<{
                                                 </li>
                                             ))}
                                         </ul>
-                                        <div className="mt-2 flex justify-between border-t border-white/10 pt-2 text-sm font-semibold text-white">
-                                            <span className="text-xs text-slate-400">{t('modules.totalEst')}</span>
+                                        <div className="mt-2 flex justify-between border-t border-slate-200 dark:border-slate-800 pt-2 text-sm font-semibold text-slate-800 dark:text-white">
+                                            <span className="text-xs text-slate-500 dark:text-slate-400">{t('modules.totalEst')}</span>
                                             <span className="tabular-nums text-violet-200">
                                                 {currency}{cartTotals.setup.toFixed(2)} + {currency}{cartTotals.monthly.toFixed(2)}/ay
                                             </span>
@@ -568,7 +568,7 @@ export const TenantModulesModal: React.FC<{
                                                         className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition-all ${
                                                             paymentMethod === opt.id
                                                                 ? 'border-violet-400/50 bg-violet-600/20'
-                                                                : 'border-white/10 bg-black/20 hover:border-white/20'
+                                                                : 'border-slate-200 dark:border-slate-800 bg-black/20 hover:border-white/20'
                                                         }`}
                                                     >
                                                         <input
@@ -581,7 +581,7 @@ export const TenantModulesModal: React.FC<{
                                                         <span className="flex min-w-0 flex-1 gap-2">
                                                             <span className="mt-0.5 shrink-0">{opt.icon}</span>
                                                             <span>
-                                                                <span className="block text-xs font-semibold text-white">{opt.label}</span>
+                                                                <span className="block text-xs font-semibold text-slate-800 dark:text-white">{opt.label}</span>
                                                                 <span className="mt-0.5 block text-[10px] text-slate-500">{opt.hint}</span>
                                                             </span>
                                                         </span>
@@ -594,7 +594,7 @@ export const TenantModulesModal: React.FC<{
                                             type="button"
                                             disabled={!addonPick.length}
                                             onClick={handlePurchase}
-                                            className="mt-3 w-full rounded-lg bg-violet-600 py-2.5 text-xs font-semibold uppercase tracking-wide text-white shadow-lg shadow-violet-900/25 transition hover:bg-violet-500 disabled:opacity-40"
+                                            className="mt-3 w-full rounded-lg bg-violet-600 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-800 dark:text-white shadow-lg shadow-violet-900/25 transition hover:bg-violet-500 disabled:opacity-40"
                                         >
                                             {t('modules.completePurchase')}
                                         </button>
@@ -604,13 +604,13 @@ export const TenantModulesModal: React.FC<{
                         )}
 
                         {purchasableAddons.length === 0 && activeModules.length > 0 && (
-                            <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-4 text-center text-xs text-slate-500">
+                            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-black/20 px-3 py-4 text-center text-xs text-slate-500">
                                 {t('modules.noMoreAddons')}
                             </div>
                         )}
 
                         {msg && (
-                            <div className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-xs text-slate-300">{msg}</div>
+                            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white/[0.04] px-3 py-2.5 text-xs text-slate-600 dark:text-slate-500 dark:text-slate-400">{msg}</div>
                         )}
                     </div>
                 </div>

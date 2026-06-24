@@ -5,6 +5,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pool, { queryPublic, invalidateTenantCache, getPublicDatabaseName, mysqlParamsToPg } from '../lib/db.js';
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +14,35 @@ const __dirname = path.dirname(__filename);
 /** PostgreSQL: "public"."tablo" */
 function tbl(table: string): string {
     return `"public"."${table}"`;
+}
+
+/** PG DATE / JS Date → YYYY-MM-DD (`String(date)` yerel "Wed Aug 19" üretir — kullanma) */
+export function formatPgDateOnly(value: unknown): string | null {
+    if (value == null || value === '') return null;
+    if (value instanceof Date) {
+        if (Number.isNaN(value.getTime())) return null;
+        return value.toISOString().slice(0, 10);
+    }
+    const s = String(value).trim();
+    const iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (iso) return iso[1];
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString().slice(0, 10);
+}
+
+function computeDaysUntilDateOnly(dueYmd: string, now = new Date()): number {
+    const due = new Date(`${dueYmd}T12:00:00`);
+    const today = new Date(now);
+    today.setHours(12, 0, 0, 0);
+    return Math.ceil((due.getTime() - today.getTime()) / 86400000);
+}
+
+/** Vade aşımında tenant askıya alma: üretimde açık; geliştirmede kapalı. `BILLING_ENFORCE_SUSPEND=1` ile zorlanır. */
+function billingShouldSuspendForOverdue(): boolean {
+    const v = String(process.env.BILLING_ENFORCE_SUSPEND || '').toLowerCase();
+    if (v === '1' || v === 'true' || v === 'yes') return true;
+    return process.env.NODE_ENV === 'production';
 }
 
 /** `split(';')` sonrası baştaki `--` satırlarını at; aksi halde CREATE/INSERT hiç çalışmıyordu */
@@ -76,6 +107,221 @@ export interface QuoteBreakdown {
     firstInvoiceTotal: number;
     billingCycle: 'monthly' | 'yearly';
     lines: QuoteLine[];
+}
+
+/** Bayi komisyonu: plan kurulum / modül kurulum / dönem (aylık veya yıllık ön ödeme) payları — kırılım raporu için */
+export interface ResellerCommissionSplit {
+    setupCorporate: number;
+    addonModules: number;
+    recurring: number;
+    billingCycle: 'monthly' | 'yearly';
+}
+
+export function resellerCommissionSplitEuros(
+    quote: QuoteBreakdown,
+    billingCycle: 'monthly' | 'yearly',
+    rates: { reseller_setup_rate?: number; reseller_monthly_rate?: number }
+): ResellerCommissionSplit {
+    const setupR = Number(rates.reseller_setup_rate ?? 75) / 100;
+    const monthlyR = Number(rates.reseller_monthly_rate ?? 50) / 100;
+    const setupCorporate = Math.round(quote.setupFee * setupR * 100) / 100;
+    const addonModules = Math.round(quote.modulesSetup * setupR * 100) / 100;
+    const recurringBase = billingCycle === 'yearly' ? quote.yearlyPrepayTotal : quote.monthlyRecurringTotal;
+    const recurring = Math.round(recurringBase * monthlyR * 100) / 100;
+    return { setupCorporate, addonModules, recurring, billingCycle };
+}
+
+/** payment_history.description — Finans «Komisyon kırılımı» SQL ILIKE yerine parse edilir */
+export function formatResellerCommissionDescription(
+    tenantName: string,
+    split: ResellerCommissionSplit,
+    extraSuffix?: string
+): string {
+    const suf = extraSuffix ? ` ${extraSuffix}` : '';
+    return `Komisyon — kurulum (plan) ${split.setupCorporate.toFixed(2)} € · modül kurulum ${split.addonModules.toFixed(2)} € · dönem ${split.recurring.toFixed(2)} € (${split.billingCycle}) — ${String(tenantName).trim()}${suf}`;
+}
+
+const RESELLER_COMMISSION_SPLIT_DESC =
+    /kurulum \(plan\) ([\d.]+) € · modül kurulum ([\d.]+) € · dönem ([\d.]+) € \((monthly|yearly)\)/i;
+
+/** Ödenmiş reseller_income satırlarından kırılım toplamları (yeni açıklama + eski ILIKE yedek) */
+export function aggregateResellerIncomeBreakdown(
+    rows: { amount: number | string; description?: string | null }[]
+): {
+    monthlyBillingCycle: number;
+    yearlyBillingCycle: number;
+    salesWithAddonModules: number;
+    setupAndCorporate: number;
+} {
+    let monthlyBillingCycle = 0;
+    let yearlyBillingCycle = 0;
+    let salesWithAddonModules = 0;
+    let setupAndCorporate = 0;
+
+    for (const r of rows) {
+        const d = String(r.description ?? '');
+        const splitM = d.match(RESELLER_COMMISSION_SPLIT_DESC);
+        if (splitM) {
+            setupAndCorporate += parseFloat(splitM[1]);
+            salesWithAddonModules += parseFloat(splitM[2]);
+            const rec = parseFloat(splitM[3]);
+            if (String(splitM[4]).toLowerCase() === 'yearly') yearlyBillingCycle += rec;
+            else monthlyBillingCycle += rec;
+            continue;
+        }
+
+        const amt = Number(r.amount);
+        if (!Number.isFinite(amt)) continue;
+
+        if (/\(setup\)|kurulum|onboarding|kurumsal|\(license\)/i.test(d)) {
+            setupAndCorporate += amt;
+        } else if (/modül|modul|module/i.test(d)) {
+            salesWithAddonModules += amt;
+        } else if (/\(yearly\)/i.test(d)) {
+            yearlyBillingCycle += amt;
+        } else if (/\(monthly\)/i.test(d)) {
+            monthlyBillingCycle += amt;
+        } else {
+            monthlyBillingCycle += amt;
+        }
+    }
+
+    return {
+        monthlyBillingCycle: Math.round(monthlyBillingCycle * 100) / 100,
+        yearlyBillingCycle: Math.round(yearlyBillingCycle * 100) / 100,
+        salesWithAddonModules: Math.round(salesWithAddonModules * 100) / 100,
+        setupAndCorporate: Math.round(setupAndCorporate * 100) / 100,
+    };
+}
+
+function resellerSplitTotalEuros(s: ResellerCommissionSplit): number {
+    return Math.round((s.setupCorporate + s.addonModules + s.recurring) * 100) / 100;
+}
+
+/**
+ * Ödenmiş reseller_income kırılımı — `tenant_id` ile eski tek satırlı kayıtları (ör. `Komisyon (monthly)` + tüm tutar)
+ * güncel paket/modül fiyatına göre bölüştürür; tutar toplamı eşleşmezse eski anahtar kelime mantığına düşer.
+ */
+export async function aggregateResellerIncomeBreakdownAsync(
+    rows: { amount: number | string; description?: string | null; tenant_id?: string | null }[]
+): Promise<{
+    monthlyBillingCycle: number;
+    yearlyBillingCycle: number;
+    salesWithAddonModules: number;
+    setupAndCorporate: number;
+}> {
+    let monthlyBillingCycle = 0;
+    let yearlyBillingCycle = 0;
+    let salesWithAddonModules = 0;
+    let setupAndCorporate = 0;
+
+    const tenantSplitCache = new Map<string, ResellerCommissionSplit | null>();
+
+    for (const r of rows) {
+        const d = String(r.description ?? '');
+        const splitM = d.match(RESELLER_COMMISSION_SPLIT_DESC);
+        if (splitM) {
+            setupAndCorporate += parseFloat(splitM[1]);
+            salesWithAddonModules += parseFloat(splitM[2]);
+            const rec = parseFloat(splitM[3]);
+            if (String(splitM[4]).toLowerCase() === 'yearly') yearlyBillingCycle += rec;
+            else monthlyBillingCycle += rec;
+            continue;
+        }
+
+        const amt = Number(r.amount);
+        if (!Number.isFinite(amt)) continue;
+
+        const tidRaw = r.tenant_id != null ? String(r.tenant_id).trim() : '';
+        /** Lisans havuzu komisyonu tenant teklifiyle aynı modelde değil; düzeltme satırı tutarı hedef toplamla eşleşiyorsa bölüştürülmeli */
+        const skipReconcile = !tidRaw || /lisans\s*havuzu/i.test(d.toLowerCase());
+
+        if (!skipReconcile) {
+            if (!tenantSplitCache.has(tidRaw)) {
+                tenantSplitCache.set(tidRaw, await getResellerCommissionSplitForTenant(tidRaw));
+            }
+            const sp = tenantSplitCache.get(tidRaw);
+            if (sp) {
+                const sumParts = resellerSplitTotalEuros(sp);
+                const tol = Math.max(0.05, Math.round(amt * 0.005 * 100) / 100);
+                if (Math.abs(amt - sumParts) <= tol) {
+                    setupAndCorporate += sp.setupCorporate;
+                    salesWithAddonModules += sp.addonModules;
+                    if (sp.billingCycle === 'yearly') yearlyBillingCycle += sp.recurring;
+                    else monthlyBillingCycle += sp.recurring;
+                    continue;
+                }
+            }
+        }
+
+        if (/\(setup\)|kurulum|onboarding|kurumsal|\(license\)/i.test(d)) {
+            setupAndCorporate += amt;
+        } else if (/modül|modul|module/i.test(d)) {
+            salesWithAddonModules += amt;
+        } else if (/\(yearly\)/i.test(d)) {
+            yearlyBillingCycle += amt;
+        } else if (/\(monthly\)/i.test(d)) {
+            monthlyBillingCycle += amt;
+        } else {
+            monthlyBillingCycle += amt;
+        }
+    }
+
+    return {
+        monthlyBillingCycle: Math.round(monthlyBillingCycle * 100) / 100,
+        yearlyBillingCycle: Math.round(yearlyBillingCycle * 100) / 100,
+        salesWithAddonModules: Math.round(salesWithAddonModules * 100) / 100,
+        setupAndCorporate: Math.round(setupAndCorporate * 100) / 100,
+    };
+}
+
+/** Havale onayı vb. için tenant anlık fiyatından komisyon kırılımı (settings’te yoksa) */
+export async function getResellerCommissionSplitForTenant(tenantId: string): Promise<ResellerCommissionSplit | null> {
+    const tid = String(tenantId).trim();
+    const [st]: any = await queryPublic(
+        `SELECT reseller_setup_rate, reseller_monthly_rate, annual_discount_rate FROM ${tbl('system_settings')} LIMIT 1`
+    );
+    const srow = st?.[0] || {};
+
+    const [tbrows]: any = await queryPublic(
+        `SELECT billing_cycle, plan_code FROM ${tbl('tenant_billing')} WHERE trim(tenant_id::text) = trim(?) LIMIT 1`,
+        [tid]
+    );
+    const tb = tbrows?.[0];
+    if (!tb) return null;
+
+    const billingCycle = tb.billing_cycle === 'yearly' ? 'yearly' : 'monthly';
+    const planCode = String(tb.plan_code || 'basic').trim();
+
+    const [mrows]: any = await queryPublic(
+        `SELECT module_code, COALESCE(quantity, 1)::int as quantity FROM ${tbl('tenant_modules')} WHERE trim(tenant_id::text) = trim(?)`,
+        [tid]
+    );
+
+    let extraDeviceQty: number | undefined;
+    let extraPrinterQty: number | undefined;
+    const moduleCodes: string[] = [];
+    for (const m of mrows || []) {
+        const code = String(m.module_code || '').trim();
+        if (!code) continue;
+        moduleCodes.push(code);
+        if (code === 'extra_device') extraDeviceQty = Number(m.quantity || 1);
+        if (code === 'extra_printer') extraPrinterQty = Number(m.quantity || 1);
+    }
+
+    try {
+        const quote = await calculateQuote({
+            planCode,
+            moduleCodes,
+            extraDeviceQty,
+            extraPrinterQty,
+            billingCycle,
+            annualDiscountPercent: Number(srow.annual_discount_rate ?? 15),
+        });
+        return resellerCommissionSplitEuros(quote, billingCycle, srow);
+    } catch {
+        return null;
+    }
 }
 
 export type PlanModuleMode = 'included' | 'addon' | 'locked';
@@ -314,6 +560,40 @@ async function ensureExtraPrinterModule(): Promise<void> {
         console.log('✅ extra_printer billing modülü eklendi');
     } catch (e: any) {
         console.warn('ensureExtraPrinterModule:', e?.message || e);
+    }
+}
+
+async function ensureQueueDisplayModule(): Promise<void> {
+    try {
+        const [rows]: any = await queryPublic(
+            `SELECT 1 FROM ${tbl('billing_modules')} WHERE code = 'queue_display' LIMIT 1`
+        );
+        if (rows?.length) return;
+        await queryPublic(
+            `INSERT INTO ${tbl('billing_modules')} (code, name, description, category, icon, setup_price, monthly_price, is_active, sort_order)
+             VALUES ('queue_display', 'Bekleme Sırası Ekranı', 'Müşteri bekleme sırası ekranı modülü', 'feature', 'FiMonitor', 0, 5, true, 21)
+             ON CONFLICT (code) DO NOTHING`
+        );
+        console.log('✅ queue_display billing modülü eklendi');
+    } catch (e: any) {
+        console.warn('ensureQueueDisplayModule:', e?.message || e);
+    }
+}
+
+async function ensureCloudBackupModule(): Promise<void> {
+    try {
+        const [rows]: any = await queryPublic(
+            `SELECT 1 FROM ${tbl('billing_modules')} WHERE code = 'cloud_backup' LIMIT 1`
+        );
+        if (rows?.length) return;
+        await queryPublic(
+            `INSERT INTO ${tbl('billing_modules')} (code, name, description, category, icon, setup_price, monthly_price, is_active, sort_order)
+             VALUES ('cloud_backup', 'Bulut Yedekleme', 'Günlük, haftalık ve aylık bulut yedekleme hizmeti', 'service', 'FiCloud', 0, 9, true, 22)
+             ON CONFLICT (code) DO NOTHING`
+        );
+        console.log('✅ cloud_backup billing modülü eklendi');
+    } catch (e: any) {
+        console.warn('ensureCloudBackupModule:', e?.message || e);
     }
 }
 
@@ -601,6 +881,8 @@ async function bootstrapPlanModuleRulesIfFresh(): Promise<void> {
             ['basic', 'extra_printer', 'addon'],
             ['basic', 'support_standard', 'addon'],
             ['basic', 'support_priority', 'addon'],
+            ['basic', 'queue_display', 'addon'],
+            ['basic', 'cloud_backup', 'addon'],
 
             ['pro', 'multi_language', 'included'],
             ['pro', 'qr_menu', 'included'],
@@ -618,6 +900,8 @@ async function bootstrapPlanModuleRulesIfFresh(): Promise<void> {
             ['pro', 'extra_printer', 'addon'],
             ['pro', 'support_standard', 'addon'],
             ['pro', 'support_priority', 'addon'],
+            ['pro', 'queue_display', 'included'],
+            ['pro', 'cloud_backup', 'addon'],
 
             ['enterprise', 'multi_language', 'included'],
             ['enterprise', 'qr_menu', 'included'],
@@ -635,6 +919,8 @@ async function bootstrapPlanModuleRulesIfFresh(): Promise<void> {
             ['enterprise', 'extra_printer', 'addon'],
             ['enterprise', 'support_standard', 'included'],
             ['enterprise', 'support_priority', 'addon'],
+            ['enterprise', 'queue_display', 'included'],
+            ['enterprise', 'cloud_backup', 'included'],
         ];
 
         for (const [plan, mod, mode] of rules) {
@@ -935,6 +1221,8 @@ async function doMigrateBillingTables(): Promise<void> {
         await seedBillingModulesIfEmpty();
         await ensureQrWebMenuModule();
         await ensureExtraPrinterModule();
+        await ensureQueueDisplayModule();
+        await ensureCloudBackupModule();
         await ensurePaymentHistoryExtraColumns();
         await ensurePostgreSQLFinanceSchema();
         await ensureSystemSettingsPostgreSQL();
@@ -969,6 +1257,10 @@ async function doMigrateBillingTables(): Promise<void> {
         // MySQL: billing_modules katalog kontrolü
         try {
             await seedBillingModulesIfEmpty();
+            await ensureQrWebMenuModule();
+            await ensureExtraPrinterModule();
+            await ensureQueueDisplayModule();
+            await ensureCloudBackupModule();
         } catch { /* ignore */ }
         try {
             await queryPublic(`ALTER TABLE ${tbl('tenant_modules')} ADD COLUMN IF NOT EXISTS is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER monthly_line_total;`);
@@ -1104,7 +1396,12 @@ export async function calculateQuote(input: QuoteInput): Promise<QuoteBreakdown>
     };
 }
 
-/** Yeni tenant kaydı sonrası faturalama satırları */
+/**
+ * Yeni tenant sonrası faturalama özeti:
+ * - `setup_fee_total`: plan kurulumu + ücretli modül kurulumları (tek sefer, ilk satışta tahsil edilir).
+ * - `monthly_recurring_total`: plan aylığı + ücretli modül aylıkları (her dönem birlikte yenilenir).
+ * - `next_payment_due`: ilk aylık/yıllık yenileme vadesi (oluşturulma + 1 ay/yıl).
+ */
 export async function seedTenantBilling(
     tenantId: string,
     planCode: string,
@@ -1493,6 +1790,22 @@ export async function purchaseAddonModulesForTenant(
 
     invalidateTenantCache(tenantId);
 
+    // BUG-4 FIX: Modül ekleme audit log kaydı
+    if (added.length > 0) {
+        try {
+            await queryPublic(
+                `INSERT INTO \`public\`.audit_logs (user_id, action, entity_type, entity_id, old_value, new_value, ip_address)
+                 VALUES (?, 'addon_modules_purchased', 'tenant', ?, ?, ?, 'system')`,
+                [
+                    adminUsername || 'saas_admin',
+                    tenantId,
+                    JSON.stringify({ skipped }),
+                    JSON.stringify({ added, deltaSetup, deltaMonthly }),
+                ]
+            );
+        } catch { /* audit log hataları sessizce yutulur */ }
+    }
+
     if (added.includes('qr_web_menu')) {
         try {
             const { provisionQrWebSubdomain } = await import('./qrWebProvisioning.service.js');
@@ -1585,7 +1898,7 @@ export async function getTenantEntitlements(tenantId: string): Promise<{
         monthlyRecurringTotal: mrtFromDb != null && !Number.isNaN(mrtFromDb) ? mrtFromDb : planBaseMonthly + monthlyFromAddons,
         planBaseMonthly,
         monthlyFromAddons,
-        nextPaymentDue: tr.next_payment_due ? String(tr.next_payment_due).slice(0, 10) : null,
+        nextPaymentDue: formatPgDateOnly(tr.next_payment_due),
     };
 
     const out: ModuleEntitlement[] = [];
@@ -1728,9 +2041,8 @@ export async function runBillingCron(): Promise<void> {
 
             if (now <= graceEnd) continue;
 
-            // GELİŞTİRME MODUNDA KORUMA: Development'ta hesapları askıya alma
-            if (process.env.NODE_ENV !== 'production') {
-                console.warn(`⚠️ [Billing] Geliştirme modunda olduğunuz için askıya alma atlandı: ${row.tenant_id} (Vade dolmuş)`);
+            if (!billingShouldSuspendForOverdue()) {
+                console.warn(`⚠️ [Billing] Askıya alma kapalı (geliştirme / BILLING_ENFORCE_SUSPEND=0): ${row.tenant_id}`);
                 continue;
             }
 
@@ -1798,7 +2110,7 @@ export async function runAccountingCron(): Promise<void> {
                 'EUR' as currency,
                 'subscription' as payment_type,
                 'bank_transfer' as payment_method,
-                'Abonelik yenileme (vade: ' || tb.next_payment_due::text || ')' as description,
+                'Aylık yenileme: paket aboneliği + ücretli modül aylıkları (vade: ' || tb.next_payment_due::text || ')' as description,
                 'pending' as status,
                 tb.next_payment_due as due_date,
                 NULL as paid_at,
@@ -1865,9 +2177,8 @@ export async function runAccountingCron(): Promise<void> {
         for (const r of overdueTenants || []) {
             const tenantId = String(r.tenant_id);
             
-            // GELİŞTİRME MODUNDA KORUMA: Development'ta hesapları askıya alma
-            if (process.env.NODE_ENV !== 'production') {
-                console.warn(`⚠️ [Accounting] Geliştirme modunda olduğunuz için askıya alma atlandı: ${tenantId} (Vade dolmuş)`);
+            if (!billingShouldSuspendForOverdue()) {
+                console.warn(`⚠️ [Accounting] Askıya alma kapalı: ${tenantId}`);
                 continue;
             }
 
@@ -1899,21 +2210,13 @@ export async function advanceBillingAfterPayment(
         [tid]
     );
 
-    // Vade tarihi stacking (üst üste ekleme) mantığı:
-    let base = new Date();
+    // Yeni vade her zaman ödeme gününden başlar (erken ödemede +60 gün gösterme hatası olmasın)
+    const base = new Date();
+    base.setHours(12, 0, 0, 0);
     let creationDay = base.getDate();
 
-    if (rows?.[0]) {
-        const row = rows[0];
-        if (row.created_at) creationDay = new Date(row.created_at).getDate();
-
-        const currentDueStr = row.next_payment_due || row.nextPaymentDue;
-        if (currentDueStr) {
-            const currentDue = new Date(currentDueStr);
-            if (!isNaN(currentDue.getTime()) && currentDue > base) {
-                base = currentDue;
-            }
-        }
+    if (rows?.[0]?.created_at) {
+        creationDay = new Date(rows[0].created_at).getDate();
     }
 
     const next = new Date(base);
@@ -2050,9 +2353,6 @@ export async function removeBillingModuleRow(code: string, hard: boolean): Promi
     }
 }
 
-/** 
- * Kasiyer ve Admin panelleri için ödeme uyarısı / durum kontrolü + modül/cihaz özeti (POS kapıları)
- */
 export async function getTenantBillingStatus(tenantId: string): Promise<{
     isSuspended: boolean;
     hasWarning: boolean;
@@ -2062,10 +2362,18 @@ export async function getTenantBillingStatus(tenantId: string): Promise<{
     planCode: string | null;
     maxDevices: { base: number; extra: number; total: number } | null;
     entitlements: { code: string; enabled: boolean; mode: PlanModuleMode }[];
+    walletBalance: number;
 }> {
     const tid = String(tenantId).trim();
+    try {
+        await ensureTenantBillingIfMissing(tid);
+    } catch {
+        /* tenant yoksa veya seed başarısız — aşağıda boş döner */
+    }
+
     const [tbRow]: any = await queryPublic(
-        `SELECT tb.*, t.status, t.subscription_plan AS subscription_plan
+        `SELECT tb.*, t.status, t.subscription_plan AS subscription_plan, t.wallet_balance AS wallet_balance,
+                t.license_expires_at AS license_expires_at
          FROM ${tbl('tenant_billing')} tb
          JOIN ${tbl('tenants')} t ON trim(tb.tenant_id::text) = t.id::text
          WHERE trim(tb.tenant_id::text) = ?`,
@@ -2096,11 +2404,13 @@ export async function getTenantBillingStatus(tenantId: string): Promise<{
             planCode,
             maxDevices,
             entitlements,
+            walletBalance: 0,
         };
     }
 
     const tb = tbRow[0] as Record<string, unknown>;
     const isSuspended = tb.status === 'suspended';
+    const walletBalance = Number(tb.wallet_balance || 0);
 
     // Bekleyen veya vadesi geçmiş ödeme var mı?
     const [pendingRowsRaw] = await queryPublic(
@@ -2113,13 +2423,13 @@ export async function getTenantBillingStatus(tenantId: string): Promise<{
     const pendingRows = (Array.isArray(pendingRowsRaw) ? pendingRowsRaw : []) as PendingPaymentLine[];
     const pendingPaymentLine = pendingRows[0] ?? null;
     let hasWarning = false;
-    let daysRemaining = null;
+    let daysRemaining: number | null = null;
 
-    if (tb.next_payment_due) {
-        const due = new Date(String(tb.next_payment_due));
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        daysRemaining = Math.ceil((due.getTime() - now.getTime()) / (86400 * 1000));
+    const nextDueYmd =
+        formatPgDateOnly(tb.next_payment_due) ?? formatPgDateOnly(tb.license_expires_at);
+
+    if (nextDueYmd) {
+        daysRemaining = computeDaysUntilDateOnly(nextDueYmd);
 
         if (daysRemaining <= 7) {
             hasWarning = true;
@@ -2132,12 +2442,599 @@ export async function getTenantBillingStatus(tenantId: string): Promise<{
 
     return {
         isSuspended,
-        hasWarning,
-        nextPaymentDue: tb.next_payment_due ? String(tb.next_payment_due).slice(0, 10) : null,
+        hasWarning: hasWarning || (walletBalance < 0),
+        nextPaymentDue: nextDueYmd,
         pendingPaymentLine,
         daysRemaining,
         planCode,
         maxDevices,
         entitlements,
+        walletBalance,
     };
 }
+
+/**
+ * 💳 NextPOS B2B FinTech & Prepaid Tenant Wallet Core Logic
+ */
+
+export interface WalletTransactionResult {
+    success: boolean;
+    newBalance: number;
+    transactionId?: number;
+}
+
+/**
+ * Restoranın cüzdanına para yükler (Kredi Kartı, Havale / EFT) ve toptan yükleme bonuslarını hesaplar.
+ */
+export async function depositTenantWallet(
+    tenantId: string,
+    amount: number,
+    paymentMethod: string,
+    description: string,
+    referenceId?: string,
+    existingPaymentHistoryId?: number
+): Promise<WalletTransactionResult> {
+    const tid = String(tenantId).trim();
+    const amt = Number(amount);
+    if (amt <= 0) throw new Error('Bakiye yükleme tutarı 0 veya daha küçük olamaz.');
+
+    const [tenantRows]: any = await queryPublic(`SELECT wallet_balance, name FROM ${tbl('tenants')} WHERE id::text = ?`, [tid]);
+    const tenant = tenantRows?.[0];
+    if (!tenant) throw new Error('Restoran bulunamadı.');
+
+    const currentBalance = Number(tenant.wallet_balance || 0);
+
+    // Toptan ödeme bonusu hesaplama
+    // Model C: 6 aylık peşin (Örn: >= 200 EUR) %10 bonus, 12 aylık peşin (Örn: >= 400 EUR) %20 bonus
+    let bonusAmount = 0;
+    let bonusReason = '';
+    
+    if (amt >= 400) {
+        bonusAmount = Math.round(amt * 0.20 * 100) / 100;
+        bonusReason = '12 Aylık Yıllık Toptan Yükleme %20 Bonusu';
+    } else if (amt >= 200) {
+        bonusAmount = Math.round(amt * 0.10 * 100) / 100;
+        bonusReason = '6 Aylık Toptan Yükleme %10 Bonusu';
+    }
+
+    const totalDeposit = amt + bonusAmount;
+    const newBalance = currentBalance + totalDeposit;
+
+    // 1. Veritabanında wallet_balance güncelle
+    await queryPublic(`UPDATE ${tbl('tenants')} SET wallet_balance = ? WHERE id::text = ?`, [newBalance, tid]);
+
+    // 2. Ödeme geçmişi logu oluştur veya var olanı güncelle
+    let payHistId = existingPaymentHistoryId || null;
+    if (payHistId) {
+        await queryPublic(`
+            UPDATE ${tbl('payment_history')}
+            SET status = 'paid', paid_at = NOW(), payment_method = ?
+            WHERE id = ?
+        `, [paymentMethod, payHistId]);
+    } else {
+        const [payHistResult]: any = await queryPublic(`
+            INSERT INTO ${tbl('payment_history')}
+            (tenant_id, amount, currency, payment_type, payment_method, description, status, paid_at, created_by)
+            VALUES (?, ?, 'EUR', 'wallet_deposit', ?, ?, 'paid', NOW(), 'system')
+            RETURNING id
+        `, [tid, amt, paymentMethod, description]);
+        payHistId = payHistResult?.[0]?.id || null;
+    }
+
+    // 3. Cüzdan hareket logu oluştur
+    const [txResult]: any = await queryPublic(`
+        INSERT INTO ${tbl('tenant_wallet_transactions')}
+        (tenant_id, amount, balance_before, balance_after, type, description, reference_id)
+        VALUES (?, ?, ?, ?, 'deposit', ?, ?)
+        RETURNING id
+    `, [tid, amt, currentBalance, currentBalance + amt, 'deposit', payHistId ? String(payHistId) : referenceId]);
+
+    // 4. Bonus varsa bonus cüzdan hareketini ekle
+    if (bonusAmount > 0) {
+        await queryPublic(`
+            INSERT INTO ${tbl('tenant_wallet_transactions')}
+            (tenant_id, amount, balance_before, balance_after, type, description, reference_id)
+            VALUES (?, ?, ?, ?, 'bonus', ?, ?)
+        `, [tid, bonusAmount, currentBalance + amt, newBalance, 'bonus', bonusReason, payHistId ? String(payHistId) : referenceId]);
+
+        // Ödeme geçmişine de bonus logu atalım
+        await queryPublic(`
+            INSERT INTO ${tbl('payment_history')}
+            (tenant_id, amount, currency, payment_type, payment_method, description, status, paid_at, created_by)
+            VALUES (?, ?, 'EUR', 'wallet_bonus', 'system', ?, 'paid', NOW(), 'system')
+        `, [tid, bonusAmount, bonusReason]);
+    }
+
+    // 5. Restoranın fatura durumunu kontrol edip payment_current ve active durumlarını düzelt
+    if (newBalance >= 0) {
+        await queryPublic(`
+            UPDATE ${tbl('tenant_billing')}
+            SET payment_current = true, suspended_at = NULL, suspension_reason = NULL
+            WHERE trim(tenant_id::text) = ?
+        `, [tid]);
+        await queryPublic(`UPDATE ${tbl('tenants')} SET status = 'active' WHERE id::text = ?`, [tid]);
+        invalidateTenantCache(tid);
+    }
+
+    return { success: true, newBalance, transactionId: txResult?.[0]?.id };
+}
+
+/**
+ * Restoranın cüzdanından tahsilat yapar (Plan, modül veya kurulum ücreti).
+ * Eğer restoran bir bayiye bağlıysa, bayi cüzdanına komisyon payını split ederek anında yansıtır.
+ */
+export async function processTenantWalletCharge(
+    tenantId: string,
+    amount: number,
+    chargeType: 'plan_charge' | 'module_charge' | 'setup_charge',
+    description: string
+): Promise<WalletTransactionResult> {
+    const tid = String(tenantId).trim();
+    const amt = Number(amount);
+    if (amt <= 0) throw new Error('Harcama tutarı 0 veya daha küçük olamaz.');
+
+    const [tenantRows]: any = await queryPublic(`SELECT wallet_balance, reseller_id, name FROM ${tbl('tenants')} WHERE id::text = ?`, [tid]);
+    const tenant = tenantRows?.[0];
+    if (!tenant) throw new Error('Restoran bulunamadı.');
+
+    const currentBalance = Number(tenant.wallet_balance || 0);
+    const newBalance = currentBalance - amt;
+
+    // 1. Restoran cüzdan bakiyesini güncelle
+    await queryPublic(`UPDATE ${tbl('tenants')} SET wallet_balance = ? WHERE id::text = ?`, [newBalance, tid]);
+
+    // 2. Fatura ve log oluştur
+    const [payHistResult]: any = await queryPublic(`
+        INSERT INTO ${tbl('payment_history')}
+        (tenant_id, amount, currency, payment_type, payment_method, description, status, paid_at, created_by)
+        VALUES (?, ?, 'EUR', ?, 'wallet', ?, 'paid', NOW(), 'system')
+        RETURNING id
+    `, [tid, amt, chargeType, description]);
+
+    const payHistId = payHistResult?.[0]?.id || null;
+
+    // 3. Cüzdan hareket logunu kaydet
+    const [txResult]: any = await queryPublic(`
+        INSERT INTO ${tbl('tenant_wallet_transactions')}
+        (tenant_id, amount, balance_before, balance_after, type, description, reference_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+    `, [tid, -amt, currentBalance, newBalance, chargeType.replace('_charge', ''), description, payHistId ? String(payHistId) : null]);
+
+    // 4. Bayi (Reseller) komisyon split motorunu çalıştır
+    // 4. Bayi (Reseller) veya SaaS Admin komisyon split motorunu çalıştır
+    let targetAdminId: number | null = null;
+    let targetAdminRole: 'reseller' | 'super_admin' = 'reseller';
+
+    if (tenant.reseller_id) {
+        targetAdminId = Number(tenant.reseller_id);
+        targetAdminRole = 'reseller';
+    } else {
+        const [adminRows]: any = await queryPublic(`SELECT id FROM ${tbl('saas_admins')} WHERE role = 'super_admin' ORDER BY id ASC LIMIT 1`);
+        if (adminRows?.[0]) {
+            targetAdminId = Number(adminRows[0].id);
+        } else {
+            targetAdminId = 1;
+        }
+        targetAdminRole = 'super_admin';
+    }
+
+    if (targetAdminId) {
+        const [adminRows]: any = await queryPublic(`SELECT wallet_balance, full_name, username FROM ${tbl('saas_admins')} WHERE id = ?`, [targetAdminId]);
+        const admin = adminRows?.[0];
+
+        const [settingsRows]: any = await queryPublic(`SELECT reseller_setup_rate, reseller_monthly_rate FROM ${tbl('system_settings')} LIMIT 1`);
+        const settings = settingsRows?.[0] || {};
+
+        if (admin) {
+            let commissionRate = 0.50; // varsayılan %50
+            if (chargeType === 'setup_charge') {
+                commissionRate = Number(settings.reseller_setup_rate ?? 75) / 100;
+            } else {
+                commissionRate = Number(settings.reseller_monthly_rate ?? 50) / 100;
+            }
+
+            const commissionAmount = Math.round(amt * commissionRate * 100) / 100;
+
+            if (commissionAmount > 0) {
+                const adminBalanceBefore = Number(admin.wallet_balance || 0);
+                const adminBalanceAfter = adminBalanceBefore + commissionAmount;
+
+                // Cüzdan bakiyesini artır
+                await queryPublic(`UPDATE ${tbl('saas_admins')} SET wallet_balance = ? WHERE id = ?`, [adminBalanceAfter, targetAdminId]);
+
+                // Ödeme geçmişi (Gelir logu) ekle
+                const desc = targetAdminRole === 'reseller'
+                    ? `${tenant.name} - ${description} işleminden %${commissionRate * 100} Bayi Komisyonu`
+                    : `${tenant.name} - ${description} işleminden %${commissionRate * 100} SaaS Admin Komisyonu (Bayi Olmadığı İçin)`;
+
+                await queryPublic(`
+                    INSERT INTO ${tbl('payment_history')}
+                    (saas_admin_id, amount, currency, payment_type, payment_method, description, status, paid_at, created_by)
+                    VALUES (?, ?, 'EUR', 'reseller_income', 'split', ?, 'paid', NOW(), 'system')
+                `, [
+                    targetAdminId,
+                    commissionAmount,
+                    desc
+                ]);
+            }
+        }
+    }
+
+    // 5. Cüzdan eksiye düşerse uyarı durumunu set et
+    if (newBalance < 0) {
+        await queryPublic(`
+            UPDATE ${tbl('tenant_billing')}
+            SET payment_current = false, suspended_at = NULL, suspension_reason = 'Cüzdan bakiyesi yetersiz'
+            WHERE trim(tenant_id::text) = ?
+        `, [tid]);
+        invalidateTenantCache(tid);
+    }
+
+    return { success: true, newBalance, transactionId: txResult?.[0]?.id };
+}
+
+/**
+ * Bayi cüzdanından restoran cüzdanına bakiye aktarımı yapar (Elden Nakit / Bayi Öder durumunda).
+ */
+export async function transferResellerWalletToTenant(
+    resellerId: number,
+    tenantId: string,
+    amount: number,
+    description: string
+): Promise<{ success: boolean; resellerBalance: number; tenantBalance: number }> {
+    const rid = Number(resellerId);
+    const tid = String(tenantId).trim();
+    const amt = Number(amount);
+    if (amt <= 0) throw new Error('Transfer tutarı 0 veya daha küçük olamaz.');
+
+    const [resellerRows]: any = await queryPublic(`SELECT wallet_balance, full_name FROM ${tbl('saas_admins')} WHERE id = ? AND role = 'reseller'`, [rid]);
+    const reseller = resellerRows?.[0];
+    if (!reseller) throw new Error('Bayi bulunamadı.');
+
+    const resellerBalanceBefore = Number(reseller.wallet_balance || 0);
+    if (resellerBalanceBefore < amt) {
+        throw new Error(`Transfer için yetersiz bakiye. Mevcut bayi bakiyeniz: ${resellerBalanceBefore.toFixed(2)} EUR`);
+    }
+
+    const [tenantRows]: any = await queryPublic(`SELECT wallet_balance, name FROM ${tbl('tenants')} WHERE id::text = ?`, [tid]);
+    const tenant = tenantRows?.[0];
+    if (!tenant) throw new Error('Restoran bulunamadı.');
+
+    const tenantBalanceBefore = Number(tenant.wallet_balance || 0);
+
+    // 1. Bayinin cüzdan bakiyesini düş
+    const resellerBalanceAfter = resellerBalanceBefore - amt;
+    await queryPublic(`UPDATE ${tbl('saas_admins')} SET wallet_balance = ? WHERE id = ?`, [resellerBalanceAfter, rid]);
+
+    // 2. Restoranın cüzdan bakiyesini artır
+    const tenantBalanceAfter = tenantBalanceBefore + amt;
+    await queryPublic(`UPDATE ${tbl('tenants')} SET wallet_balance = ? WHERE id::text = ?`, [tenantBalanceAfter, tid]);
+
+    // 3. Bayi için harcama/transfer logu oluştur
+    await queryPublic(`
+        INSERT INTO ${tbl('payment_history')}
+        (saas_admin_id, amount, currency, payment_type, payment_method, description, status, paid_at, created_by)
+        VALUES (?, ?, 'EUR', 'reseller_transfer', 'wallet', ?, 'paid', NOW(), 'system')
+    `, [rid, amt, `${tenant.name} restoran cüzdanına transfer`]);
+
+    // 4. Restoran için cüzdan logu oluştur
+    const [txResult]: any = await queryPublic(`
+        INSERT INTO ${tbl('tenant_wallet_transactions')}
+        (tenant_id, amount, balance_before, balance_after, type, description, reference_id)
+        VALUES (?, ?, ?, ?, 'deposit', ?, ?)
+        RETURNING id
+    `, [tid, amt, tenantBalanceBefore, tenantBalanceAfter, `Bayiden (${reseller.full_name}) transfer: ${description}`, String(rid)]);
+
+    // 5. Restoran ödeme durumunu aktif et
+    if (tenantBalanceAfter >= 0) {
+        await queryPublic(`
+            UPDATE ${tbl('tenant_billing')}
+            SET payment_current = true, suspended_at = NULL, suspension_reason = NULL
+            WHERE trim(tenant_id::text) = ?
+        `, [tid]);
+        await queryPublic(`UPDATE ${tbl('tenants')} SET status = 'active' WHERE id::text = ?`, [tid]);
+        invalidateTenantCache(tid);
+    }
+
+    return {
+        success: true,
+        resellerBalance: resellerBalanceAfter,
+        tenantBalance: tenantBalanceAfter
+    };
+}
+
+/**
+ * Restoranın cüzdan bakiyesini kullanarak toptan lisans paketi (Örn: 6 veya 12 aylık) satın almasını sağlar.
+ * Fiyatı anında kilitler ve vade tarihini (nextPaymentDue) belirtilen ay kadar ileriye uzatır.
+ */
+export async function purchaseBulkPlanForTenant(
+    tenantId: string,
+    planCode: string,
+    months: number
+): Promise<{ success: boolean; newBalance: number; newDueDate: string }> {
+    const tid = String(tenantId).trim();
+    const mths = Number(months);
+    if (mths !== 6 && mths !== 12) {
+        throw new Error('Yalnızca 6 aylık veya 12 aylık (yıllık) toptan paket satın alınabilir.');
+    }
+
+    return await prisma.$transaction(async (tx) => {
+        // 1. Restoran ve plan detaylarını çek
+        const tenant = await tx.tenant.findUnique({ where: { id: tid } });
+        if (!tenant) throw new Error('Restoran bulunamadı.');
+
+        const plan = await tx.subscriptionPlan.findUnique({ where: { code: planCode } });
+        if (!plan) throw new Error('Abonelik planı bulunamadı.');
+
+        const systemSettings = await tx.systemSetting.findFirst() || {
+            annualDiscountRate: 15,
+            resellerMonthlyRate: 50
+        };
+
+        const monthlyFee = Number(plan.monthlyFee);
+        let totalCost = monthlyFee * mths;
+
+        // Yıllık indirim uygulama
+        let discountPercent = 0;
+        if (mths === 12) {
+            discountPercent = Number(systemSettings.annualDiscountRate || 15);
+            totalCost = Math.round(totalCost * (1 - discountPercent / 100) * 100) / 100;
+        }
+
+        const walletBalance = Number(tenant.walletBalance || 0);
+        if (walletBalance < totalCost) {
+            throw new Error(`Yetersiz bakiye. Bu paket için gerekli tutar: ${totalCost.toFixed(2)} EUR. Mevcut cüzdan bakiyeniz: ${walletBalance.toFixed(2)} EUR.`);
+        }
+
+        // 2. Cüzdan bakiyesini düş
+        const newBalance = walletBalance - totalCost;
+        await tx.tenant.update({
+            where: { id: tid },
+            data: { walletBalance: newBalance }
+        });
+
+        // 3. Fatura ve log oluştur
+        const desc = `${mths} Aylık Toptan ${plan.name} Planı Satın Alımı (Fiyat Sabitleme Garantili %${discountPercent} İndirimli)`;
+        const payHist = await tx.paymentHistory.create({
+            data: {
+                tenantId: tid,
+                amount: totalCost,
+                currency: 'EUR',
+                paymentType: 'subscription_bulk',
+                paymentMethod: 'wallet',
+                description: desc,
+                status: 'paid',
+                paidAt: new Date(),
+                createdBy: 'system'
+            }
+        });
+
+        // 4. Cüzdan hareket logu ekle
+        await tx.tenantWalletTransaction.create({
+            data: {
+                tenantId: tid,
+                amount: -totalCost,
+                balanceBefore: walletBalance,
+                balanceAfter: newBalance,
+                type: 'plan_charge',
+                description: desc,
+                referenceId: String(payHist.id)
+            }
+        });
+
+        // 5. Lisans vade tarihlerini uzat (Stacking / Üst üste ekleme mantığı)
+        const billing = await tx.tenantBilling.findUnique({ where: { tenantId: tid } });
+        let baseDate = new Date();
+        
+        if (billing && billing.nextPaymentDue) {
+            const currentDue = new Date(billing.nextPaymentDue);
+            if (!isNaN(currentDue.getTime()) && currentDue > baseDate) {
+                baseDate = currentDue;
+            }
+        }
+
+        const newDue = new Date(baseDate);
+        newDue.setMonth(newDue.getMonth() + mths);
+
+        // Tarih sabitleme (Oluşturma gününe eşleme)
+        let creationDay = tenant.createdAt ? new Date(tenant.createdAt).getDate() : new Date().getDate();
+        const lastDayOfNewMonth = new Date(newDue.getFullYear(), newDue.getMonth() + 1, 0).getDate();
+        newDue.setDate(Math.min(creationDay, lastDayOfNewMonth));
+
+        const nextPaymentDueStr = newDue.toISOString().slice(0, 10);
+
+        // tenant_billing ve tenant tablosunu güncelle
+        await tx.tenantBilling.update({
+            where: { tenantId: tid },
+            data: {
+                nextPaymentDue: newDue,
+                paymentCurrent: true,
+                suspendedAt: null,
+                suspensionReason: null,
+                lastPaymentAt: new Date(),
+                planCode: planCode,
+                billingCycle: mths === 12 ? 'yearly' : 'monthly'
+            }
+        });
+
+        await tx.tenant.update({
+            where: { id: tid },
+            data: {
+                status: 'active',
+                subscriptionPlan: planCode,
+                licenseExpiresAt: newDue
+            }
+        });
+
+        // 6. Bayi (Reseller) veya SaaS Admin komisyon split motorunu çalıştır
+        let targetAdminId: number | null = null;
+        let targetAdminRole: 'reseller' | 'super_admin' = 'reseller';
+
+        if (tenant.resellerId) {
+            targetAdminId = Number(tenant.resellerId);
+            targetAdminRole = 'reseller';
+        } else {
+            const admin = await tx.saasAdmin.findFirst({
+                where: { role: 'super_admin' },
+                orderBy: { id: 'asc' }
+            });
+            if (admin) {
+                targetAdminId = admin.id;
+                targetAdminRole = 'super_admin';
+            } else {
+                targetAdminId = 1;
+                targetAdminRole = 'super_admin';
+            }
+        }
+
+        if (targetAdminId) {
+            const admin = await tx.saasAdmin.findUnique({ where: { id: targetAdminId } });
+            if (admin) {
+                const commissionRate = Number(systemSettings.resellerMonthlyRate || 50) / 100;
+                const commissionAmount = Math.round(totalCost * commissionRate * 100) / 100;
+
+                if (commissionAmount > 0) {
+                    const adminBalanceBefore = Number(admin.walletBalance || 0);
+                    const adminBalanceAfter = adminBalanceBefore + commissionAmount;
+
+                    // Cüzdan bakiyesini artır
+                    await tx.saasAdmin.update({
+                        where: { id: targetAdminId },
+                        data: { walletBalance: adminBalanceAfter }
+                    });
+
+                    const commissionDesc = targetAdminRole === 'reseller'
+                        ? `${tenant.name} - ${desc} işleminden %${commissionRate * 100} Bayi Komisyonu`
+                        : `${tenant.name} - ${desc} işleminden %${commissionRate * 100} SaaS Admin Komisyonu (Bayi Olmadığı İçin)`;
+
+                    // Ödeme geçmişi (Gelir logu) ekle
+                    await tx.paymentHistory.create({
+                        data: {
+                            saasAdminId: targetAdminId,
+                            amount: commissionAmount,
+                            currency: 'EUR',
+                            paymentType: 'reseller_income',
+                            paymentMethod: 'split',
+                            description: commissionDesc,
+                            status: 'paid',
+                            paidAt: new Date(),
+                            createdBy: 'system'
+                        }
+                    });
+                }
+            }
+        }
+
+        invalidateTenantCache(tid);
+
+        return {
+            success: true,
+            newBalance,
+            newDueDate: nextPaymentDueStr
+        };
+    });
+}
+
+const PAYABLE_INVOICE_TYPES = new Set([
+    'subscription',
+    'license',
+    'setup',
+    'addon',
+    'reactivation',
+    'plan_charge',
+    'module_charge',
+    'other',
+]);
+
+/** Bekleyen abonelik/fatura kaydını restoran cüzdan bakiyesi ile kapatır */
+export async function payTenantInvoiceWithWallet(params: {
+    tenantId: string;
+    paymentHistoryId: number;
+    createdBy?: string;
+}): Promise<{ ok: true; newBalance: number; message: string }> {
+    const tid = String(params.tenantId).trim();
+    const paymentHistoryId = Number(params.paymentHistoryId);
+    if (!tid || !Number.isFinite(paymentHistoryId)) {
+        throw new Error('Geçersiz fatura veya tenant');
+    }
+
+    const [rows]: any = await queryPublic(`SELECT * FROM ${tbl('payment_history')} WHERE id = ?`, [paymentHistoryId]);
+    const invoice = rows?.[0];
+    if (!invoice) throw new Error('Fatura bulunamadı');
+
+    const invTenantId = String(invoice.tenant_id ?? invoice.tenantId ?? '').trim();
+    if (invTenantId !== tid) throw new Error('Bu faturayı ödeme yetkiniz yok');
+
+    const status = String(invoice.status || '').toLowerCase();
+    if (status === 'paid') throw new Error('Bu fatura zaten ödenmiş');
+
+    const paymentType = String(invoice.payment_type || 'subscription').toLowerCase();
+    if (paymentType === 'wallet_deposit' || paymentType === 'reseller_income' || paymentType === 'reseller_wallet_topup') {
+        throw new Error('Bu fatura türü cüzdan bakiyesi ile ödenemez');
+    }
+    if (!PAYABLE_INVOICE_TYPES.has(paymentType)) {
+        throw new Error(`Bu fatura türü (${paymentType}) cüzdan ile ödenemez`);
+    }
+
+    const cost = Number(invoice.amount);
+    if (!Number.isFinite(cost) || cost <= 0) throw new Error('Geçersiz fatura tutarı');
+
+    const [tenantRows]: any = await queryPublic(`SELECT wallet_balance, name FROM ${tbl('tenants')} WHERE id::text = ?`, [tid]);
+    const tenant = tenantRows?.[0];
+    if (!tenant) throw new Error('Restoran bulunamadı');
+
+    const balanceBefore = Number(tenant.wallet_balance || 0);
+    if (balanceBefore < cost) {
+        throw new Error(`Cüzdan bakiyesi yetersiz (gerekli: ${cost.toFixed(2)} €, mevcut: ${balanceBefore.toFixed(2)} €)`);
+    }
+
+    const balanceAfter = Math.round((balanceBefore - cost) * 100) / 100;
+    const createdBy = params.createdBy?.trim() || 'tenant';
+
+    await queryPublic(`UPDATE ${tbl('tenants')} SET wallet_balance = ? WHERE id::text = ?`, [balanceAfter, tid]);
+
+    await queryPublic(
+        `
+        INSERT INTO ${tbl('tenant_wallet_transactions')}
+        (tenant_id, amount, balance_before, balance_after, type, description, reference_id)
+        VALUES (?, ?, ?, ?, 'plan_charge', ?, ?)
+    `,
+        [
+            tid,
+            -cost,
+            balanceBefore,
+            balanceAfter,
+            String(invoice.description || `Fatura #${paymentHistoryId}`),
+            String(paymentHistoryId),
+        ],
+    );
+
+    await queryPublic(
+        `
+        UPDATE ${tbl('payment_history')}
+        SET status = 'paid', paid_at = NOW(), payment_method = 'wallet_balance', created_by = ?
+        WHERE id = ?
+    `,
+        [createdBy, paymentHistoryId],
+    );
+
+    const [tb]: any = await queryPublic(
+        `SELECT billing_cycle FROM ${tbl('tenant_billing')} WHERE trim(tenant_id::text) = ?`,
+        [tid],
+    );
+    const cycle = (tb?.[0]?.billing_cycle === 'yearly' ? 'yearly' : 'monthly') as 'monthly' | 'yearly';
+
+    if (paymentType === 'subscription' || paymentType === 'license' || paymentType === 'reactivation') {
+        await advanceBillingAfterPayment(tid, cycle);
+    }
+
+    invalidateTenantCache(tid);
+
+    return {
+        ok: true,
+        newBalance: balanceAfter,
+        message: 'Ödeme cüzdan bakiyeniz ile başarıyla tamamlandı',
+    };
+}
+

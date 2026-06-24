@@ -23,17 +23,17 @@ import type { ResellerForm, ResellerPaymentMethod } from './resellerFormTypes';
 import { useSaaSLocale } from '../../contexts/SaaSLocaleContext';
 import { useSaaSStore } from '../../store/useSaaSStore';
 
-const inpBase =
-    'w-full bg-black/25 border border-white/10 rounded-lg py-2 pl-9 pr-2.5 text-xs text-slate-100 placeholder:text-slate-600 focus:border-emerald-500/40 focus:outline-none focus:ring-1 focus:ring-emerald-500/20 read-only:opacity-60';
+export const inpBase =
+    'w-full bg-black/25 border border-slate-200 dark:border-slate-800 rounded-lg py-2 pl-9 pr-2.5 text-xs text-slate-100 placeholder:text-slate-600 focus:border-emerald-500/40 focus:outline-none focus:ring-1 focus:ring-emerald-500/20 read-only:opacity-60';
 
-const taBase =
-    'w-full bg-black/25 border border-white/10 rounded-lg py-2 pl-9 pr-2.5 text-xs text-slate-100 placeholder:text-slate-600 focus:border-emerald-500/40 focus:outline-none focus:ring-1 focus:ring-emerald-500/20 resize-y min-h-[52px]';
+export const taBase =
+    'w-full bg-black/25 border border-slate-200 dark:border-slate-800 rounded-lg py-2 pl-9 pr-2.5 text-xs text-slate-100 placeholder:text-slate-600 focus:border-emerald-500/40 focus:outline-none focus:ring-1 focus:ring-emerald-500/20 resize-y min-h-[52px]';
 
 const phoneMask = '0 000 000 00 00';
 const taxMask = '00000000000';
 const postalMask = '00000';
 
-function FieldLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
+export function FieldLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
     return (
         <label className="mb-1 block text-[10px] font-medium text-slate-500">
             {children}
@@ -42,7 +42,7 @@ function FieldLabel({ children, required }: { children: React.ReactNode; require
     );
 }
 
-function IconInput({
+export function IconInput({
     icon,
     children,
 }: {
@@ -61,7 +61,7 @@ function IconInput({
     );
 }
 
-function IconTextarea({
+export function IconTextarea({
     icon,
     children,
 }: {
@@ -80,7 +80,7 @@ function IconTextarea({
     );
 }
 
-function MaskedIconField({
+export function MaskedIconField({
     icon,
     mask,
     value,
@@ -114,10 +114,10 @@ function MaskedIconField({
     );
 }
 
-function FormCard({ title, children, className = '' }: { title: string; children: React.ReactNode; className?: string }) {
+export function FormCard({ title, children, className = '' }: { title: string; children: React.ReactNode; className?: string }) {
     return (
-        <div className={`rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent p-3 ${className}`}>
-            <h3 className="mb-2.5 border-l-2 border-emerald-500/40 pl-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        <div className={`rounded-xl border border-slate-200 dark:border-slate-800 bg-gradient-to-b from-white/[0.04] to-transparent p-3 ${className}`}>
+            <h3 className="mb-2.5 border-l-2 border-emerald-500/40 pl-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 {title}
             </h3>
             {children}
@@ -237,7 +237,7 @@ export function ResellerFormFields({ f, setF, mode, plans = [], editContext = nu
                                 </IconInput>
                             </div>
                         )}
-                        <div className="sm:col-span-2 flex items-center gap-2 rounded-lg border border-white/5 bg-black/15 px-2 py-1.5">
+                        <div className="sm:col-span-2 flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-black/15 px-2 py-1.5">
                             <input
                                 type="checkbox"
                                 id="reseller-active"
@@ -245,7 +245,7 @@ export function ResellerFormFields({ f, setF, mode, plans = [], editContext = nu
                                 onChange={(e) => setF((p) => ({ ...p, active: e.target.checked }))}
                                 className="h-3.5 w-3.5 rounded border-white/20 bg-black/30 accent-emerald-500"
                             />
-                            <label htmlFor="reseller-active" className="cursor-pointer text-xs text-slate-400">
+                            <label htmlFor="reseller-active" className="cursor-pointer text-xs text-slate-500 dark:text-slate-400">
                                 {t('reseller.form.activeHelp')}
                             </label>
                         </div>
@@ -362,7 +362,7 @@ export function ResellerFormFields({ f, setF, mode, plans = [], editContext = nu
 
                 {mode === 'edit' && (Boolean(f.reseller_plan_name) || f.reseller_plan_id != null) && (
                     <FormCard title={t('reseller.form.editPlan')}>
-                        <p className="text-xs text-slate-300">
+                        <p className="text-xs text-slate-600 dark:text-slate-500 dark:text-slate-400">
                             {f.reseller_plan_name || t('reseller.form.editPlanNone')}
                         </p>
                         {f.purchase_payment_method ? (
@@ -414,13 +414,13 @@ export function ResellerFormFields({ f, setF, mode, plans = [], editContext = nu
                                 {upgradePreview && (
                                     <>
                                         <div className="grid grid-cols-2 gap-2 text-[10px]">
-                                            <div className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5">
+                                            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white/[0.03] px-2 py-1.5">
                                                 <span className="text-slate-500">{t('reseller.form.upgradeDiff')}</span>
                                                 <div className="font-mono text-emerald-300/95">
                                                     {currency}{upgradePreview.diff.toFixed(2)}
                                                 </div>
                                             </div>
-                                            <div className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5">
+                                            <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white/[0.03] px-2 py-1.5">
                                                 <span className="text-slate-500">{t('reseller.form.upgradeExtraLic')}</span>
                                                 <div className="font-mono text-slate-200">+{upgradePreview.extraLic}</div>
                                             </div>

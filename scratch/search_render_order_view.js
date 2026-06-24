@@ -1,0 +1,14 @@
+const fs = require('fs');
+const path = require('path');
+
+const file = path.join(__dirname, '..', 'apps', 'pos', 'src', 'pages', 'WaiterPanel.tsx');
+const content = fs.readFileSync(file, 'utf8');
+const lines = content.split('\n');
+
+lines.forEach((line, index) => {
+    if (line.includes('const renderOrderView') || line.includes('renderOrderView =')) {
+        for (let i = index; i < index + 80; i++) {
+            console.log(`${i + 1}: ${lines[i]}`);
+        }
+    }
+});

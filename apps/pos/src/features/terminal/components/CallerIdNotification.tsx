@@ -7,6 +7,7 @@ import io from 'socket.io-client';
 import { useAuthStore } from '../../../store/useAuthStore';
 import { usePosLocale } from '../../../contexts/PosLocaleContext';
 import toast from 'react-hot-toast';
+import { getSocketOrigin } from '../../../lib/socketOrigin';
 
 
 export const CallerIdNotification: React.FC = () => {
@@ -20,7 +21,7 @@ export const CallerIdNotification: React.FC = () => {
     useEffect(() => {
         if (!token || !tenantId) return;
 
-        const socket = io(window.location.origin, {
+        const socket = io(getSocketOrigin(), {
             path: '/socket.io',
             auth: { token }
         });
@@ -53,27 +54,14 @@ export const CallerIdNotification: React.FC = () => {
     const handleCreateOrder = () => {
         if (!incomingCall) return;
 
-        // Müşteriyi sepet/sipariş için ayarla
+        // Sipariş Seçim Sihirbazı'nı aç
         ui.setCustomerModal(false);
-        if (incomingCall.customerId) {
-            ui.setActiveCustomer({
-                id: incomingCall.customerId,
-                name: incomingCall.name,
-                phone: incomingCall.number,
-                address: incomingCall.address || ''
-            });
-        } else {
-            // Yeni müşteri taslağı
-            ui.setActiveCustomer({
-                id: 0,
-                name: incomingCall.name === t('caller.unknown_customer') ? '' : incomingCall.name,
-                phone: incomingCall.number,
-                address: ''
-            });
-        }
-
-        pos.setOrderType('delivery');
-        ui.setCartOpen(true);
+        ui.setCallerSelector(true, {
+            customerId: incomingCall.customerId,
+            name: incomingCall.name,
+            number: incomingCall.number,
+            address: incomingCall.address || ''
+        });
         setIncomingCall(null);
         toast.success(`${t('caller.notify.toast_prefix')} ${incomingCall.number}`);
     };
@@ -83,10 +71,10 @@ export const CallerIdNotification: React.FC = () => {
         <AnimatePresence>
             {incomingCall && (
                 <motion.div
-                    initial={{ x: 400, opacity: 0 }}
+                    initial={{ x: -400, opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
-                    exit={{ x: 400, opacity: 0 }}
-                    className="fixed top-24 right-6 z-[200] w-80 bg-neutral-900/90 backdrop-blur-xl border border-emerald-500/30 rounded-[32px] overflow-hidden shadow-[0_20px_50px_rgba(16,185,129,0.2)]"
+                    exit={{ x: -400, opacity: 0 }}
+                    className="fixed bottom-6 left-6 z-[200] w-80 bg-neutral-900/90 backdrop-blur-xl border border-emerald-500/30 rounded-[32px] overflow-hidden shadow-[0_20px_50px_rgba(16,185,129,0.2)]"
                 >
                     <div className="p-6">
                         <div className="flex items-center gap-4 mb-4">

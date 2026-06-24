@@ -5,6 +5,8 @@ import { useAuthStore } from '../store/useAuthStore';
 import { usePosLocale } from '../contexts/PosLocaleContext';
 import { usePosStore } from '../store/usePosStore';
 import { POS_LANGS } from '../i18n/posMessages';
+import { OfflineLockScreen } from '../components/OfflineLockScreen';
+import { getOfflinePolicyState, isNetworkOffline, isOfflineLocked } from '../lib/offlinePolicy';
 
 const PWA_PREFERRED_PATH_KEY = 'nextpos_pwa_preferred_path';
 
@@ -83,11 +85,12 @@ const LoginPage: React.FC = () => {
     const navigate = useNavigate();
     const { t } = usePosLocale();
     const [searchParams] = useSearchParams();
-    const { login, loginWithPin, tenantId, setTenantId, logout, isAuthenticated, tenantName, clearTenant } = useAuthStore();
+    const { login, loginWithPin, verifyLogin2fa, resendLogin2fa, clearLogin2fa, login2faRequired, login2faMethod, tenantId, setTenantId, logout, isAuthenticated, tenantName, clearTenant } = useAuthStore();
     const [mode, setMode] = useState<'credentials' | 'pin'>('credentials');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [pin, setPin] = useState('');
+    const [twofaCode, setTwofaCode] = useState('');
     const [localTenantId, setLocalTenantId] = useState(tenantId || '');
     const [linkedName, setLinkedName] = useState<string | null>(null);
     const [error, setError] = useState('');
@@ -125,8 +128,36 @@ const LoginPage: React.FC = () => {
         setError('');
     }, [searchParams, logout, setTenantId]);
 
+    /** Gölge Giriş (Impersonation): ?impersonate_code=imp_xxx */
+    useLayoutEffect(() => {
+        const code = searchParams.get('impersonate_code')?.trim();
+        if (!code) return;
+
+        logout();
+        setError('');
+        setIsLoading(true);
+
+        const doImpersonate = async () => {
+            try {
+                const { loginWithImpersonateCode } = useAuthStore.getState();
+                await loginWithImpersonateCode(code);
+                const currentUserRole = useAuthStore.getState().user?.role;
+                navigate(resolvePostLoginPath(currentUserRole), { replace: true });
+            } catch (err: any) {
+                console.error('Impersonation fail:', err);
+                setError(err.message || 'Gölge giriş doğrulaması başarısız oldu.');
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        void doImpersonate();
+    }, [searchParams, logout, navigate]);
+
+
     // Zaten giriş yapılmışsa, role göre yönlendir (URL'de tenant= yoksa — derin bağlantıda önce logout ile temizlenir)
     useEffect(() => {
+        if (isOfflineLocked()) return;
         if (isAuthenticated && !searchParams.get('tenant')?.trim()) {
             const currentRole = useAuthStore.getState().user?.role;
             navigate(resolvePostLoginPath(currentRole), { replace: true });
@@ -147,6 +178,8 @@ const LoginPage: React.FC = () => {
 
     const handleCredentialLogin = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (isOfflineLocked()) { setError(t('offline.lock.blocked')); return; }
+        if (isNetworkOffline()) { setError(t('offline.loginNeedOnline')); return; }
         if (!localTenantId.trim()) { setError(t('auth.error.tenantRequired')); return; }
         if (!username.trim()) { setError(t('auth.error.usernameRequired')); return; }
         if (!password) { setError(t('auth.error.passwordRequired')); return; }
@@ -157,10 +190,12 @@ const LoginPage: React.FC = () => {
         setTenantId(tid);
 
         try {
-            await login(username.trim(), password, tid);
-            saveTenantId(tid);
-            const currentUserRole = useAuthStore.getState().user?.role;
-            navigate(resolvePostLoginPath(currentUserRole), { replace: true });
+            const ok = await login(username.trim(), password, tid);
+            if (ok) {
+                saveTenantId(tid);
+                const currentUserRole = useAuthStore.getState().user?.role;
+                navigate(resolvePostLoginPath(currentUserRole), { replace: true });
+            }
         } catch (err: any) {
             console.error('Login error:', err);
             let msg = err.message || t('auth.error.invalidCredentials');
@@ -176,8 +211,51 @@ const LoginPage: React.FC = () => {
         setIsLoading(false);
     };
 
+    const handleTwofaSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (isOfflineLocked()) { setError(t('offline.lock.blocked')); return; }
+        if (isNetworkOffline()) { setError(t('offline.loginNeedOnline')); return; }
+        const tid = localTenantId.trim();
+        if (!tid) { setError(t('auth.error.tenantRequired')); return; }
+        if (!twofaCode.trim()) { setError(t('auth.error.twofaRequired')); return; }
+
+        setError('');
+        setIsLoading(true);
+        setTenantId(tid);
+
+        try {
+            await verifyLogin2fa(twofaCode.trim(), tid);
+            saveTenantId(tid);
+            const currentUserRole = useAuthStore.getState().user?.role;
+            navigate(resolvePostLoginPath(currentUserRole), { replace: true });
+        } catch (err: any) {
+            setError(err.message || t('auth.error.twofaInvalid'));
+        }
+        setIsLoading(false);
+    };
+
+    const handleTwofaResend = async () => {
+        setError('');
+        setIsLoading(true);
+        try {
+            await resendLogin2fa();
+            setError('');
+        } catch (err: any) {
+            setError(err.message || t('auth.error.twofaResendFailed'));
+        }
+        setIsLoading(false);
+    };
+
+    const handleBackFromTwofa = () => {
+        clearLogin2fa();
+        setTwofaCode('');
+        setError('');
+    };
+
     const doPinLogin = useCallback(async (pinCode: string) => {
         if (pinCode.length !== 6) return;
+        if (isOfflineLocked()) { setError(t('offline.lock.blocked')); return; }
+        if (isNetworkOffline()) { setError(t('offline.loginNeedOnline')); return; }
         const tid = localTenantId.trim();
         if (!tid) { setError(t('auth.error.tenantRequired')); return; }
 
@@ -218,6 +296,12 @@ const LoginPage: React.FC = () => {
 
     const handlePinDelete = () => setPin(pin.slice(0, -1));
 
+    if (isOfflineLocked()) {
+        return <OfflineLockScreen />;
+    }
+
+    const offlinePolicy = getOfflinePolicyState();
+
     return (
         <div className="min-h-screen bg-[#0a0f1a] flex items-center justify-center p-4 relative overflow-hidden">
             {/* Animated Background */}
@@ -254,6 +338,11 @@ const LoginPage: React.FC = () => {
                 </div>
 
                 {/* Main Card */}
+                {offlinePolicy.isOffline && (
+                    <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-center text-[11px] font-bold text-amber-200">
+                        {t('offline.loginNeedOnline')}
+                    </div>
+                )}
                 <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-3xl overflow-hidden shadow-2xl">
 
                     {linkedName && (
@@ -300,6 +389,7 @@ const LoginPage: React.FC = () => {
                     </div>
 
                     {/* Mode Tabs */}
+                    {!login2faRequired && (
                     <div className="flex mx-8 mt-2 mb-4 bg-white/[0.04] rounded-xl p-1 border border-white/[0.06]">
                         <button
                             onClick={() => { setMode('credentials'); setError(''); }}
@@ -314,6 +404,7 @@ const LoginPage: React.FC = () => {
                             <FiHash size={13} /> {t('auth.pinLogin')}
                         </button>
                     </div>
+                    )}
 
                     {/* Error Display */}
                     {error && (
@@ -331,7 +422,64 @@ const LoginPage: React.FC = () => {
                     )}
 
                     {/* Credentials Form */}
-                    {mode === 'credentials' && (
+                    {login2faRequired && (
+                        <form onSubmit={handleTwofaSubmit} className="px-8 pb-8 space-y-4">
+                            <div className="text-center mb-2">
+                                <p className="text-emerald-400 text-xs font-bold uppercase tracking-widest">{t('auth.twofaTitle')}</p>
+                                <p className="text-slate-500 text-[11px] mt-1">
+                                    {login2faMethod === 'email' ? t('auth.twofaHintEmail') : t('auth.twofaHintTotp')}
+                                </p>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[2px] mb-2 block">{t('auth.twofaCode')}</label>
+                                <div className="relative">
+                                    <FiShield className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" size={16} />
+                                    <input
+                                        id="twofa-code-input"
+                                        type="text"
+                                        inputMode="numeric"
+                                        autoComplete="one-time-code"
+                                        maxLength={8}
+                                        value={twofaCode}
+                                        onChange={(e) => setTwofaCode(e.target.value.replace(/\D/g, ''))}
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-11 pr-4 py-3.5 text-white outline-none focus:border-emerald-500/40 focus:bg-white/[0.06] transition-all font-mono text-center text-lg tracking-[0.3em]"
+                                        placeholder="000000"
+                                    />
+                                </div>
+                            </div>
+                            <button
+                                id="twofa-submit-button"
+                                type="submit"
+                                disabled={isLoading || twofaCode.length < 6}
+                                className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-40 disabled:cursor-not-allowed py-4 rounded-xl text-white font-black text-sm shadow-xl shadow-emerald-600/15 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                            >
+                                {isLoading ? (
+                                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                ) : (
+                                    <>{t('auth.twofaSubmit')} <FiArrowRight /></>
+                                )}
+                            </button>
+                            {login2faMethod === 'email' && (
+                                <button
+                                    type="button"
+                                    onClick={() => void handleTwofaResend()}
+                                    disabled={isLoading}
+                                    className="w-full text-xs text-slate-500 hover:text-emerald-400 font-bold transition-colors"
+                                >
+                                    {t('auth.twofaResend')}
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={handleBackFromTwofa}
+                                className="w-full text-xs text-slate-600 hover:text-slate-400 font-bold transition-colors"
+                            >
+                                {t('auth.twofaBack')}
+                            </button>
+                        </form>
+                    )}
+
+                    {mode === 'credentials' && !login2faRequired && (
                         <form onSubmit={handleCredentialLogin} className="px-8 pb-8 space-y-4">
                             <div>
                                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[2px] mb-2 block">{t('auth.usernameLabel')}</label>
@@ -380,7 +528,7 @@ const LoginPage: React.FC = () => {
                     )}
 
                     {/* PIN Form */}
-                    {mode === 'pin' && (
+                    {mode === 'pin' && !login2faRequired && (
                         <div className="px-8 pb-8">
                             {/* PIN Display */}
                             <div className="flex justify-center gap-3 mb-6">

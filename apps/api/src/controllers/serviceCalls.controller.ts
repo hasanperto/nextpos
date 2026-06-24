@@ -1,9 +1,8 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { withTenant, withTenantTransaction } from '../lib/db.js';
-
-/** Oturum garsonu dışındaki personel, çağrı oluşturulduktan bu kadar saniye sonra yanıtlayabilir. */
-const SERVICE_CALL_TAKEOVER_AFTER_SEC = 60;
+import { resolveServiceCallWaiterTarget } from '../lib/service-call-waiter-target.js';
+import { getServiceCallEscalationSecondsFromDb } from '../lib/service-call-settings.js';
 
 const patchStatusSchema = z.object({
     status: z.enum(['seen', 'in_progress', 'completed']),
@@ -26,6 +25,24 @@ async function ensureServiceCallsTableIdNullable(connection: any): Promise<void>
     }
 }
 
+async function ensureServiceCallAssigneeColumns(connection: any): Promise<void> {
+    try {
+        await connection.query(`ALTER TABLE service_calls ADD COLUMN IF NOT EXISTS assignee_set_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`);
+    } catch {
+        /* ignore */
+    }
+    try {
+        await connection.query(`ALTER TABLE service_calls ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMPTZ NULL`);
+    } catch {
+        /* ignore */
+    }
+    try {
+        await connection.query(`UPDATE service_calls SET assignee_set_at = created_at WHERE assignee_set_at IS NULL`);
+    } catch {
+        /* ignore */
+    }
+}
+
 /** GET /api/v1/service-calls?status=pending&limit=40 */
 export const listServiceCallsHandler = async (req: Request, res: Response) => {
     try {
@@ -39,9 +56,10 @@ export const listServiceCallsHandler = async (req: Request, res: Response) => {
         const rows = await withTenant(tenantId, async (connection) => {
             await ensureServiceCallsTargetUserColumn(connection);
             await ensureServiceCallsTableIdNullable(connection);
+            await ensureServiceCallAssigneeColumns(connection);
             const [r]: any = await connection.query(
                 `SELECT sc.id, sc.table_id, sc.session_id, sc.call_type, sc.status, sc.message,
-                        sc.created_at, sc.responded_at, sc.responded_by, sc.target_user_id,
+                        sc.created_at, sc.assignee_set_at, sc.responded_at, sc.responded_by, sc.target_user_id,
                         COALESCE(t.name, 'Kasiyer') AS table_name
                  FROM service_calls sc
                  LEFT JOIN tables t ON t.id = sc.table_id
@@ -63,7 +81,7 @@ export const listServiceCallsHandler = async (req: Request, res: Response) => {
 const createCashierServiceCallSchema = z.object({
     /** İsteğe bağlı; yoksa kasiyer ekranından masa bağlantısız çağrı */
     tableId: z.number().int().positive().optional(),
-    targetWaiterId: z.number().int().positive(),
+    targetWaiterId: z.number().int().positive().nullable().optional(),
     message: z.string().max(500).optional(),
 });
 
@@ -76,26 +94,38 @@ export const createCashierServiceCallHandler = async (req: Request, res: Respons
         const result = await withTenantTransaction(tenantId, async (connection) => {
             await ensureServiceCallsTargetUserColumn(connection);
             await ensureServiceCallsTableIdNullable(connection);
+            await ensureServiceCallAssigneeColumns(connection);
 
-            const [wRows]: any = await connection.query(
-                `SELECT id, name, role, status FROM users WHERE id = ? AND role = 'waiter' AND status = 'active'`,
-                [data.targetWaiterId]
-            );
-            if (!wRows?.length) {
-                throw new Error('WAITER_NOT_FOUND');
+            const explicitTargetWaiterId =
+                data.targetWaiterId != null && Number.isFinite(Number(data.targetWaiterId))
+                    ? Number(data.targetWaiterId)
+                    : null;
+            if (explicitTargetWaiterId != null) {
+                const [wRows]: any = await connection.query(
+                    `SELECT id, name, role, status FROM users WHERE id = ? AND role = 'waiter' AND status = 'active'`,
+                    [explicitTargetWaiterId]
+                );
+                if (!wRows?.length) {
+                    throw new Error('WAITER_NOT_FOUND');
+                }
             }
 
             const tid = data.tableId != null && Number.isFinite(Number(data.tableId)) ? Number(data.tableId) : null;
             let tableName = 'Kasiyer';
             let sessionWaiterId: number | null = null;
             let sessionId: number | null = null;
+            let sectionId: number | null = null;
 
             if (tid != null) {
-                const [tRows]: any = await connection.query(`SELECT id, name FROM tables WHERE id = ?`, [tid]);
+                const [tRows]: any = await connection.query(`SELECT id, name, section_id FROM tables WHERE id = ?`, [tid]);
                 if (!tRows?.length) {
                     throw new Error('TABLE_NOT_FOUND');
                 }
                 tableName = String(tRows[0].name);
+                sectionId =
+                    tRows[0].section_id != null && Number.isFinite(Number(tRows[0].section_id))
+                        ? Number(tRows[0].section_id)
+                        : null;
                 const [sRows]: any = await connection.query(
                     `SELECT id, waiter_id FROM table_sessions
                      WHERE table_id = ? AND status = 'active'
@@ -107,14 +137,26 @@ export const createCashierServiceCallHandler = async (req: Request, res: Respons
                 sessionWaiterId = sess?.waiter_id != null ? Number(sess.waiter_id) : null;
             }
 
+            const targetUserId =
+                explicitTargetWaiterId == null
+                    ? null // Tum garsonlara acik cagri
+                    : await resolveServiceCallWaiterTarget(connection, {
+                          sectionId,
+                          sessionWaiterId,
+                          explicitWaiterId: explicitTargetWaiterId,
+                      });
+            if (explicitTargetWaiterId != null && targetUserId == null) {
+                throw new Error('NO_WAITER_AVAILABLE');
+            }
+
             const msg =
                 data.message?.trim() ||
                 JSON.stringify({ from: 'cashier', cashierId: req.user?.userId ?? null });
 
             const [ins]: any = await connection.query(
-                `INSERT INTO service_calls (table_id, session_id, call_type, status, message, target_user_id)
-                 VALUES (?, ?, 'call_waiter', 'pending', ?, ?)`,
-                [tid, sessionId, msg, data.targetWaiterId]
+                `INSERT INTO service_calls (table_id, session_id, call_type, status, message, target_user_id, assignee_set_at)
+                 VALUES (?, ?, 'call_waiter', 'pending', ?, ?, CURRENT_TIMESTAMP)`,
+                [tid, sessionId, msg, targetUserId]
             );
             const newId = ins.insertId as number;
 
@@ -128,8 +170,9 @@ export const createCashierServiceCallHandler = async (req: Request, res: Respons
                 tableId: tid,
                 tableName,
                 sessionWaiterId,
-                targetWaiterId: data.targetWaiterId,
+                targetWaiterId: targetUserId,
                 createdAt,
+                message: msg,
             };
         });
 
@@ -141,13 +184,16 @@ export const createCashierServiceCallHandler = async (req: Request, res: Respons
                 tableId: result.tableId,
                 tableName: result.tableName,
                 callType: 'call_waiter',
+                message: result.message,
                 waiterId: result.sessionWaiterId,
                 targetWaiterId: result.targetWaiterId,
                 fromCashier: true,
                 createdAt: result.createdAt,
             };
             io.to(`tenant:${tenantId}`).emit('customer:service_call', payload);
-            io.to(`tenant:${tenantId}:waiter:${result.targetWaiterId}`).emit('customer:service_call', payload);
+            if (result.targetWaiterId != null) {
+                io.to(`tenant:${tenantId}:waiter:${result.targetWaiterId}`).emit('customer:service_call', payload);
+            }
         }
 
         res.status(201).json({ success: true, id: result.id });
@@ -160,6 +206,9 @@ export const createCashierServiceCallHandler = async (req: Request, res: Respons
         }
         if (error.message === 'TABLE_NOT_FOUND') {
             return res.status(404).json({ error: 'Masa bulunamadı' });
+        }
+        if (error.message === 'NO_WAITER_AVAILABLE') {
+            return res.status(409).json({ error: 'Müsait garson bulunamadı (tümü molada olabilir)' });
         }
         console.error('createCashierServiceCallHandler', error);
         res.status(500).json({ error: 'Çağrı oluşturulamadı' });
@@ -180,12 +229,17 @@ export const patchServiceCallStatusHandler = async (req: Request, res: Response)
         let tableIdForEmit: number | null = null;
         let callTypeForEmit: string | null = null;
 
+        const branchId = req.branchId || 1;
+        let takeoverAfterSec = 60;
+
         await withTenantTransaction(tenantId, async (connection) => {
             await ensureServiceCallsTargetUserColumn(connection);
             await ensureServiceCallsTableIdNullable(connection);
+            await ensureServiceCallAssigneeColumns(connection);
+            takeoverAfterSec = await getServiceCallEscalationSecondsFromDb(connection, branchId);
             /** PG: LEFT JOIN + FOR UPDATE dış birleşimde 500 üretir; oturum garsonu alt sorgu ile alınır */
             const [rows]: any = await connection.query(
-                `SELECT sc.id, sc.table_id, sc.created_at, sc.session_id, sc.target_user_id, sc.call_type,
+                `SELECT sc.id, sc.table_id, sc.created_at, sc.assignee_set_at, sc.session_id, sc.target_user_id, sc.call_type,
                         (SELECT ts.waiter_id FROM table_sessions ts WHERE ts.id = sc.session_id) AS session_waiter_id
                  FROM service_calls sc
                  WHERE sc.id = ?
@@ -211,9 +265,10 @@ export const patchServiceCallStatusHandler = async (req: Request, res: Response)
             const assigneeId = targetUid != null ? targetUid : sessionW;
 
             if (userIdNum != null && assigneeId != null && assigneeId !== userIdNum) {
-                const createdMs = new Date(row.created_at).getTime();
-                if (Number.isFinite(createdMs) && Date.now() - createdMs < SERVICE_CALL_TAKEOVER_AFTER_SEC * 1000) {
-                    throw new Error('TAKEOVER_TOO_EARLY');
+                const gateRaw = row.assignee_set_at ?? row.created_at;
+                const gateMs = new Date(gateRaw).getTime();
+                if (Number.isFinite(gateMs) && Date.now() - gateMs < takeoverAfterSec * 1000) {
+                    throw new Error(`TAKEOVER_TOO_EARLY:${takeoverAfterSec}`);
                 }
             }
 
@@ -226,6 +281,36 @@ export const patchServiceCallStatusHandler = async (req: Request, res: Response)
             sql += ` WHERE id = ?`;
             params.push(id);
             await connection.query(sql, params as any[]);
+
+            /**
+             * Aynı masada birden fazla bekleyen garson çağrısı kalırsa,
+             * biri "in_progress" olduğunda yenilemede tekrar düşebilir.
+             * Bu yüzden ilgili çağrıyı kabul ederken aynı masa için diğer pending call_waiter kayıtlarını kapat.
+             */
+            if (
+                body.status === 'in_progress' &&
+                callTypeForEmit === 'call_waiter' &&
+                tableIdForEmit != null
+            ) {
+                const closeOthersParams: unknown[] = [];
+                let closeOthersSql = `
+                    UPDATE service_calls
+                    SET status = 'seen',
+                        responded_at = CURRENT_TIMESTAMP
+                `;
+                if (userId != null && Number.isFinite(userId)) {
+                    closeOthersSql += `, responded_by = ?`;
+                    closeOthersParams.push(userId);
+                }
+                closeOthersSql += `
+                    WHERE table_id = ?
+                      AND call_type = 'call_waiter'
+                      AND status = 'pending'
+                      AND id <> ?
+                `;
+                closeOthersParams.push(tableIdForEmit, id);
+                await connection.query(closeOthersSql, closeOthersParams as any[]);
+            }
         });
 
         const io = req.app.get('io');
@@ -256,10 +341,12 @@ export const patchServiceCallStatusHandler = async (req: Request, res: Response)
         if (error.message === 'NOT_FOUND') {
             return res.status(404).json({ error: 'Kayıt bulunamadı' });
         }
-        if (error.message === 'TAKEOVER_TOO_EARLY') {
+        if (typeof error.message === 'string' && error.message.startsWith('TAKEOVER_TOO_EARLY')) {
+            const sec = Number(error.message.split(':')[1]) || 60;
             return res.status(403).json({
-                error: `Atanmış personel ${SERVICE_CALL_TAKEOVER_AFTER_SEC} sn içinde yanıtlamadıysa çağrıyı devralabilirsiniz.`,
+                error: `Atanmış personel ${sec} sn içinde yanıtlamadıysa çağrıyı devralabilirsiniz.`,
                 code: 'TAKEOVER_TOO_EARLY',
+                waitSeconds: sec,
             });
         }
         console.error('patchServiceCallStatusHandler', error);

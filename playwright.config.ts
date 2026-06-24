@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const apiBase = process.env.API_BASE_URL || 'http://127.0.0.1:5000';
+const apiBase = process.env.API_BASE_URL || 'http://127.0.0.1:3101';
 const posBase = process.env.POS_BASE_URL || 'http://127.0.0.1:5173';
 
 /** API-only koşularında Vite başlatılmaz: `npm run test:e2e:api` (cross-env ile PLAYWRIGHT_NO_WEBSERVER=1). */
@@ -35,7 +35,7 @@ export default defineConfig({
         },
         {
             name: 'pos-ui',
-            testMatch: /pos-(login|routing|flows)\.spec\.ts/,
+            testMatch: /(pos-login|pos-routing|pos-flows|pos-full-order|pos-offline|qr-waiter-approval|pos-flows-simulation|pos-integrations-flows-simulation|multi-role-simulation|comprehensive-simulation|kiosk-registration)\.spec\.ts/,
             use: {
                 ...devices['Desktop Chrome'],
                 baseURL: posBase,

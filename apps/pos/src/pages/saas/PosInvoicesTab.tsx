@@ -1,224 +1,169 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import toast from 'react-hot-toast';
-import { FiDownload, FiMail, FiRefreshCw } from 'react-icons/fi';
-import { useSaaSLocale } from '../../contexts/SaaSLocaleContext';
+import React, { useEffect, useState } from 'react';
 import { useSaaSStore } from '../../store/useSaaSStore';
-import { InputGroup, Modal, SectionCard, SelectGroup } from './SaaSShared';
+import { useSaaSLocale } from '../../contexts/SaaSLocaleContext';
+import {
+    FiFileText, FiRefreshCw, FiSearch, FiPrinter, FiDownload, FiZap, FiUsers, FiLayers, FiDollarSign
+} from 'react-icons/fi';
+import { SectionCard, EmptyState, Modal, Badge } from './SaaSShared';
+import { motion, AnimatePresence } from 'framer-motion';
 
-function isoDate(d: Date): string {
-    return d.toISOString().slice(0, 10);
-}
+const statusColor: Record<string, string> = {
+    paid: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-emerald-500/5',
+    pending: 'bg-amber-500/10 text-amber-500 border-amber-500/20 shadow-amber-500/5',
+    overdue: 'bg-rose-500/10 text-rose-500 border-rose-500/20 shadow-rose-500/5',
+    cancelled: 'bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/20',
+};
 
 export const PosInvoicesTab: React.FC = () => {
     const { t } = useSaaSLocale();
     const {
-        tenants,
-        fetchTenants,
-        fetchPosInvoices,
-        fetchPosInvoiceDetail,
-        fetchPosInvoicePdf,
-        sendPosInvoiceEmail,
-        fetchPosInvoiceEvents,
-        selectedTenantId,
-        selectedPosInvoiceNo,
-        setSelectedPosInvoiceNo,
+        fetchInvoices, invoices,
+        fetchInvoiceDetail, settings,
     } = useSaaSStore();
 
-    const today = useMemo(() => isoDate(new Date()), []);
-    const weekAgo = useMemo(() => isoDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)), []);
-
-    const [tenantId, setTenantId] = useState('');
-    const [from, setFrom] = useState(weekAgo);
-    const [to, setTo] = useState(today);
-    const [q, setQ] = useState('');
+    const currency = settings?.currency || '€';
+    
     const [loading, setLoading] = useState(false);
-    const [rows, setRows] = useState<any[]>([]);
+    const [invoiceModal, setInvoiceModal] = useState<any | null>(null);
+    const [invoiceLoading, setInvoiceLoading] = useState(false);
+    
+    // Filters
+    const [filterStatus, setFilterStatus] = useState('');
+    const [filterTenant, setFilterTenant] = useState('');
+    const [filterFrom, setFilterFrom] = useState('');
+    const [filterTo, setFilterTo] = useState('');
 
-    const [detailOpen, setDetailOpen] = useState(false);
-    const [detailLoading, setDetailLoading] = useState(false);
-    const [detail, setDetail] = useState<any | null>(null);
-    const [events, setEvents] = useState<any[]>([]);
-    const [eventsLoading, setEventsLoading] = useState(false);
-
-    const [emailOpen, setEmailOpen] = useState(false);
-    const [emailTo, setEmailTo] = useState('');
-    const [emailSending, setEmailSending] = useState(false);
-
-    useEffect(() => {
-        if (!tenants.length) fetchTenants();
-    }, [tenants.length, fetchTenants]);
-
-    useEffect(() => {
-        if (!tenantId && tenants.length) setTenantId(String(tenants[0]?.id || ''));
-    }, [tenantId, tenants]);
-
-    useEffect(() => {
-        if (selectedTenantId && selectedTenantId !== tenantId) {
-            setTenantId(selectedTenantId);
-        }
-    }, [selectedTenantId, tenantId]);
-
-    const tenantOptions = useMemo(() => {
-        return tenants.map((x: any) => ({ value: String(x.id), label: `${x.name || 'Tenant'} (${String(x.id).slice(0, 8)})` }));
-    }, [tenants]);
-
-    async function load() {
-        if (!tenantId) return;
+    const load = async () => {
         setLoading(true);
         try {
-            const data = await fetchPosInvoices(tenantId, { from, to, q, limit: 200 });
-            setRows(data || []);
+            await fetchInvoices({
+                status: filterStatus || undefined,
+                tenant: filterTenant || undefined,
+                from: filterFrom || undefined,
+                to: filterTo || undefined
+            });
         } finally {
             setLoading(false);
         }
-    }
-
-    async function openDetail(posInvoiceNo: string) {
-        if (!tenantId) return;
-        setDetailLoading(true);
-        try {
-            const d = await fetchPosInvoiceDetail(tenantId, posInvoiceNo);
-            if (!d) {
-                toast.error('Fatura bulunamadı');
-                return;
-            }
-            setDetail(d);
-            setDetailOpen(true);
-            setEmailTo(String(d.customer_email || '').trim());
-            setEvents([]);
-            setEventsLoading(true);
-            const ev = await fetchPosInvoiceEvents(tenantId, { posInvoiceNo: String(d.pos_invoice_no), limit: 200 });
-            setEvents(ev || []);
-        } finally {
-            setEventsLoading(false);
-            setDetailLoading(false);
-        }
-    }
-
-    async function downloadPdf(posInvoiceNo: string) {
-        if (!tenantId) return;
-        try {
-            const blob = await fetchPosInvoicePdf(tenantId, posInvoiceNo);
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${posInvoiceNo}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
-        } catch {
-            toast.error('PDF indirilemedi');
-        }
-    }
-
-    async function sendEmail() {
-        if (!tenantId || !detail?.pos_invoice_no) return;
-        setEmailSending(true);
-        try {
-            const r = await sendPosInvoiceEmail(tenantId, String(detail.pos_invoice_no), emailTo.trim() || undefined);
-            if (!r.ok) {
-                toast.error(r.error || 'Mail gönderilemedi');
-                return;
-            }
-            toast.success('Mail gönderildi');
-            setEmailOpen(false);
-            const ev = await fetchPosInvoiceEvents(tenantId, { posInvoiceNo: String(detail.pos_invoice_no), limit: 200 });
-            setEvents(ev || []);
-        } finally {
-            setEmailSending(false);
-        }
-    }
+    };
 
     useEffect(() => {
-        if (tenantId) load();
-    }, [tenantId]);
+        load();
+    }, [filterStatus, filterTenant, filterFrom, filterTo]);
 
-    useEffect(() => {
-        if (!tenantId || !selectedPosInvoiceNo) return;
-        void openDetail(selectedPosInvoiceNo).finally(() => setSelectedPosInvoiceNo(null));
-    }, [tenantId, selectedPosInvoiceNo]);
+    const openInvoice = async (invoiceNumber: string) => {
+        if (!invoiceNumber || invoiceNumber === '—') return;
+        setInvoiceLoading(true);
+        const detail = await fetchInvoiceDetail(invoiceNumber);
+        setInvoiceModal(detail);
+        setInvoiceLoading(false);
+    };
 
     return (
-        <div className="space-y-8">
-            <div className="flex items-start justify-between gap-6">
-                <div>
-                    <h1 className="text-3xl font-black text-white tracking-tight">{t('tab.posInvoices')}</h1>
-                    <p className="text-slate-400 text-sm">POS satış faturaları: arama, PDF, e‑posta gönderim ve log.</p>
+        <motion.div 
+            className="space-y-8 pb-10"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+        >
+            <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-8">
+                <div className="space-y-1">
+                    <div className="flex items-center gap-3 text-blue-500 mb-1">
+                        <FiZap className="animate-pulse" size={14} />
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] opacity-40">Billing Headquarters</span>
+                    </div>
+                    <h2 className="text-4xl font-black text-slate-800 dark:text-white tracking-tighter uppercase italic drop-shadow-sm">
+                        {t('tab.posInvoices') || 'Sales Invoice Center'}
+                    </h2>
+                    <p className="text-[11px] text-slate-500 font-bold uppercase tracking-[0.2em] max-w-xl opacity-60">
+                        {t('posInvoices.subtitle')}
+                    </p>
                 </div>
+                
                 <button
-                    type="button"
                     onClick={load}
-                    disabled={loading || !tenantId}
-                    className="px-5 py-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 text-white font-bold flex items-center gap-2 disabled:opacity-50"
+                    disabled={loading}
+                    className="px-6 py-3.5 bg-white/5 hover:bg-white/10 rounded-xl flex items-center gap-3 transition-all active:scale-95 text-[10px] font-black uppercase tracking-[0.2em] text-slate-800 dark:text-white border border-slate-200 dark:border-slate-800 shadow-sm disabled:opacity-50"
                 >
-                    <FiRefreshCw />
-                    Yenile
+                    <FiRefreshCw className={loading ? 'animate-spin' : ''} /> {t('posInvoices.refresh')}
                 </button>
             </div>
 
-            <SectionCard title="Filtreler">
-                <p className="text-slate-400 text-xs mb-4">Fatura numarası, telefon, e‑posta, müşteri adı veya order id ile arayın.</p>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <SelectGroup label="Restoran" value={tenantId} onChange={setTenantId} options={tenantOptions} />
-                    <InputGroup label="Başlangıç" value={from} onChange={setFrom} type="date" />
-                    <InputGroup label="Bitiş" value={to} onChange={setTo} type="date" />
-                    <InputGroup label="Arama" value={q} onChange={setQ} placeholder="Fatura no / tel / email / order id" />
-                </div>
-                <div className="mt-4 text-xs text-slate-400">
-                    Gösterilen: <span className="text-white font-bold">{rows.length}</span>
-                </div>
-            </SectionCard>
-
-            <SectionCard title="Satış Faturaları">
-                <p className="text-slate-400 text-xs mb-4">Liste satırına tıklayın: detay + PDF + mail.</p>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+            <SectionCard 
+                title={t('posInvoices.filters')} 
+                icon={<FiSearch className="text-blue-400" />}
+                action={
+                    <div className="flex flex-wrap gap-4 items-center">
+                        <select 
+                            value={filterStatus} 
+                            onChange={e => setFilterStatus(e.target.value)} 
+                            className="bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-[10px] font-black uppercase rounded-2xl px-5 py-3 outline-none hover:border-blue-500/40 transition-all cursor-pointer shadow-xl appearance-none"
+                        >
+                            <option value="">STATUS: ALL</option>
+                            <option value="paid">PAID</option>
+                            <option value="draft">DRAFT</option>
+                            <option value="overdue">OVERDUE</option>
+                        </select>
+                        <div className="relative group min-w-[200px]">
+                            <FiSearch className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-blue-500 transition-colors" size={14} />
+                            <input 
+                                type="text" 
+                                value={filterTenant} 
+                                onChange={e => setFilterTenant(e.target.value)} 
+                                className="bg-white/5 border border-slate-200 dark:border-slate-800 rounded-2xl pl-12 pr-6 py-3 text-[11px] font-black text-slate-800 dark:text-white outline-none focus:border-blue-500/50 focus:bg-blue-500/10 transition-all w-full placeholder:text-slate-700" 
+                                placeholder="RESTORAN ARA..." 
+                            />
+                        </div>
+                        <div className="flex items-center gap-2 bg-slate-900/60 rounded-2xl p-1 border border-slate-200 dark:border-slate-800">
+                            <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} className="bg-transparent border-none text-slate-800 dark:text-white text-[10px] font-black px-3 py-2 outline-none cursor-pointer" />
+                            <span className="text-slate-700 font-bold px-1">/</span>
+                            <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} className="bg-transparent border-none text-slate-800 dark:text-white text-[10px] font-black px-3 py-2 outline-none cursor-pointer" />
+                        </div>
+                    </div>
+                }
+            >
+                <div className="overflow-x-auto -mx-6 custom-scrollbar mt-6">
+                    <table className="w-full text-left border-separate border-spacing-y-2 px-6">
                         <thead>
-                            <tr className="text-left text-slate-400 border-b border-white/10">
-                                <th className="py-3 pr-4">Tarih</th>
-                                <th className="py-3 pr-4">Fatura</th>
-                                <th className="py-3 pr-4">Şube</th>
-                                <th className="py-3 pr-4">Kasiyer</th>
-                                <th className="py-3 pr-4 text-right">Toplam</th>
-                                <th className="py-3 pr-4">Ödeme</th>
-                                <th className="py-3 pr-4">Durum</th>
-                                <th className="py-3 pr-2 text-right">Aksiyon</th>
+                            <tr className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em] opacity-60">
+                                <th className="px-6 py-4">{t('accounting.colInvoice')}</th>
+                                <th className="px-6 py-4">{t('accounting.colTenant')}</th>
+                                <th className="px-6 py-4 text-right">{t('accounting.colAmount')}</th>
+                                <th className="px-6 py-4 text-center">{t('accounting.colStatus')}</th>
+                                <th className="px-6 py-4 text-right">{t('accounting.colCreated')}</th>
+                                <th className="px-6 py-4 text-right">{t('posInvoices.colActions')}</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.map((r) => (
-                                <tr
-                                    key={String(r.pos_invoice_no)}
-                                    className="border-b border-white/5 hover:bg-white/5 cursor-pointer"
-                                    onClick={() => openDetail(String(r.pos_invoice_no))}
-                                >
-                                    <td className="py-3 pr-4 text-slate-300">{String(r.created_at).replace('T', ' ').slice(0, 16)}</td>
-                                    <td className="py-3 pr-4 text-white font-bold">{r.pos_invoice_no}</td>
-                                    <td className="py-3 pr-4 text-slate-300">{r.branch_name || r.branch_id || '—'}</td>
-                                    <td className="py-3 pr-4 text-slate-300">{r.cashier_name || r.cashier_id || '—'}</td>
-                                    <td className="py-3 pr-4 text-right text-white font-bold">{Number(r.total_amount || 0).toFixed(2)}</td>
-                                    <td className="py-3 pr-4 text-slate-300">{r.payment_method || '—'}</td>
-                                    <td className="py-3 pr-4 text-slate-300">{r.payment_status || r.status || '—'}</td>
-                                    <td className="py-3 pr-2 text-right">
-                                        <button
-                                            type="button"
-                                            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                downloadPdf(String(r.pos_invoice_no));
-                                            }}
+                            {invoices && invoices.length > 0 ? invoices.map((inv: any) => (
+                                <tr key={inv.id} className="group hover:bg-white/[0.02] transition-colors">
+                                    <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent first:rounded-l-[24px] last:rounded-r-[24px] border-y border-slate-200 dark:border-slate-800 first:border-l last:border-r">
+                                        <button onClick={() => openInvoice(inv.invoice_number)} className="text-blue-400 hover:text-slate-800 dark:text-white transition-all font-black uppercase tracking-tighter italic">
+                                            <FiFileText className="inline mr-2 opacity-40" /> #{inv.invoice_number}
+                                        </button>
+                                    </td>
+                                    <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0 font-black text-slate-800 dark:text-white text-xs uppercase tracking-tight truncate max-w-[200px]">{inv.tenant_name || inv.tenant_id}</td>
+                                    <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0 text-right font-black text-slate-800 dark:text-white tabular-nums italic">{currency}{Number(inv.total || 0).toLocaleString()}</td>
+                                    <td className="px-6 py-5 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0 text-center">
+                                        <Badge color={inv.status === 'paid' ? 'emerald' : inv.status === 'overdue' ? 'rose' : 'amber'}>
+                                            {(inv.status || 'draft').toUpperCase()}
+                                        </Badge>
+                                    </td>
+                                    <td className="px-6 py-5 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0 text-right">
+                                        <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest tabular-nums">{new Date(inv.created_at).toLocaleDateString('tr-TR')}</span>
+                                    </td>
+                                    <td className="px-6 py-5 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0 rounded-r-[24px] text-right border-r">
+                                        <button 
+                                            onClick={() => openInvoice(inv.invoice_number)}
+                                            className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-xl transition-all active:scale-90 border border-transparent hover:border-blue-500/20 shadow-sm"
                                         >
-                                            <FiDownload />
-                                            PDF
+                                            <FiDownload size={14} />
                                         </button>
                                     </td>
                                 </tr>
-                            ))}
-                            {!rows.length && (
+                            )) : (
                                 <tr>
-                                    <td colSpan={8} className="py-8 text-center text-slate-500">
-                                        {loading ? 'Yükleniyor…' : 'Kayıt yok.'}
+                                    <td colSpan={6}>
+                                        <EmptyState icon={<FiFileText />} message={loading ? t('posInvoices.loading') : t('posInvoices.noData')} />
                                     </td>
                                 </tr>
                             )}
@@ -227,124 +172,203 @@ export const PosInvoicesTab: React.FC = () => {
                 </div>
             </SectionCard>
 
-            <Modal show={detailOpen} onClose={() => setDetailOpen(false)} title={detail ? `Fatura — ${detail.pos_invoice_no}` : 'Fatura'}>
-                {!detail || detailLoading ? (
-                    <div className="text-slate-300">Yükleniyor…</div>
-                ) : (
-                    <div className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Kaynak</div>
-                                <div className="text-white font-bold">Order #{detail.order_id}</div>
-                                <div className="text-slate-300 text-sm">{detail.branch_name || detail.branch_id || '—'}</div>
-                                <div className="text-slate-300 text-sm">{detail.cashier_name || detail.cashier_id || '—'}</div>
-                            </div>
-                            <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Toplamlar</div>
-                                <div className="text-slate-300 text-sm">Ara: {Number(detail.subtotal || 0).toFixed(2)}</div>
-                                <div className="text-slate-300 text-sm">İndirim: {Number(detail.discount_amount || 0).toFixed(2)}</div>
-                                <div className="text-slate-300 text-sm">KDV: {Number(detail.tax_amount || 0).toFixed(2)}</div>
-                                <div className="text-white font-black text-lg">Genel: {Number(detail.total_amount || 0).toFixed(2)}</div>
-                            </div>
-                            <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Müşteri</div>
-                                <div className="text-white font-bold">{detail.customer_name || '—'}</div>
-                                <div className="text-slate-300 text-sm">{detail.customer_phone || detail.delivery_phone || '—'}</div>
-                                <div className="text-slate-300 text-sm">{detail.customer_email || '—'}</div>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-3">
-                            <button
-                                type="button"
-                                className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 text-white font-bold"
-                                onClick={() => downloadPdf(String(detail.pos_invoice_no))}
-                            >
-                                <FiDownload />
-                                PDF indir
-                            </button>
-                            <button
-                                type="button"
-                                className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-blue-600/20 border border-blue-500/30 hover:bg-blue-600/30 text-white font-bold"
-                                onClick={() => setEmailOpen(true)}
-                            >
-                                <FiMail />
-                                Mail gönder
-                            </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Kalemler</div>
-                                <div className="space-y-3">
-                                    {(detail.items || []).map((it: any) => (
-                                        <div key={String(it.id)} className="flex items-start justify-between gap-3">
-                                            <div>
-                                                <div className="text-white font-bold">
-                                                    {Number(it.quantity)} × {it.product_name || 'Item'}{it.variant_name ? ` (${it.variant_name})` : ''}
-                                                </div>
-                                                {it.notes && <div className="text-slate-400 text-xs">{it.notes}</div>}
-                                            </div>
-                                            <div className="text-white font-bold">{Number(it.total_price || 0).toFixed(2)}</div>
-                                        </div>
-                                    ))}
-                                    {!detail.items?.length && <div className="text-slate-500">Kalem yok.</div>}
-                                </div>
-                            </div>
-
-                            <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Ödemeler</div>
-                                <div className="space-y-3">
-                                    {(detail.payments || []).map((p: any) => (
-                                        <div key={String(p.id)} className="flex items-center justify-between gap-3">
-                                            <div className="text-slate-300">
-                                                <span className="text-white font-bold">{p.method}</span>
-                                                {p.cashier_name && <span className="text-slate-500"> · {p.cashier_name}</span>}
-                                            </div>
-                                            <div className="text-white font-bold">{Number(p.amount || 0).toFixed(2)}</div>
-                                        </div>
-                                    ))}
-                                    {!detail.payments?.length && <div className="text-slate-500">Ödeme yok.</div>}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="p-4 rounded-2xl bg-white/5 border border-white/10">
-                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">{t('tab.posInvoiceLogs')}</div>
-                            {eventsLoading ? (
-                                <div className="text-slate-300">Yükleniyor…</div>
-                            ) : (
-                                <div className="space-y-2">
-                                    {events.map((e) => (
-                                        <div key={String(e.id)} className="flex items-center justify-between gap-4">
-                                            <div className="text-slate-300 text-sm">
-                                                <span className="text-white font-bold">{e.event_type}</span>
-                                                {e.created_by ? <span className="text-slate-500"> · {e.created_by}</span> : null}
-                                            </div>
-                                            <div className="text-slate-500 text-xs">{String(e.created_at).replace('T', ' ').slice(0, 19)}</div>
-                                        </div>
-                                    ))}
-                                    {!events.length && <div className="text-slate-500">Log yok.</div>}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-            </Modal>
-
-            <Modal show={emailOpen} onClose={() => setEmailOpen(false)} title="Fatura mail gönder">
-                <div className="space-y-4">
-                    <InputGroup label="Alıcı e‑posta" value={emailTo} onChange={setEmailTo} placeholder="musteri@ornek.com" />
-                    <button
-                        type="button"
-                        onClick={sendEmail}
-                        disabled={emailSending}
-                        className="w-full px-4 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-black disabled:opacity-50"
+            {/* ═══ FATURA DETAY MODAL ═══ */}
+            <AnimatePresence>
+                {(invoiceModal || invoiceLoading) && (
+                    <Modal 
+                        show={!!(invoiceModal || invoiceLoading)} 
+                        onClose={() => setInvoiceModal(null)} 
+                        title={t('accounting.invoiceDetailTitle')}
+                        maxWidth="max-w-4xl"
                     >
-                        {emailSending ? 'Gönderiliyor…' : 'Gönder'}
-                    </button>
-                </div>
-            </Modal>
-        </div>
+                        {invoiceLoading ? (
+                            <div className="flex flex-col items-center justify-center py-20 gap-4">
+                                <div className="w-12 h-12 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin" />
+                                <span className="text-xs font-black text-slate-500 uppercase tracking-widest animate-pulse">Retrieving Document...</span>
+                            </div>
+                        ) : invoiceModal ? (
+                            <div className="space-y-10">
+                                {/* Header Section */}
+                                <div className="flex flex-col md:flex-row justify-between items-start gap-8">
+                                    <div className="space-y-4">
+                                        <div className="p-4 bg-gradient-to-br from-blue-600 to-indigo-700 w-fit rounded-3xl shadow-sm relative overflow-hidden">
+                                            <FiZap size={32} className="text-slate-800 dark:text-white drop-shadow-lg" />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-3xl font-black text-slate-800 dark:text-white italic tracking-tighter">NEXTPOS <span className="text-blue-500">PRO</span></h4>
+                                            <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.4em]">Financial Services Ltd.</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right space-y-4">
+                                        <div className="p-6 bg-white/[0.03] border border-slate-200 dark:border-slate-800 rounded-2xl inline-block">
+                                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1">{t('accounting.colInvoice')}</div>
+                                            <div className="text-2xl font-black text-slate-800 dark:text-white tabular-nums tracking-tighter">#{invoiceModal.invoice_number}</div>
+                                            <div className={`mt-2 px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] inline-block ${statusColor[invoiceModal.status] || statusColor.pending}`}>
+                                                {(invoiceModal.status || 'draft').toUpperCase()}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-1">
+                                            <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Issued On</span>
+                                            <span className="text-sm font-black text-slate-600 dark:text-slate-500 dark:text-slate-400 italic">{invoiceModal.created_at ? new Date(invoiceModal.created_at).toLocaleString('tr-TR') : ''}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Billing info grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    <div className="bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-800 rounded-2xl p-8 space-y-4 group hover:border-blue-500/20 transition-all">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className="p-2 bg-blue-500/10 text-blue-400 rounded-xl"><FiUsers size={14}/></div>
+                                            <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">{t('accounting.invoiceTo')}</span>
+                                        </div>
+                                        <div className="text-xl font-black text-slate-800 dark:text-white uppercase italic tracking-tight leading-tighter">{invoiceModal.company_title || invoiceModal.tenant_name || '—'}</div>
+                                        <div className="space-y-1 text-slate-500 dark:text-slate-400 font-bold text-[11px] leading-relaxed">
+                                            {invoiceModal.tenant_address && <p>{invoiceModal.tenant_address}</p>}
+                                            {invoiceModal.authorized_person && <p className="text-slate-500 uppercase tracking-widest mt-2">{t('accounting.fieldAuthorized')}: {invoiceModal.authorized_person}</p>}
+                                        </div>
+                                    </div>
+                                    <div className="bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-800 rounded-2xl p-8 space-y-4 group hover:border-white/20 transition-all">
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl"><FiLayers size={14}/></div>
+                                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">{t('accounting.fieldContact')}</span>
+                                        </div>
+                                        <div className="space-y-4">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest block mb-1">Email</span>
+                                                    <span className="text-[11px] font-black text-slate-600 dark:text-slate-500 dark:text-slate-400 truncate block underline decoration-white/10">{invoiceModal.contact_email || '—'}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest block mb-1">Tax No</span>
+                                                    <span className="text-[11px] font-black text-slate-600 dark:text-slate-500 dark:text-slate-400 block italic">{invoiceModal.tax_number || '—'}</span>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest block mb-1">Address Detail</span>
+                                                <span className="text-[11px] text-slate-500 font-bold">{invoiceModal.tax_office || ''} Internal Node</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Items Table */}
+                                <div className="overflow-hidden border border-slate-200 dark:border-slate-800 rounded-2xl bg-white/[0.01]">
+                                    <table className="w-full text-left">
+                                        <thead>
+                                            <tr className="bg-white/5 text-[9px] font-black text-slate-500 uppercase tracking-[0.3em]">
+                                                <th className="px-8 py-5">{t('accounting.invoiceItem')}</th>
+                                                <th className="px-8 py-5 text-center">{t('accounting.invoiceQty')}</th>
+                                                <th className="px-8 py-5 text-right">{t('accounting.invoiceUnitPrice')}</th>
+                                                <th className="px-8 py-5 text-right">{t('accounting.colAmount')}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/[0.03]">
+                                            {(Array.isArray(invoiceModal.items) ? invoiceModal.items : []).map((item: any, idx: number) => (
+                                                <tr key={idx} className="group hover:bg-white/[0.02] transition-colors">
+                                                    <td className="px-8 py-5 text-sm font-black text-slate-800 dark:text-white italic">{item.description}</td>
+                                                    <td className="px-8 py-5 text-center text-xs font-bold text-slate-500">{item.quantity}</td>
+                                                    <td className="px-8 py-5 text-right text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums">{currency}{Number(item.unit_price || 0).toLocaleString()}</td>
+                                                    <td className="px-8 py-5 text-right text-base font-black text-slate-800 dark:text-white tabular-nums group-hover:text-blue-400 transition-colors">{currency}{Number(item.total || 0).toLocaleString()}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* Totals & Action */}
+                                <div className="flex flex-col md:flex-row justify-between items-end gap-8 pt-6 border-t border-slate-200 dark:border-slate-800">
+                                    <div className="flex gap-4">
+                                        <button 
+                                            onClick={() => {
+                                                const w = window.open('', '_blank');
+                                                if (w) { w.document.write(buildInvoiceHtml(invoiceModal, currency)); w.document.close(); }
+                                            }}
+                                            className="px-8 py-4 bg-white/5 hover:bg-white/10 rounded-2xl flex items-center gap-3 transition-all active:scale-95 text-[10px] font-black uppercase tracking-[0.2em] text-slate-800 dark:text-white border border-slate-200 dark:border-slate-800 shadow-sm"
+                                        >
+                                            <FiPrinter size={16} /> {t('accounting.print') || 'Print / PDF'}
+                                        </button>
+                                    </div>
+                                    <div className="w-full md:w-80 space-y-3 bg-gradient-to-br from-white/[0.02] to-transparent p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                                        <div className="flex justify-between items-center text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
+                                            <span>Subtotal</span>
+                                            <span className="tabular-nums">{currency}{Number(invoiceModal.subtotal || 0).toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
+                                            <span>Tax Support ({invoiceModal.tax_rate || 19}%)</span>
+                                            <span className="tabular-nums">{currency}{Number(invoiceModal.tax_amount || 0).toLocaleString()}</span>
+                                        </div>
+                                        <div className="pt-4 mt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center">
+                                            <span className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-[0.2em]">Total</span>
+                                            <span className="text-3xl font-black text-slate-800 dark:text-white tabular-nums italic tracking-tighter drop-shadow-sm">{currency}{Number(invoiceModal.total || 0).toLocaleString()}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : null}
+                    </Modal>
+                )}
+            </AnimatePresence>
+        </motion.div>
     );
 };
+
+function buildInvoiceHtml(inv: any, currency: string): string {
+    const items = Array.isArray(inv.items) ? inv.items : [];
+    const rows = items.map((it: any) => `
+        <tr>
+            <td style="padding:15px;border-bottom:1px solid #f0f0f0;font-weight:bold">${it.description || ''}</td>
+            <td style="padding:15px;border-bottom:1px solid #f0f0f0;text-align:center">${it.quantity}</td>
+            <td style="padding:15px;border-bottom:1px solid #f0f0f0;text-align:right">${currency}${Number(it.unit_price || 0).toLocaleString()}</td>
+            <td style="padding:15px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:bold">${currency}${Number(it.total || 0).toLocaleString()}</td>
+        </tr>
+    `).join('');
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${inv.invoice_number}</title>
+    <style>
+        body{font-family:'Inter',system-ui,sans-serif;max-width:850px;margin:50px auto;color:#1e293b;padding:40px;border:1px solid #f1f5f9;border-radius:16px;box-shadow:0 10px 50px rgba(0,0,0,0.05)}
+        .header{display:flex;justify-content:space-between;margin-bottom:50px}
+        .logo{font-size:28px;font-weight:900;letter-spacing:-1px;color:#0f172a;font-style:italic}
+        .logo span{color:#2563eb}
+        .inv-details{text-align:right}
+        .inv-details h1{font-size:40px;font-weight:900;margin:0;color:#0f172a;letter-spacing:-2px}
+        .grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-bottom:50px}
+        .box{background:#f8fafc;padding:25px;border-radius:20px}
+        .box-label{font-size:10px;font-weight:900;text-transform:uppercase;color:#94a3b8;letter-spacing:2px;margin-bottom:10px}
+        table{width:100%;border-collapse:collapse;margin:40px 0}
+        th{background:#f8fafc;padding:15px;text-align:left;font-size:11px;text-transform:uppercase;font-weight:900;color:#64748b}
+        .totals{margin-left:auto;width:300px;background:#0f172a;color:#fff;padding:30px;border-radius:24px}
+        .total-row{display:flex;justify-content:space-between;margin-bottom:10px;font-size:12px;opacity:0.8}
+        .grand-total{display:flex;justify-content:space-between;margin-top:20px;border-top:1px solid rgba(255,255,255,0.1);padding-top:20px;font-size:24px;font-weight:900}
+        @media print{body{margin:0;border:none;box-shadow:none}}
+    </style></head><body>
+    <div class="header">
+        <div class="logo">NEXTPOS <span>PRO</span></div>
+        <div class="inv-details">
+            <h1>INVOICE</h1>
+            <div style="font-weight:bold;font-size:16px">#${inv.invoice_number}</div>
+            <div style="color:#64748b;font-size:12px;margin-top:5px">${inv.created_at ? new Date(inv.created_at).toLocaleDateString('tr-TR') : ''}</div>
+        </div>
+    </div>
+    <div class="grid">
+        <div class="box">
+            <div class="box-label">Billed To</div>
+            <div style="font-size:18px;font-weight:900">${inv.company_title || inv.tenant_name || '—'}</div>
+            <div style="font-size:13px;color:#64748b;margin-top:8px">${inv.tenant_address || ''}</div>
+        </div>
+        <div class="box">
+            <div class="box-label">Account Details</div>
+            <div style="font-size:14px;font-weight:bold;display:grid;gap:5px">
+                <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">Authorized</span> <span>${inv.authorized_person || '—'}</span></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">Tax ID</span> <span>${inv.tax_number || '—'}</span></div>
+                <div style="display:flex;justify-content:space-between"><span style="color:#94a3b8">Contact</span> <span>${inv.contact_email || '—'}</span></div>
+            </div>
+        </div>
+    </div>
+    <table><thead><tr><th>Description</th><th style="text-align:center">Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="totals">
+        <div class="total-row"><span>Subtotal</span> <span>${currency}${Number(inv.subtotal || 0).toLocaleString()}</span></div>
+        <div class="total-row"><span>Tax (${inv.tax_rate || 19}%)</span> <span>${currency}${Number(inv.tax_amount || 0).toLocaleString()}</span></div>
+        <div class="grand-total"><span>TOTAL</span> <span>${currency}${Number(inv.total || 0).toLocaleString()}</span></div>
+    </div>
+    <script>window.onload=function(){window.print()}</script>
+    </body></html>`;
+}

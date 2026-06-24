@@ -93,13 +93,13 @@ export const getCourierDetailHandler = async (req: Request, res: Response) => {
 
             // 1. Son teslimatları çek
             const [orders]: any = await connection.query(
-                `SELECT o.id, o.total_amount, o.customer_name, o.delivery_address, o.payment_method_arrival, o.courier_settled,
+                `SELECT o.id, o.status, o.total_amount, o.customer_name, o.delivery_address, o.payment_method_arrival, o.courier_settled,
                         d.picked_at, d.delivered_at,
                         EXTRACT(EPOCH FROM (d.delivered_at - d.picked_at)) / 60 as duration_mins
                  FROM orders o
-                 JOIN deliveries d ON o.id = d.order_id
-                 WHERE o.courier_id = ? AND o.status = 'completed'
-                 ORDER BY d.delivered_at DESC
+                 LEFT JOIN deliveries d ON o.id = d.order_id
+                 WHERE o.courier_id = ? AND o.status IN ('completed', 'shipped', 'ready', 'preparing')
+                 ORDER BY o.created_at DESC
                  LIMIT ?`,
                 [courierId, limit]
             );

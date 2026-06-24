@@ -22,12 +22,17 @@ model Tenant {
   taxOffice         String?   @map("tax_office") @db.VarChar(100)
   taxNumber         String?   @map("tax_number") @db.VarChar(50)
   specialLicenseKey String?   @unique @map("special_license_key") @db.VarChar(100)
-  address           String?
-  settings          Json?     @default("{}")
-  resellerId        Int?      @map("reseller_id")
-  masterPassword    String?   @map("master_password") @db.VarChar(255)
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  address                  String?
+  settings                 Json?     @default("{}")
+  walletBalance            Decimal   @default(0) @map("wallet_balance") @db.Decimal(12, 2)
+  resellerId               Int?      @map("reseller_id")
+  companyTitle             String?   @map("company_title") @db.VarChar(255)
+  createdBy                String?   @map("created_by") @db.VarChar(255)
+  createdByRole            String?   @map("created_by_role") @db.VarChar(50)
+  deviceResetQuotaOverride Int?      @map("device_reset_quota_override")
+  masterPassword           String?   @map("master_password") @db.VarChar(255)
+  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("tenants")
 }
@@ -96,9 +101,32 @@ model SaasAdmin {
   postalCode            String?       @map("postal_code") @db.VarChar(10)
   taxNumber             String?       @map("tax_number") @db.VarChar(30)
   taxOffice             String?       @map("tax_office") @db.VarChar(100)
+  bankIban              String?       @map("bank_iban") @db.VarChar(100)
+  bankAccountName       String?       @map("bank_account_name") @db.VarChar(150)
   resellerPlan          ResellerPlan? @relation(fields: [resellerPlanId], references: [id])
+  payoutRequests        PayoutRequest[]
 
   @@map("saas_admins")
+}
+
+model PayoutRequest {
+  id             Int       @id @default(autoincrement())
+  resellerId     Int       @map("reseller_id")
+  amount         Decimal   @db.Decimal(12, 2)
+  currency       String    @default("EUR") @db.VarChar(10)
+  status         String    @default("pending") @db.VarChar(20)
+  payoutMethod   String    @map("payout_method") @db.VarChar(50)
+  bankIban       String?   @map("bank_iban") @db.VarChar(100)
+  bankAccount    String?   @map("bank_account") @db.VarChar(150)
+  note           String?
+  adminNote      String?   @map("admin_note")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  reseller       SaasAdmin @relation(fields: [resellerId], references: [id])
+
+  @@index([resellerId])
+  @@map("payout_requests")
 }
 
 model Language {
@@ -336,3 +364,19 @@ enum PlanModuleMode {
   addon
   locked
 }
+
+model TenantWalletTransaction {
+  id            Int      @id @default(autoincrement())
+  tenantId      String   @map("tenant_id") @db.Uuid
+  amount        Decimal  @db.Decimal(12, 2)
+  balanceBefore Decimal  @map("balance_before") @db.Decimal(12, 2)
+  balanceAfter  Decimal  @map("balance_after") @db.Decimal(12, 2)
+  type          String   @db.VarChar(50) // "deposit", "plan_charge", "module_charge", "setup_charge", "bonus"
+  description   String?  @db.VarChar(255)
+  referenceId   String?  @map("reference_id")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId])
+  @@map("tenant_wallet_transactions")
+}
+

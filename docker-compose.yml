@@ -2,6 +2,8 @@
 # Başlat: docker compose up -d
 # DATABASE_URL: postgresql://nextpos:nextpos@localhost:5433/nextpos
 # (5432 başka serviste kullanılıyorsa 5433 kullanın)
+# Redis host portu 6380: yerelde 6379 doluysa (başka Redis/WSL) çakışmayı önler.
+# apps/api: REDIS_URL=redis://127.0.0.1:6380
 
 services:
   postgres:
@@ -24,7 +26,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - '6379:6379'
+      - '6380:6379'
     command: redis-server --appendonly yes
     volumes:
       - nextpos_redis:/data

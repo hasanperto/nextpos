@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSaaSStore, type Reseller } from '../../store/useSaaSStore';
 import { useSaaSLocale } from '../../contexts/SaaSLocaleContext';
 import toast from 'react-hot-toast';
@@ -12,6 +12,9 @@ import { emptyForm, resellerToForm, type ResellerForm } from './resellerFormType
 import { ResellerFormFields } from './ResellerFormUi';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ModernConfirmModal } from '../../features/terminal/components/ModernConfirmModal';
+import { ResellerDetailModal } from './ResellerDetailModal';
+
+const API = import.meta.env.VITE_API_URL || '';
 
 function isResellerActive(r: Reseller): boolean {
     return r.active === 1 || r.active === true;
@@ -35,7 +38,30 @@ export const ResellersTab: React.FC = () => {
     const currency = settings?.currency || '€';
     const [showNewModal, setShowNewModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
+    const [showDetailModal, setShowDetailModal] = useState(false);
     const [selectedReseller, setSelectedReseller] = useState<Reseller | null>(null);
+
+    // BUG-2: Komisyon özeti
+    const [commSummary, setCommSummary] = useState<Record<number, { total_earned: number; total_pending: number; tenant_count: number }>>({});
+    const fetchCommissionSummary = useCallback(async () => {
+        try {
+            const token = useSaaSStore.getState().token;
+            const res = await fetch(`${API}/api/v1/tenants/resellers/commission-summary`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            const map: Record<number, { total_earned: number; total_pending: number; tenant_count: number }> = {};
+            for (const row of (data.summary || [])) {
+                map[row.reseller_id] = {
+                    total_earned: Number(row.total_earned) || 0,
+                    total_pending: Number(row.total_pending) || 0,
+                    tenant_count: Number(row.tenant_count) || 0,
+                };
+            }
+            setCommSummary(map);
+        } catch { /* sessiz hata */ }
+    }, []);
 
     const [createForm, setCreateForm] = useState<ResellerForm>(emptyForm);
     const [editForm, setEditForm] = useState<ResellerForm>(emptyForm);
@@ -50,7 +76,8 @@ export const ResellersTab: React.FC = () => {
         void fetchResellerPlans();
         void fetchResellerWalletTopupsAdmin();
         void fetchResellerTopupPendingCount();
-    }, [fetchResellers, fetchResellerPlans, fetchResellerWalletTopupsAdmin, fetchResellerTopupPendingCount]);
+        void fetchCommissionSummary();
+    }, [fetchResellers, fetchResellerPlans, fetchResellerWalletTopupsAdmin, fetchResellerTopupPendingCount, fetchCommissionSummary]);
 
     const planOptions = useMemo(
         () =>
@@ -88,6 +115,11 @@ export const ResellersTab: React.FC = () => {
         setTransferLicenses(0);
         setTransferWallet(0);
         setShowEditModal(true);
+    };
+
+    const openDetail = (r: Reseller) => {
+        setSelectedReseller(r);
+        setShowDetailModal(true);
     };
 
     const handleCreate = async (e: React.FormEvent) => {
@@ -263,32 +295,33 @@ export const ResellersTab: React.FC = () => {
                 />
             </div>
 
-            {/* 2. Management Table */}
+            {/* 2. Management Table & Mobile Cards */}
             <SectionCard 
                 title={t('reseller.title')} 
                 icon={<FiShield className="text-blue-400" />}
                 action={
-                    <div className="flex flex-col sm:flex-row items-center gap-4">
-                        <div className="relative group min-w-[240px]">
+                    <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
+                        <div className="relative group w-full sm:min-w-[240px]">
                             <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-hover:text-blue-400 transition-colors" size={14} />
                             <input 
                                 type="text"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full bg-white/5 border border-white/10 rounded-[20px] pl-11 pr-4 py-2.5 text-xs text-white outline-none focus:border-blue-500/50 transition-all font-bold placeholder:text-slate-600 shadow-inner"
+                                className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl pl-11 pr-4 py-2.5 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500/50 transition-all font-bold placeholder:text-slate-600 shadow-inner"
                                 placeholder="Search Partners..."
                             />
                         </div>
                         <button 
                             onClick={openCreate}
-                            className="h-11 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-[20px] text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+                            className="w-full sm:w-auto h-11 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-800 dark:text-white shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2"
                         >
                             <FiPlus size={14} /> NEW PARTNER
                         </button>
                     </div>
                 }
             >
-                <div className="overflow-x-auto -mx-6 custom-scrollbar">
+                {/* Desktop Table View */}
+                <div className="hidden lg:block overflow-x-auto -mx-6 custom-scrollbar">
                     <table className="w-full text-left border-separate border-spacing-y-2 px-6">
                         <thead>
                             <tr className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em] opacity-60">
@@ -296,6 +329,7 @@ export const ResellersTab: React.FC = () => {
                                 <th className="px-6 py-4">Status</th>
                                 <th className="px-6 py-4">Portfolio</th>
                                 <th className="px-6 py-4">Commission</th>
+                                <th className="px-6 py-4">Total Earned</th>
                                 <th className="px-6 py-4">Wallet Balance</th>
                                 <th className="px-6 py-4 text-right">Operational Status</th>
                             </tr>
@@ -314,15 +348,15 @@ export const ResellersTab: React.FC = () => {
                                             exit={{ opacity: 0, scale: 0.95 }}
                                             className="group hover:bg-white/[0.02] transition-colors relative"
                                         >
-                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent first:rounded-l-[24px] last:rounded-r-[24px] border-y border-white/5 first:border-l last:border-r">
+                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent first:rounded-l-[24px] last:rounded-r-[24px] border-y border-slate-200 dark:border-slate-800 first:border-l last:border-r">
                                                 <div className="flex items-center gap-4">
-                                                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 flex items-center justify-center font-black text-indigo-400 shadow-2xl group-hover:scale-110 transition-transform relative overflow-hidden">
+                                                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center font-black text-indigo-400 shadow-sm group-hover:scale-110 transition-transform relative overflow-hidden">
                                                         <div className="absolute inset-0 bg-indigo-500/5 group-hover:bg-indigo-500/20 transition-colors" />
                                                         <FiBriefcase size={18} />
                                                     </div>
                                                     <div className="flex flex-col min-w-0">
                                                         <div className="flex items-center gap-2">
-                                                            <span className="font-black text-sm text-white group-hover:text-blue-400 transition-colors truncate">{row.company_name || row.username}</span>
+                                                            <span className="font-black text-sm text-slate-800 dark:text-white group-hover:text-blue-400 transition-colors truncate">{row.company_name || row.username}</span>
                                                             {isResellerActive(row) && (
                                                                 <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-[8px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1">
                                                                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> VERIFIED
@@ -333,16 +367,16 @@ export const ResellersTab: React.FC = () => {
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-white/5 border-l-0 text-center">
+                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0 text-center">
                                                 <Badge color={isResellerActive(row) ? 'emerald' : 'rose'}>
                                                     {isResellerActive(row) ? t('reseller.active') : t('reseller.inactive')}
                                                 </Badge>
                                             </td>
-                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-white/5 border-l-0">
+                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0">
                                                 <div className="flex flex-col">
                                                     <div className="flex items-center gap-1.5 mb-1">
                                                         <FiZap size={10} className="text-slate-600" />
-                                                        <span className="text-[10px] font-black text-slate-300 uppercase tracking-tighter">{row.tenant_count || 0} Restaurants</span>
+                                                        <span className="text-[10px] font-black text-slate-600 dark:text-slate-500 dark:text-slate-400 uppercase tracking-tighter">{row.tenant_count || 0} Restaurants</span>
                                                     </div>
                                                     <div className="flex items-center gap-1.5">
                                                         <FiBox size={10} className="text-slate-600" />
@@ -350,35 +384,48 @@ export const ResellersTab: React.FC = () => {
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-white/5 border-l-0">
+                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0">
                                                 <div className="flex flex-col">
                                                     <div className="text-sm font-black text-blue-400 tabular-nums italic">%{Number(row.commission_rate || 0).toFixed(0)}</div>
                                                     <span className="text-[9px] font-black text-slate-600 uppercase tracking-[0.1em]">REVENUE SHARE</span>
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-white/5 border-l-0">
+                                            {/* BUG-2 FIX: Gerçek komisyon toplamı */}
+                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0">
                                                 <div className="flex flex-col">
-                                                    <div className="text-sm font-black text-white tabular-nums tracking-tighter">{currency}{Number(row.wallet_balance || 0).toLocaleString()}</div>
+                                                    <div className="text-sm font-black text-emerald-400 tabular-nums tracking-tighter">
+                                                        {currency}{(commSummary[row.id]?.total_earned ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </div>
+                                                    {(commSummary[row.id]?.total_pending ?? 0) > 0 && (
+                                                        <span className="text-[9px] font-black text-amber-500 uppercase tracking-[0.1em]">
+                                                            +{currency}{(commSummary[row.id]?.total_pending ?? 0).toFixed(2)} bekliyor
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0">
+                                                <div className="flex flex-col">
+                                                    <div className="text-sm font-black text-slate-800 dark:text-white tabular-nums tracking-tighter">{currency}{Number(row.wallet_balance || 0).toLocaleString()}</div>
                                                     <span className="text-[9px] font-black text-slate-600 uppercase tracking-[0.1em]">LIQUID BALANCE</span>
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-white/5 border-l-0 rounded-r-[24px] text-right border-r">
+                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0 rounded-r-[24px] text-right border-r">
                                                 <div className="flex items-center justify-end gap-3 opacity-40 group-hover:opacity-100 transition-all transform group-hover:translate-x-0 translate-x-1">
                                                     <button 
-                                                        onClick={() => openEdit(row)}
-                                                        className="h-9 px-4 bg-white/5 hover:bg-white/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-slate-300 border border-white/5 transition-all active:scale-95"
+                                                        onClick={() => openDetail(row)}
+                                                        className="h-9 px-4 bg-white/5 hover:bg-white/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-slate-600 dark:text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 transition-all active:scale-95"
                                                     >
                                                         ANALYTICS
                                                     </button>
                                                     <button 
                                                         onClick={() => openEdit(row)}
-                                                        className="p-2.5 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-xl transition-all active:scale-90"
+                                                        className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-xl transition-all active:scale-90"
                                                     >
                                                         <FiEdit size={16} title={t('reseller.editBtn')} />
                                                     </button>
                                                     <button 
                                                         onClick={() => handleDelete(row.id)}
-                                                        className="p-2.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all active:scale-90"
+                                                        className="p-2.5 text-slate-500 dark:text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all active:scale-90"
                                                     >
                                                         <FiTrash2 size={16} title={t('reseller.deleteBtn')} />
                                                     </button>
@@ -393,6 +440,72 @@ export const ResellersTab: React.FC = () => {
                         </tbody>
                     </table>
                 </div>
+
+                {/* Mobile Card List View */}
+                <div className="lg:hidden space-y-4 px-2">
+                    {isLoading ? (
+                        <div className="py-20 flex flex-col items-center gap-4">
+                            <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-600 rounded-full animate-spin" />
+                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('common.syncing')}</span>
+                        </div>
+                    ) : filtered.length > 0 ? (
+                        filtered.map((row) => (
+                            <motion.div 
+                                key={row.id}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="bg-white/[0.03] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-4"
+                            >
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center font-black text-xl text-indigo-400 shadow-sm">
+                                            <FiBriefcase size={24} />
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <div className="flex items-center gap-2">
+                                                <h4 className="font-black text-slate-800 dark:text-white">{row.company_name || row.username}</h4>
+                                                {isResellerActive(row) && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />}
+                                            </div>
+                                            <span className="text-[10px] text-slate-500 font-mono uppercase">UID: {row.username}</span>
+                                        </div>
+                                    </div>
+                                    <Badge color={isResellerActive(row) ? 'emerald' : 'rose'}>
+                                        {isResellerActive(row) ? t('reseller.active') : t('reseller.inactive')}
+                                    </Badge>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4 py-4 border-y border-slate-200 dark:border-slate-800">
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Portfolio</span>
+                                        <div className="flex flex-col">
+                                            <span className="text-[10px] font-bold text-slate-800 dark:text-white">{row.tenant_count || 0} Units</span>
+                                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">{row.available_licenses || 0} Lic.</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col gap-1 items-end text-right">
+                                        <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Wallet</span>
+                                        <span className="text-sm font-black text-emerald-400">{currency}{Number(row.wallet_balance || 0).toLocaleString()}</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center justify-between gap-3 pt-2">
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => openEdit(row)} className="w-10 h-10 flex items-center justify-center bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-500 dark:text-slate-400 active:scale-95 transition-all"><FiEdit size={16} /></button>
+                                        <button onClick={() => handleDelete(row.id)} className="w-10 h-10 flex items-center justify-center bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl text-rose-500/60 active:scale-95 transition-all"><FiTrash2 size={16} /></button>
+                                    </div>
+                                    <button 
+                                        onClick={() => openDetail(row)}
+                                        className="bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-slate-800 dark:text-white px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest border border-blue-500/20 transition-all"
+                                    >
+                                        ANALYTICS & SYNC
+                                    </button>
+                                </div>
+                            </motion.div>
+                        ))
+                    ) : (
+                        <TableEmptyState colSpan={1} icon={<FiBriefcase />} message="No active resellers found" />
+                    )}
+                </div>
             </SectionCard>
 
             <SectionCard title={t('reseller.topupTitle')} icon={<FiDollarSign className="text-emerald-400" />}>
@@ -402,7 +515,7 @@ export const ResellersTab: React.FC = () => {
                     <div className="overflow-x-auto -mx-6 custom-scrollbar">
                         <table className="w-full text-left text-xs px-6">
                             <thead>
-                                <tr className="text-slate-500 text-[9px] font-black uppercase tracking-widest border-b border-white/10">
+                                <tr className="text-slate-500 text-[9px] font-black uppercase tracking-widest border-b border-slate-200 dark:border-slate-800">
                                     <th className="px-6 py-3">{t('reseller.topupColPartner')}</th>
                                     <th className="px-6 py-3">{t('reseller.topupColAmount')}</th>
                                     <th className="px-6 py-3">{t('reseller.topupColMethod')}</th>
@@ -414,21 +527,21 @@ export const ResellersTab: React.FC = () => {
                             </thead>
                             <tbody>
                                 {resellerWalletTopups.map((row) => (
-                                    <tr key={row.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                                        <td className="px-6 py-3 text-white font-bold">
+                                    <tr key={row.id} className="border-b border-slate-200 dark:border-slate-800 hover:bg-white/[0.02]">
+                                        <td className="px-6 py-3 text-slate-800 dark:text-white font-bold">
                                             {row.company_name || row.username || `#${row.reseller_id}`}
                                             <div className="text-[10px] text-slate-500 font-mono">{row.username}</div>
                                         </td>
                                         <td className="px-6 py-3 font-mono text-emerald-300">
                                             {currency}{Number(row.amount).toFixed(2)}
                                         </td>
-                                        <td className="px-6 py-3 text-slate-300 text-[11px] font-bold">
+                                        <td className="px-6 py-3 text-slate-600 dark:text-slate-500 dark:text-slate-400 text-[11px] font-bold">
                                             {resellerTopupPayLabel(row.payment_method, t)}
                                         </td>
-                                        <td className="px-6 py-3 text-slate-400 text-[10px] max-w-[160px]">
+                                        <td className="px-6 py-3 text-slate-500 dark:text-slate-400 text-[10px] max-w-[160px]">
                                             {row.transfer_date || row.transfer_reference || row.transfer_time ? (
                                                 <div className="space-y-0.5">
-                                                    <div className="font-mono text-slate-300">
+                                                    <div className="font-mono text-slate-600 dark:text-slate-500 dark:text-slate-400">
                                                         {[row.transfer_date, row.transfer_time].filter(Boolean).join(' ')}
                                                     </div>
                                                     <div className="truncate text-slate-500" title={row.transfer_reference || ''}>
@@ -450,7 +563,7 @@ export const ResellersTab: React.FC = () => {
                                                             ? 'bg-emerald-500/15 text-emerald-300'
                                                             : row.status === 'checkout_failed'
                                                               ? 'bg-rose-500/15 text-rose-300'
-                                                              : 'bg-slate-500/15 text-slate-400'
+                                                              : 'bg-slate-500/15 text-slate-500 dark:text-slate-400'
                                                 }`}
                                             >
                                                 {row.status}
@@ -468,7 +581,7 @@ export const ResellersTab: React.FC = () => {
                                                             const r = await reviewResellerWalletTopup(row.id, 'approve');
                                                             if (!r.ok) toast.error(r.error || t('reseller.topupErr'));
                                                         }}
-                                                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-[10px] font-black text-white"
+                                                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-[10px] font-black text-slate-800 dark:text-white"
                                                     >
                                                         {t('reseller.topupApprove')}
                                                     </button>
@@ -478,7 +591,7 @@ export const ResellersTab: React.FC = () => {
                                                             const r = await reviewResellerWalletTopup(row.id, 'reject');
                                                             if (!r.ok) toast.error(r.error || t('reseller.topupErr'));
                                                         }}
-                                                        className="px-3 py-1.5 rounded-lg border border-white/20 text-[10px] font-black text-slate-300 hover:bg-white/5"
+                                                        className="px-3 py-1.5 rounded-lg border border-white/20 text-[10px] font-black text-slate-600 dark:text-slate-500 dark:text-slate-400 hover:bg-white/5"
                                                     >
                                                         {t('reseller.topupReject')}
                                                     </button>
@@ -496,16 +609,16 @@ export const ResellersTab: React.FC = () => {
             </SectionCard>
             
             {/* 3. Global Network Map Simulation */}
-            <div className="bg-slate-900/40 backdrop-blur-3xl border border-white/5 rounded-[48px] overflow-hidden shadow-2xl relative group h-80">
+            <div className="bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm relative group h-80">
                 <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, #6366f1 1px, transparent 0)', backgroundSize: '48px 48px' }} />
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <div className="w-[500px] h-[300px] border border-indigo-500/20 rounded-[100%] absolute opacity-20" />
                     <div className="w-[800px] h-[500px] border border-indigo-500/10 rounded-[100%] absolute opacity-10" />
-                    <FiGlobe size={180} className="text-white opacity-5 animate-spin-slow" />
+                    <FiGlobe size={180} className="text-slate-800 dark:text-white opacity-5 animate-spin-slow" />
                 </div>
                 <div className="relative z-10 p-12 h-full flex flex-col items-center justify-center text-center">
                     <Badge color="blue">Global Partner Expansion</Badge>
-                    <h2 className="text-3xl font-black text-white italic tracking-tighter mt-4 max-w-lg leading-tight uppercase">Strategic Network Visualizer Under Active Integration</h2>
+                    <h2 className="text-3xl font-black text-slate-800 dark:text-white italic tracking-tighter mt-4 max-w-lg leading-tight uppercase">Strategic Network Visualizer Under Active Integration</h2>
                     <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.3em] mt-3">Simulating partner nodes across major economic zones...</p>
                 </div>
             </div>
@@ -518,21 +631,21 @@ export const ResellersTab: React.FC = () => {
                 maxWidth="max-w-4xl"
             >
                 <form onSubmit={handleCreate} className="space-y-6">
-                    <div className="bg-white/[0.02] border border-white/5 rounded-[32px] p-8">
+                    <div className="bg-white/[0.02] border border-slate-200 dark:border-slate-800 rounded-2xl p-8">
                         <ResellerFormFields f={createForm} setF={setCreateForm} mode="create" plans={planOptions} />
                     </div>
-                    <div className="flex justify-end gap-3 pt-6 border-t border-white/5">
+                    <div className="flex justify-end gap-3 pt-6 border-t border-slate-200 dark:border-slate-800">
                         <button
                             type="button"
                             onClick={() => setShowNewModal(false)}
-                            className="px-6 py-3 text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition-all"
+                            className="px-6 py-3 text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-800 dark:text-white transition-all"
                         >
                             {t('reseller.cancel')}
                         </button>
                         <button
                             type="submit"
                             disabled={saving}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-10 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest disabled:opacity-50 shadow-2xl shadow-blue-900/40 border border-white/10 transition-all active:scale-95"
+                            className="bg-blue-600 hover:bg-blue-500 text-slate-800 dark:text-white px-10 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest disabled:opacity-50 shadow-sm shadow-blue-900/40 border border-slate-200 dark:border-slate-800 transition-all active:scale-95"
                         >
                             {saving ? t('reseller.saving') : t('reseller.create')}
                         </button>
@@ -549,7 +662,7 @@ export const ResellersTab: React.FC = () => {
                 {selectedReseller && (
                     <form onSubmit={handleSaveEdit} className="space-y-8">
                         <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-                            <div className="xl:col-span-8 bg-white/[0.02] border border-white/5 rounded-[40px] p-10">
+                            <div className="xl:col-span-8 bg-white/[0.02] border border-slate-200 dark:border-slate-800 rounded-2xl p-10">
                                 <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-[0.4em] mb-8 flex items-center gap-3">
                                     <FiUsers size={14}/> {t('reseller.profileInfo') || 'Partner Profile Details'}
                                 </h4>
@@ -572,16 +685,16 @@ export const ResellersTab: React.FC = () => {
                             </div>
 
                             <div className="xl:col-span-4 space-y-6">
-                                <div className="bg-slate-900/60 border border-white/10 rounded-[40px] p-8 space-y-6 shadow-2xl">
+                                <div className="bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 space-y-6 shadow-sm">
                                     <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-[0.4em] mb-2 flex items-center gap-3">
                                         <FiShield size={14}/> {t('reseller.financialTerminal') || 'Financial Gateway'}
                                     </h4>
                                     
-                                    <div className="p-6 bg-black/40 rounded-3xl border border-white/5 space-y-4">
+                                    <div className="p-6 bg-black/40 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-4">
                                         <div className="flex justify-between items-end">
                                             <div className="flex flex-col">
                                                 <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">{t('reseller.licensePool')}</span>
-                                                <span className="text-2xl font-black text-white italic tracking-tighter">{selectedReseller.available_licenses}</span>
+                                                <span className="text-2xl font-black text-slate-800 dark:text-white italic tracking-tighter">{selectedReseller.available_licenses}</span>
                                             </div>
                                             <FiBox size={24} className="text-slate-700" />
                                         </div>
@@ -591,21 +704,21 @@ export const ResellersTab: React.FC = () => {
                                                 min={0}
                                                 value={transferLicenses || ''}
                                                 onChange={(e) => setTransferLicenses(Number(e.target.value))}
-                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white font-black italic outline-none focus:border-blue-500/40 transition-all placeholder:text-slate-700"
+                                                className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-white font-black italic outline-none focus:border-blue-500/40 transition-all placeholder:text-slate-700"
                                                 placeholder="Amount"
                                             />
                                             <button
                                                 type="button"
                                                 disabled={saving || transferLicenses <= 0}
                                                 onClick={() => handleFinancialTransfer('license')}
-                                                className="px-6 py-2.5 h-[42px] rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[9px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/40 transition-all active:scale-95 disabled:opacity-40"
+                                                className="px-6 py-2.5 h-[42px] rounded-xl bg-blue-600 hover:bg-blue-500 text-slate-800 dark:text-white text-[9px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/40 transition-all active:scale-95 disabled:opacity-40"
                                             >
                                                 {t('reseller.transfer')}
                                             </button>
                                         </div>
                                     </div>
 
-                                    <div className="p-6 bg-black/40 rounded-3xl border border-white/5 space-y-4">
+                                    <div className="p-6 bg-black/40 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-4">
                                         <div className="flex justify-between items-end">
                                             <div className="flex flex-col">
                                                 <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">WALLET_LIQUIDITY</span>
@@ -618,14 +731,14 @@ export const ResellersTab: React.FC = () => {
                                                 type="number"
                                                 value={transferWallet || ''}
                                                 onChange={(e) => setTransferWallet(Number(e.target.value))}
-                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white font-black italic outline-none focus:border-emerald-500/40 transition-all placeholder:text-slate-700"
+                                                className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-800 dark:text-white font-black italic outline-none focus:border-emerald-500/40 transition-all placeholder:text-slate-700"
                                                 placeholder={`+/- ${currency}`}
                                             />
                                             <button
                                                 type="button"
                                                 disabled={saving || transferWallet === 0}
                                                 onClick={() => handleFinancialTransfer('wallet')}
-                                                className="px-6 py-2.5 h-[42px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[9px] font-black uppercase tracking-widest shadow-xl shadow-emerald-900/40 transition-all active:scale-95 disabled:opacity-40"
+                                                className="px-6 py-2.5 h-[42px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-800 dark:text-white text-[9px] font-black uppercase tracking-widest shadow-xl shadow-emerald-900/40 transition-all active:scale-95 disabled:opacity-40"
                                             >
                                                 SYNC
                                             </button>
@@ -633,37 +746,40 @@ export const ResellersTab: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="p-8 bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-[40px] text-white shadow-2xl relative overflow-hidden group border border-white/10">
+                                <div className="p-8 bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-2xl text-slate-800 dark:text-white shadow-sm relative overflow-hidden group border border-slate-200 dark:border-slate-800">
                                      <div className="absolute -right-8 -bottom-8 opacity-10 rotate-12 group-hover:rotate-0 transition-all duration-700">
                                          <FiZap size={140} />
                                      </div>
                                      <div className="relative z-10">
                                          <h5 className="text-sm font-black uppercase tracking-[0.2em] mb-4">Partner Performance</h5>
-                                         <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-4">
-                                             <div className="text-[9px] font-black uppercase tracking-widest opacity-60">Revenue Generation</div>
-                                             <div className="font-black italic">{currency}4.2k <span className="text-emerald-300 text-[10px]">High</span></div>
+                                         <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4 mb-4">
+                                             <div className="text-[9px] font-black uppercase tracking-widest opacity-60">Total Commission Earned</div>
+                                             <div className="font-black italic">
+                                                 {currency}{(commSummary[selectedReseller.id]?.total_earned ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                 {(commSummary[selectedReseller.id]?.total_earned ?? 0) > 0 && <span className="text-emerald-300 text-[10px] ml-1">Earned</span>}
+                                             </div>
                                          </div>
                                          <div className="flex items-center justify-between">
                                              <div className="text-[9px] font-black uppercase tracking-widest opacity-60">Operational Nodes</div>
-                                             <div className="font-black italic">{selectedReseller.total_tenants ?? 0} UNITS</div>
+                                             <div className="font-black italic">{commSummary[selectedReseller.id]?.tenant_count ?? selectedReseller.total_tenants ?? 0} UNITS</div>
                                          </div>
                                      </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="flex justify-end gap-3 pt-8 border-t border-white/5">
+                        <div className="flex justify-end gap-3 pt-8 border-t border-slate-200 dark:border-slate-800">
                             <button
                                 type="button"
                                 onClick={() => setShowEditModal(false)}
-                                className="px-6 py-3 text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition-all"
+                                className="px-6 py-3 text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-800 dark:text-white transition-all"
                             >
                                 {t('reseller.close')}
                             </button>
                             <button
                                 type="submit"
                                 disabled={saving}
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white px-10 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest disabled:opacity-50 shadow-2xl shadow-emerald-900/40 border border-white/10 transition-all active:scale-95"
+                                className="bg-emerald-600 hover:bg-emerald-500 text-slate-800 dark:text-white px-10 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest disabled:opacity-50 shadow-sm shadow-emerald-900/40 border border-slate-200 dark:border-slate-800 transition-all active:scale-95"
                             >
                                 {saving ? t('reseller.saving') : t('reseller.save')}
                             </button>
@@ -681,6 +797,13 @@ export const ResellersTab: React.FC = () => {
                 type="danger"
                 onConfirm={() => confirm?.onConfirm()}
             />
+            {showDetailModal && selectedReseller && (
+                <ResellerDetailModal
+                    reseller={selectedReseller}
+                    onClose={() => { setShowDetailModal(false); setSelectedReseller(null); }}
+                    commSummary={commSummary[selectedReseller.id] ?? null}
+                />
+            )}
         </motion.div>
     );
 };

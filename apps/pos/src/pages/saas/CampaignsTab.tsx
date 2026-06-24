@@ -14,7 +14,7 @@ import toast from 'react-hot-toast';
 import { AnimatePresence } from 'framer-motion';
 import { useSaaSLocale } from '../../contexts/SaaSLocaleContext';
 import { StatCard, SectionCard, Modal, InputGroup } from './SaaSShared';
-import { useAuthStore } from '../../store/useAuthStore';
+import { useSaaSStore } from '../../store/useSaaSStore';
 
 type DiscountType = 'percent' | 'fixed' | 'free_item' | 'free_delivery';
 type CouponStatus = 'active' | 'paused' | 'expired' | 'depleted';
@@ -91,13 +91,14 @@ const audienceLabels: Record<AudienceFilter, string> = {
 const statusColors: Record<CouponStatus, string> = {
     active: 'bg-green-500/20 text-green-400 border-green-500/30',
     paused: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    expired: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
+    expired: 'bg-slate-500/20 text-slate-500 dark:text-slate-400 border-slate-500/30',
     depleted: 'bg-red-500/20 text-red-400 border-red-500/30',
 };
 
 export const CampaignsTab: React.FC = () => {
     const { t } = useSaaSLocale();
-    const { getAuthHeaders } = useAuthStore();
+    const { token, tenants } = useSaaSStore();
+    const [scopeTenantId, setScopeTenantId] = useState<string>('');
     const [activeTab, setActiveTab] = useState<TabType>('campaigns');
 
     // Data
@@ -139,15 +140,26 @@ export const CampaignsTab: React.FC = () => {
     // SMS
     const [smsCampaignId, setSmsCampaignId] = useState<number | null>(null);
 
-    const headers = getAuthHeaders();
+    useEffect(() => {
+        if (scopeTenantId) return;
+        if (tenants.length > 0) setScopeTenantId(String(tenants[0].id));
+    }, [tenants, scopeTenantId]);
+
+    const getCouponHeaders = (json = false): Record<string, string> => {
+        const h: Record<string, string> = {};
+        if (token) h['Authorization'] = `Bearer ${token}`;
+        if (scopeTenantId) h['x-tenant-id'] = scopeTenantId;
+        if (json) h['Content-Type'] = 'application/json';
+        return h;
+    };
 
     const fetchCampaigns = async () => {
         setLoading(true);
         try {
             const url = campaignFilter === 'all'
-                ? '/api/v1/saas-public/campaigns'
-                : `/api/v1/saas-public/campaigns?status=${campaignFilter}`;
-            const res = await fetch(url, { headers });
+                ? '/api/v1/coupons/campaigns'
+                : `/api/v1/coupons/campaigns?status=${campaignFilter}`;
+            const res = await fetch(url, { headers: getCouponHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setCampaigns(Array.isArray(data) ? data : []);
@@ -163,9 +175,9 @@ export const CampaignsTab: React.FC = () => {
         setLoading(true);
         try {
             const url = couponFilter === 'all'
-                ? '/api/v1/saas-public/coupons'
-                : `/api/v1/saas-public/coupons?status=${couponFilter}`;
-            const res = await fetch(url, { headers });
+                ? '/api/v1/coupons'
+                : `/api/v1/coupons?status=${couponFilter}`;
+            const res = await fetch(url, { headers: getCouponHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setCoupons(Array.isArray(data) ? data : []);
@@ -179,7 +191,7 @@ export const CampaignsTab: React.FC = () => {
 
     const fetchStats = async () => {
         try {
-            const res = await fetch('/api/v1/saas-public/coupons/stats', { headers });
+            const res = await fetch('/api/v1/coupons/stats', { headers: getCouponHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setStats(data);
@@ -190,10 +202,11 @@ export const CampaignsTab: React.FC = () => {
     };
 
     useEffect(() => {
-        if (activeTab === 'campaigns') fetchCampaigns();
-        else if (activeTab === 'coupons') fetchCoupons();
-        else if (activeTab === 'stats') fetchStats();
-    }, [activeTab, campaignFilter, couponFilter]);
+        if (!token || !scopeTenantId) return;
+        if (activeTab === 'campaigns') void fetchCampaigns();
+        else if (activeTab === 'coupons') void fetchCoupons();
+        else if (activeTab === 'stats') void fetchStats();
+    }, [activeTab, campaignFilter, couponFilter, scopeTenantId, token]);
 
     const openCampaignModal = (campaign?: Campaign) => {
         if (campaign) {
@@ -253,12 +266,12 @@ export const CampaignsTab: React.FC = () => {
 
         try {
             const url = editingCampaign
-                ? `/api/v1/saas-public/campaigns/${editingCampaign.id}`
-                : '/api/v1/saas-public/campaigns';
+                ? `/api/v1/coupons/campaigns/${editingCampaign.id}`
+                : '/api/v1/coupons/campaigns';
             const method = editingCampaign ? 'PATCH' : 'POST';
             const res = await fetch(url, {
                 method,
-                headers: { ...headers, 'Content-Type': 'application/json' },
+                headers: getCouponHeaders(true),
                 body: JSON.stringify(payload),
             });
 
@@ -279,9 +292,9 @@ export const CampaignsTab: React.FC = () => {
     const deleteCampaign = async (id: number) => {
         if (!confirm('Bu kampanyayı silmek istediğinize emin misiniz?')) return;
         try {
-            const res = await fetch(`/api/v1/saas-public/campaigns/${id}`, {
+            const res = await fetch(`/api/v1/coupons/campaigns/${id}`, {
                 method: 'DELETE',
-                headers,
+                headers: getCouponHeaders(),
             });
             if (res.ok) {
                 toast.success('Kampanya silindi');
@@ -298,7 +311,7 @@ export const CampaignsTab: React.FC = () => {
         try {
             const res = await fetch(`/api/v1/coupons/${id}`, {
                 method: 'DELETE',
-                headers,
+                headers: getCouponHeaders(),
             });
             if (res.ok) {
                 toast.success('Kupon silindi');
@@ -325,7 +338,7 @@ export const CampaignsTab: React.FC = () => {
         try {
             const res = await fetch('/api/v1/coupons/bulk', {
                 method: 'POST',
-                headers: { ...headers, 'Content-Type': 'application/json' },
+                headers: getCouponHeaders(true),
                 body: JSON.stringify({
                     campaign_id: editingCampaign.id,
                     count: bulkCount,
@@ -354,7 +367,7 @@ export const CampaignsTab: React.FC = () => {
         try {
             const res = await fetch('/api/v1/coupons/send-sms', {
                 method: 'POST',
-                headers: { ...headers, 'Content-Type': 'application/json' },
+                headers: getCouponHeaders(true),
                 body: JSON.stringify({
                     campaign_id: smsCampaignId,
                     phone_list: bulkPhones.split('\n').map(p => p.trim()).filter(p => p),
@@ -389,34 +402,59 @@ export const CampaignsTab: React.FC = () => {
         { id: 'sms' as TabType, label: 'SMS Dağıtım', icon: <FiSend size={14} /> },
     ];
 
+    const scopeReady = Boolean(token && scopeTenantId);
+
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h2 className="text-xl font-black text-white">{t('campaigns.title', 'Kampanya & Kupon')}</h2>
-                    <p className="text-xs text-slate-400 mt-1">
-                        İndirim kampanyaları, kupon kodları ve müşteri promosyonları
+                    <h2 className="text-xl font-black text-slate-800 dark:text-white">{t('campaigns.title', 'Kampanya & Kupon')}</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        İndirim kampanyaları, kupon kodları ve müşteri promosyonları (tenant şemasında saklanır)
                     </p>
                 </div>
                 <button
+                    type="button"
+                    disabled={!scopeReady}
                     onClick={() => openCampaignModal()}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-xs font-bold text-white transition-all"
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-xs font-bold text-slate-800 dark:text-white transition-all disabled:opacity-40"
                 >
                     <FiPlus size={14} /> Yeni Kampanya
                 </button>
             </div>
 
+            {tenants.length === 0 ? (
+                <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-200 text-xs">
+                    Henüz restoran yok. Kupon ve kampanyalar seçili tenant veritabanında tutulur; önce bir tenant oluşturun.
+                </div>
+            ) : (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-200 shrink-0">Hedef restoran</span>
+                    <select
+                        value={scopeTenantId}
+                        onChange={(e) => setScopeTenantId(e.target.value)}
+                        className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded-xl px-3 py-2 text-xs text-slate-100"
+                    >
+                        {tenants.map((tn) => (
+                            <option key={tn.id} value={tn.id}>
+                                {tn.name} ({tn.schema_name})
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            )}
+
             {/* Tabs */}
-            <div className="flex gap-1 bg-slate-800/50 p-1 rounded-2xl w-fit">
+            <div className="flex gap-1 bg-slate-50 dark:bg-slate-100 dark:bg-slate-800/50 p-1 rounded-2xl w-fit">
                 {tabs.map(tab => (
                     <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
                         className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
                             activeTab === tab.id
-                                ? 'bg-blue-600 text-white'
-                                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                                ? 'bg-blue-600 text-slate-800 dark:text-white'
+                                : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white hover:bg-slate-700/50'
                         }`}
                     >
                         {tab.icon} {tab.label}
@@ -428,15 +466,15 @@ export const CampaignsTab: React.FC = () => {
             {activeTab === 'campaigns' && (
                 <div className="space-y-4">
                     <div className="flex gap-2 items-center">
-                        <span className="text-xs text-slate-400">Filtre:</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">Filtre:</span>
                         {(['all', 'active', 'paused', 'expired', 'depleted'] as const).map(s => (
                             <button
                                 key={s}
                                 onClick={() => setCampaignFilter(s)}
                                 className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all ${
                                     campaignFilter === s
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                        ? 'bg-blue-600 text-slate-800 dark:text-white'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-700'
                                 }`}
                             >
                                 {s === 'all' ? 'Tümü' : s}
@@ -456,11 +494,11 @@ export const CampaignsTab: React.FC = () => {
                     ) : (
                         <div className="grid gap-3">
                             {campaigns.map(c => (
-                                <div key={c.id} className="bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4 hover:border-blue-500/30 transition-all">
+                                <div key={c.id} className="bg-slate-100 dark:bg-slate-800/60 border border-slate-700/50 rounded-2xl p-4 hover:border-blue-500/30 transition-all">
                                     <div className="flex items-start justify-between gap-4">
                                         <div className="flex-1">
                                             <div className="flex items-center gap-2 mb-1">
-                                                <span className="font-bold text-white">{c.name}</span>
+                                                <span className="font-bold text-slate-800 dark:text-white">{c.name}</span>
                                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${statusColors[c.status]}`}>
                                                     {c.status}
                                                 </span>
@@ -471,7 +509,7 @@ export const CampaignsTab: React.FC = () => {
                                                 )}
                                             </div>
                                             {c.description && (
-                                                <p className="text-xs text-slate-400 mb-2">{c.description}</p>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{c.description}</p>
                                             )}
                                             <div className="flex flex-wrap items-center gap-3 text-[10px] text-slate-500">
                                                 <span className="flex items-center gap-1">
@@ -508,21 +546,21 @@ export const CampaignsTab: React.FC = () => {
                                                     setEditingCampaign(c);
                                                     setShowBulkModal(true);
                                                 }}
-                                                className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-xl transition-all"
+                                                className="p-2 text-slate-500 dark:text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-xl transition-all"
                                                 title="Kupon Üret"
                                             >
                                                 <FiPlus size={16} />
                                             </button>
                                             <button
                                                 onClick={() => openCampaignModal(c)}
-                                                className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-xl transition-all"
+                                                className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white hover:bg-slate-700 rounded-xl transition-all"
                                                 title="Düzenle"
                                             >
                                                 <FiEdit size={16} />
                                             </button>
                                             <button
                                                 onClick={() => deleteCampaign(c.id)}
-                                                className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
+                                                className="p-2 text-slate-500 dark:text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all"
                                                 title="Sil"
                                             >
                                                 <FiTrash2 size={16} />
@@ -540,15 +578,15 @@ export const CampaignsTab: React.FC = () => {
             {activeTab === 'coupons' && (
                 <div className="space-y-4">
                     <div className="flex gap-2 items-center">
-                        <span className="text-xs text-slate-400">Filtre:</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">Filtre:</span>
                         {(['all', 'active', 'paused', 'expired', 'depleted'] as const).map(s => (
                             <button
                                 key={s}
                                 onClick={() => setCouponFilter(s)}
                                 className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all ${
                                     couponFilter === s
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                        ? 'bg-blue-600 text-slate-800 dark:text-white'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-700'
                                 }`}
                             >
                                 {s === 'all' ? 'Tümü' : s}
@@ -566,35 +604,35 @@ export const CampaignsTab: React.FC = () => {
                             <p>Henüz kupon yok</p>
                         </div>
                     ) : (
-                        <div className="bg-slate-800/60 border border-slate-700/50 rounded-2xl overflow-hidden">
+                        <div className="bg-slate-100 dark:bg-slate-800/60 border border-slate-700/50 rounded-2xl overflow-hidden">
                             <table className="w-full text-xs">
                                 <thead>
                                     <tr className="border-b border-slate-700/50">
-                                        <th className="text-left p-3 text-slate-400 font-bold">Kod</th>
-                                        <th className="text-left p-3 text-slate-400 font-bold">Tür</th>
-                                        <th className="text-left p-3 text-slate-400 font-bold">Değer</th>
-                                        <th className="text-left p-3 text-slate-400 font-bold">Geçerlilik</th>
-                                        <th className="text-left p-3 text-slate-400 font-bold">Kullanım</th>
-                                        <th className="text-left p-3 text-slate-400 font-bold">Durum</th>
-                                        <th className="text-right p-3 text-slate-400 font-bold">İşlem</th>
+                                        <th className="text-left p-3 text-slate-500 dark:text-slate-400 font-bold">Kod</th>
+                                        <th className="text-left p-3 text-slate-500 dark:text-slate-400 font-bold">Tür</th>
+                                        <th className="text-left p-3 text-slate-500 dark:text-slate-400 font-bold">Değer</th>
+                                        <th className="text-left p-3 text-slate-500 dark:text-slate-400 font-bold">Geçerlilik</th>
+                                        <th className="text-left p-3 text-slate-500 dark:text-slate-400 font-bold">Kullanım</th>
+                                        <th className="text-left p-3 text-slate-500 dark:text-slate-400 font-bold">Durum</th>
+                                        <th className="text-right p-3 text-slate-500 dark:text-slate-400 font-bold">İşlem</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {coupons.map(c => (
                                         <tr key={c.id} className="border-b border-slate-700/30 hover:bg-slate-700/20">
                                             <td className="p-3 font-mono font-bold text-blue-400">{c.code}</td>
-                                            <td className="p-3 text-slate-300">
+                                            <td className="p-3 text-slate-600 dark:text-slate-500 dark:text-slate-400">
                                                 {discountTypeLabels[c.discount_type]}
                                             </td>
-                                            <td className="p-3 text-slate-300">
+                                            <td className="p-3 text-slate-600 dark:text-slate-500 dark:text-slate-400">
                                                 {c.discount_type === 'percent'
                                                     ? `%${c.discount_value}`
                                                     : `${c.discount_value} TL`}
                                             </td>
-                                            <td className="p-3 text-slate-400">
+                                            <td className="p-3 text-slate-500 dark:text-slate-400">
                                                 {formatDate(c.valid_from)} — {formatDate(c.valid_until)}
                                             </td>
-                                            <td className="p-3 text-slate-400">
+                                            <td className="p-3 text-slate-500 dark:text-slate-400">
                                                 {c.usage_count}{c.usage_limit ? `/${c.usage_limit}` : ''}
                                             </td>
                                             <td className="p-3">
@@ -605,7 +643,7 @@ export const CampaignsTab: React.FC = () => {
                                             <td className="p-3 text-right">
                                                 <button
                                                     onClick={() => deleteCoupon(c.id)}
-                                                    className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                                                    className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
                                                 >
                                                     <FiTrash2 size={14} />
                                                 </button>
@@ -657,13 +695,13 @@ export const CampaignsTab: React.FC = () => {
                                 ) : (
                                     <div className="space-y-2">
                                         {stats.top_campaigns.map((c, i) => (
-                                            <div key={i} className="flex items-center justify-between p-3 bg-slate-800/40 rounded-xl">
+                                            <div key={i} className="flex items-center justify-between p-3 bg-slate-100 dark:bg-slate-800/40 rounded-xl">
                                                 <div className="flex items-center gap-3">
                                                     <span className="text-lg font-black text-slate-600">{i + 1}</span>
-                                                    <span className="font-bold text-white">{c.name}</span>
+                                                    <span className="font-bold text-slate-800 dark:text-white">{c.name}</span>
                                                 </div>
                                                 <div className="flex items-center gap-4 text-xs">
-                                                    <span className="text-slate-400">{c.usage_count} kullanım</span>
+                                                    <span className="text-slate-500 dark:text-slate-400">{c.usage_count} kullanım</span>
                                                     <span className="text-green-400 font-bold">{c.total_discount.toLocaleString()} TL indirim</span>
                                                 </div>
                                             </div>
@@ -681,16 +719,16 @@ export const CampaignsTab: React.FC = () => {
                 <div className="space-y-6">
                     <SectionCard title="SMS ile Kupon Dağıt">
                         <div className="space-y-4">
-                            <p className="text-xs text-slate-400">
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
                                 Kampanya seçin ve telefon numaralarını girin. Her numara için otomatik kupon kodu üretilir ve WhatsApp/SMS ile gönderilir.
                             </p>
 
                             <div>
-                                <label className="text-xs font-bold text-slate-300 mb-1 block">Kampanya Seç</label>
+                                <label className="text-xs font-bold text-slate-600 dark:text-slate-500 dark:text-slate-400 mb-1 block">Kampanya Seç</label>
                                 <select
                                     value={smsCampaignId || ''}
                                     onChange={e => setSmsCampaignId(Number(e.target.value) || null)}
-                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white"
                                 >
                                     <option value="">Kampanya seçin...</option>
                                     {campaigns.filter(c => c.status === 'active').map(c => (
@@ -700,7 +738,7 @@ export const CampaignsTab: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="text-xs font-bold text-slate-300 mb-1 block">
+                                <label className="text-xs font-bold text-slate-600 dark:text-slate-500 dark:text-slate-400 mb-1 block">
                                     Telefon Numaraları (her satıra bir numara)
                                 </label>
                                 <textarea
@@ -708,7 +746,7 @@ export const CampaignsTab: React.FC = () => {
                                     onChange={e => setBulkPhones(e.target.value)}
                                     placeholder="0532 123 45 67&#10;0533 987 65 43&#10;0541 555 55 55"
                                     rows={8}
-                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder:text-slate-600"
+                                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white font-mono placeholder:text-slate-600"
                                 />
                             </div>
 
@@ -727,7 +765,7 @@ export const CampaignsTab: React.FC = () => {
                                     if (!bulkPhones.trim()) { toast.error('Telefon numarası girin'); return; }
                                     void sendSmsCoupons();
                                 }}
-                                className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-500 rounded-xl text-xs font-bold text-white transition-all"
+                                className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-500 rounded-xl text-xs font-bold text-slate-800 dark:text-white transition-all"
                             >
                                 <FiSend size={14} /> SMS Gönder
                             </button>
@@ -744,22 +782,22 @@ export const CampaignsTab: React.FC = () => {
                             <InputGroup label="Kampanya Adı *" value={formData.name} onChange={v => setFormData(f => ({ ...f, name: v }))} />
 
                             <div>
-                                <label className="text-xs font-bold text-slate-300 mb-1 block">Açıklama</label>
+                                <label className="text-xs font-bold text-slate-600 dark:text-slate-500 dark:text-slate-400 mb-1 block">Açıklama</label>
                                 <textarea
                                     value={formData.description}
                                     onChange={e => setFormData(f => ({ ...f, description: e.target.value }))}
                                     rows={2}
-                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white"
                                 />
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="text-xs font-bold text-slate-300 mb-1 block">İndirim Türü</label>
+                                    <label className="text-xs font-bold text-slate-600 dark:text-slate-500 dark:text-slate-400 mb-1 block">İndirim Türü</label>
                                     <select
                                         value={formData.discount_type}
                                         onChange={e => setFormData(f => ({ ...f, discount_type: e.target.value as DiscountType }))}
-                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                                        className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white"
                                     >
                                         {Object.entries(discountTypeLabels).map(([k, v]) => (
                                             <option key={k} value={k}>{v}</option>
@@ -790,11 +828,11 @@ export const CampaignsTab: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="text-xs font-bold text-slate-300 mb-1 block">Hedef Kitle</label>
+                                <label className="text-xs font-bold text-slate-600 dark:text-slate-500 dark:text-slate-400 mb-1 block">Hedef Kitle</label>
                                 <select
                                     value={formData.audience_filter}
                                     onChange={e => setFormData(f => ({ ...f, audience_filter: e.target.value as AudienceFilter }))}
-                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white"
                                 >
                                     {Object.entries(audienceLabels).map(([k, v]) => (
                                         <option key={k} value={k}>{v}</option>
@@ -807,21 +845,21 @@ export const CampaignsTab: React.FC = () => {
                                     type="checkbox"
                                     checked={formData.is_auto_apply}
                                     onChange={e => setFormData(f => ({ ...f, is_auto_apply: e.target.checked }))}
-                                    className="w-4 h-4 rounded bg-slate-800 border-slate-600 text-blue-500"
+                                    className="w-4 h-4 rounded bg-slate-100 dark:bg-slate-800 border-slate-600 text-blue-500"
                                 />
-                                <span className="text-xs text-slate-300">Otomatik uygula (müşteri girişinde)</span>
+                                <span className="text-xs text-slate-600 dark:text-slate-500 dark:text-slate-400">Otomatik uygula (müşteri girişinde)</span>
                             </label>
 
                             <div className="flex gap-3 pt-2">
                                 <button
                                     onClick={saveCampaign}
-                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-xs font-bold text-white transition-all"
+                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-xs font-bold text-slate-800 dark:text-white transition-all"
                                 >
                                     <FiCheck size={14} /> {editingCampaign ? 'Güncelle' : 'Oluştur'}
                                 </button>
                                 <button
                                     onClick={() => setShowCampaignModal(false)}
-                                    className="px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-300 transition-all"
+                                    className="px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-500 dark:text-slate-400 transition-all"
                                 >
                                     İptal
                                 </button>
@@ -836,7 +874,7 @@ export const CampaignsTab: React.FC = () => {
                 {showBulkModal && editingCampaign && (
                     <Modal show={showBulkModal} onClose={() => setShowBulkModal(false)} title={`Kupon Üret — ${editingCampaign.name}`}>
                         <div className="space-y-4">
-                            <p className="text-xs text-slate-400">
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
                                 "{editingCampaign.name}" kampanyası için toplu kupon üretirsiniz.
                             </p>
 
@@ -855,7 +893,7 @@ export const CampaignsTab: React.FC = () => {
                             />
 
                             <div>
-                                <label className="text-xs font-bold text-slate-300 mb-1 block">
+                                <label className="text-xs font-bold text-slate-600 dark:text-slate-500 dark:text-slate-400 mb-1 block">
                                     Telefon Numaraları (opsiyonel — her satıra bir numara)
                                 </label>
                                 <textarea
@@ -863,7 +901,7 @@ export const CampaignsTab: React.FC = () => {
                                     onChange={e => setBulkPhones(e.target.value)}
                                     placeholder="0532 123 45 67&#10;0533 987 65 43"
                                     rows={5}
-                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder:text-slate-600"
+                                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white font-mono placeholder:text-slate-600"
                                 />
                                 <p className="text-[10px] text-slate-500 mt-1">
                                     Boş bırakırsanız sadece kupon kodu üretilir, SMS gönderilmez.
@@ -873,13 +911,13 @@ export const CampaignsTab: React.FC = () => {
                             <div className="flex gap-3 pt-2">
                                 <button
                                     onClick={() => void generateBulkCoupons()}
-                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-500 rounded-xl text-xs font-bold text-white transition-all"
+                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-500 rounded-xl text-xs font-bold text-slate-800 dark:text-white transition-all"
                                 >
                                     <FiPlus size={14} /> {bulkCount} Kupon Üret
                                 </button>
                                 <button
                                     onClick={() => setShowBulkModal(false)}
-                                    className="px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-300 transition-all"
+                                    className="px-4 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-500 dark:text-slate-400 transition-all"
                                 >
                                     İptal
                                 </button>

@@ -1,36 +1,188 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiX, FiUser, FiBarChart2, FiFileText, FiChevronRight, FiShield, FiClock, FiKey, FiMail, FiPhone } from 'react-icons/fi';
+import { FiX, FiUser, FiBarChart2, FiFileText, FiChevronRight, FiShield, FiClock, FiKey, FiMail, FiPhone, FiGrid, FiMove, FiPlay, FiSquare, FiCoffee, FiActivity, FiSettings, FiSend, FiHelpCircle, FiMessageSquare, FiGlobe } from 'react-icons/fi';
+import { FaWhatsapp } from 'react-icons/fa';
 import { useUIStore } from '../../../store/useUIStore';
 import { useAuthStore } from '../../../store/useAuthStore';
+import { usePosStore } from '../../../store/usePosStore';
 import { usePosLocale } from '../../../contexts/PosLocaleContext';
 import toast from 'react-hot-toast';
 import { useDailyReport } from '../../../hooks/useDailyReport';
 import { useStaffStats } from '../../../hooks/useStaffStats';
 import { StaffStatsModal } from './StaffStats';
 
-
-
 export const StaffPanelModal: React.FC = () => {
-    const { staffPanelTab, setStaffPanelTab } = useUIStore();
+    const { staffPanelTab, setStaffPanelTab, preferredFloorView, setPreferredFloorView } = useUIStore();
     const { user } = useAuthStore();
+    const { settings } = usePosStore();
     const { t } = usePosLocale();
     
     const { data: globalReport } = useDailyReport();
-    const { data: staffReport } = useStaffStats();
+    const { data: staffReport, refresh: refreshStats } = useStaffStats();
+
+    const [shiftBusy, setShiftBusy] = React.useState(false);
+    const [breakBusy, setBreakBusy] = React.useState(false);
+    const [shiftDuration, setShiftDuration] = React.useState<string>('00:00:00');
+
+    // Live Network & Support States
+    const [isOnline, setIsOnline] = React.useState(navigator.onLine);
+    const [urgentMsg, setUrgentMsg] = React.useState('');
+    const [sendingMsg, setSendingMsg] = React.useState(false);
+
+    React.useEffect(() => {
+        const pingOnline = () => setIsOnline(true);
+        const pingOffline = () => setIsOnline(false);
+        window.addEventListener('online', pingOnline);
+        window.addEventListener('offline', pingOffline);
+        return () => {
+            window.removeEventListener('online', pingOnline);
+            window.removeEventListener('offline', pingOffline);
+        };
+    }, []);
+
+    const handleSendUrgentMsg = async () => {
+        if (!urgentMsg.trim()) return;
+        setSendingMsg(true);
+        try {
+            const res = await fetch('/api/v1/service-calls/from-cashier', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${useAuthStore.getState().token}`,
+                    'x-tenant-id': useAuthStore.getState().tenantId || '',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    message: `ACİL DESTEK TALEBİ: ${urgentMsg.trim()}`
+                })
+            });
+            if (res.ok) {
+                toast.success(t('staff.message_sent_success') || 'Destek talebi yöneticiye iletildi!');
+                setUrgentMsg('');
+            } else {
+                toast.error(t('staff.message_sent_error') || 'Talep iletilemedi');
+            }
+        } catch {
+            toast.error(t('staff.connection_error') || 'Bağlantı hatası oluştu');
+        } finally {
+            setSendingMsg(false);
+        }
+    };
+
+    React.useEffect(() => {
+        const lastShift = staffReport?.lastShift;
+        if (!lastShift || lastShift.clock_out) {
+            setShiftDuration('00:00:00');
+            return;
+        }
+
+        const updateTimer = () => {
+            const diffMs = Date.now() - new Date(lastShift.clock_in).getTime();
+            if (diffMs < 0) {
+                setShiftDuration('00:00:00');
+                return;
+            }
+            const hours = Math.floor(diffMs / 3600000);
+            const minutes = Math.floor((diffMs % 3600000) / 60000);
+            const seconds = Math.floor((diffMs % 60000) / 1000);
+            setShiftDuration(
+                `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+            );
+        };
+
+        updateTimer();
+        const iv = setInterval(updateTimer, 1000);
+        return () => clearInterval(iv);
+    }, [staffReport?.lastShift]);
+
+    const handleClockIn = async () => {
+        setShiftBusy(true);
+        try {
+            const res = await fetch('/api/v1/users/clock-in', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${useAuthStore.getState().token}`,
+                    'x-tenant-id': useAuthStore.getState().tenantId || ''
+                }
+            });
+            if (res.ok) {
+                toast.success(t('staff.clock_in_success') || 'Mesai başarıyla başlatıldı!');
+                await refreshStats();
+            } else {
+                toast.error(t('staff.clock_in_error') || 'Mesai başlatılamadı');
+            }
+        } catch (err) {
+            toast.error(t('staff.connection_error') || 'Bağlantı hatası oluştu');
+        } finally {
+            setShiftBusy(false);
+        }
+    };
+
+    const handleClockOut = async () => {
+        setShiftBusy(true);
+        try {
+            const res = await fetch('/api/v1/users/clock-out', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${useAuthStore.getState().token}`,
+                    'x-tenant-id': useAuthStore.getState().tenantId || ''
+                }
+            });
+            if (res.ok) {
+                toast.success(t('staff.clock_out_success') || 'Mesai başarıyla bitirildi!');
+                await refreshStats();
+            } else {
+                toast.error(t('staff.clock_out_error') || 'Mesai bitirilemedi');
+            }
+        } catch (err) {
+            toast.error(t('staff.connection_error') || 'Bağlantı hatası oluştu');
+        } finally {
+            setShiftBusy(false);
+        }
+    };
+
+    const handleToggleBreak = async () => {
+        if (user?.role !== 'waiter') return;
+        setBreakBusy(true);
+        try {
+            const onBreak = !staffReport?.waiterOnBreak;
+            const res = await fetch('/api/v1/users/waiter-break', {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${useAuthStore.getState().token}`,
+                    'x-tenant-id': useAuthStore.getState().tenantId || '',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ onBreak })
+            });
+            if (res.ok) {
+                toast.success(onBreak ? (t('waiter.break_enabled_toast') || 'Molaya çıkıldı') : (t('waiter.break_disabled_toast') || 'Mola bitirildi'));
+                await refreshStats();
+            } else {
+                toast.error(t('waiter.break_error_toast') || 'İşlem başarısız');
+            }
+        } catch (err) {
+            toast.error(t('waiter.toast_connection_error') || 'Bağlantı hatası');
+        } finally {
+            setBreakBusy(false);
+        }
+    };
 
     const isAdmin = user?.role === 'admin';
     const isCashier = user?.role === 'cashier';
-    /** Garson/mutfak: kişisel /users/my-stats. Admin + kasiyer: Z-rapor (API'de cashier izinli). */
+    const grossVal = staffReport?.today.total_revenue || 0;
+    const dynamicTaxRate = (settings?.taxRate ?? 19) / 100;
+    const subtotalVal = grossVal / (1 + dynamicTaxRate);
+    const taxVal = grossVal - subtotalVal;
+
     const staffFallback = {
         orders: {
             orders: staffReport?.today.total_orders || 0,
-            gross: staffReport?.today.total_revenue || 0,
-            tax: (staffReport?.today.total_revenue || 0) * 0.19,
-            subtotal: (staffReport?.today.total_revenue || 0) * 0.81
+            gross: grossVal,
+            tax: taxVal,
+            subtotal: subtotalVal
         },
         payments: {
-            payment_total: staffReport?.today.total_revenue || 0,
+            payment_total: grossVal,
             tip_total: staffReport?.tipsToday || 0,
             payment_lines: staffReport?.today.total_orders || 0
         },
@@ -51,6 +203,7 @@ export const StaffPanelModal: React.FC = () => {
         { id: 'profile', label: t('staff.profile') || 'Profil', icon: <FiUser /> },
         { id: 'stats', label: t('staff.stats') || 'İstatistik', icon: <FiBarChart2 /> },
         { id: 'report', label: t('staff.daily_report') || 'Günlük Rapor', icon: <FiFileText /> },
+        { id: 'help', label: t('staff.help_settings') || 'Ayarlar & Destek', icon: <FiSettings /> },
     ];
 
 
@@ -177,6 +330,124 @@ export const StaffPanelModal: React.FC = () => {
 
                                             </div>
                                         </div>
+
+                                        <div className="p-6 rounded-3xl bg-white/5 border border-white/5 space-y-4">
+                                            <h4 className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                                                <FiGrid className="text-pink-500"/> {t('staff.layout_pref') || 'Kat Planı Görünümü'}
+                                            </h4>
+                                            <div className="space-y-3">
+                                                <p className="text-[11px] font-bold text-slate-400 leading-relaxed uppercase tracking-wide">
+                                                    {t('staff.layout_desc') || 'Masaların ekranda nasıl listeleneceğini seçin:'}
+                                                </p>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPreferredFloorView('grid')}
+                                                        className={`flex flex-col items-center justify-center p-4 rounded-2xl border transition-all gap-2 ${
+                                                            preferredFloorView === 'grid'
+                                                                ? 'bg-blue-600/25 border-blue-500 text-white shadow-lg shadow-blue-900/30'
+                                                                : 'bg-black/20 border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
+                                                        }`}
+                                                    >
+                                                        <FiGrid size={24} />
+                                                        <span className="text-[10px] font-black uppercase tracking-widest">{t('staff.layout_grid') || 'Grid Liste'}</span>
+                                                    </button>
+                                                    
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPreferredFloorView('visual')}
+                                                        className={`flex flex-col items-center justify-center p-4 rounded-2xl border transition-all gap-2 ${
+                                                            preferredFloorView === 'visual'
+                                                                ? 'bg-blue-600/25 border-blue-500 text-white shadow-lg shadow-blue-900/30'
+                                                                : 'bg-black/20 border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
+                                                        }`}
+                                                    >
+                                                        <FiMove size={24} />
+                                                        <span className="text-[10px] font-black uppercase tracking-widest">{t('staff.layout_visual') || 'Görsel Kat Planı'}</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-6 rounded-3xl bg-white/5 border border-white/5 space-y-4">
+                                            <h4 className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                                                <FiActivity className="text-amber-500"/> {t('staff.shift_control') || 'Mesai & Çalışma Durumu'}
+                                            </h4>
+                                            
+                                            <div className="space-y-4">
+                                                {/* Mesai Durum Rozeti */}
+                                                <div className="flex items-center justify-between p-3.5 rounded-2xl bg-black/20">
+                                                    <div className="flex flex-col gap-1">
+                                                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">{t('staff.current_duty') || 'Mesai Durumu'}</span>
+                                                        <div className="flex items-center gap-2">
+                                                            {staffReport?.lastShift && !staffReport.lastShift.clock_out ? (
+                                                                <span className="inline-flex px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-black rounded-lg uppercase tracking-widest animate-pulse">
+                                                                    {t('staff.on_duty') || 'GÖREVDE'}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex px-2 py-0.5 bg-rose-500/10 text-rose-400 border border-rose-500/20 text-[9px] font-black rounded-lg uppercase tracking-widest">
+                                                                    {t('staff.off_duty') || 'MESAİDE DEĞİL'}
+                                                                </span>
+                                                            )}
+                                                            {staffReport?.waiterOnBreak && (
+                                                                <span className="inline-flex px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-black rounded-lg uppercase tracking-widest">
+                                                                    {t('staff.on_break') || 'MOLADA'}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {staffReport?.lastShift && !staffReport.lastShift.clock_out && (
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">{t('staff.work_time') || 'Süre'}</span>
+                                                            <span className="text-sm font-black text-white tabular-nums tracking-tight">{shiftDuration}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Mesai Kontrolleri */}
+                                                <div className="flex gap-2">
+                                                    {staffReport?.lastShift && !staffReport.lastShift.clock_out ? (
+                                                        <button
+                                                            type="button"
+                                                            disabled={shiftBusy}
+                                                            onClick={handleClockOut}
+                                                            className="flex-1 flex items-center justify-center gap-2 py-3 bg-red-600/10 border border-red-500/25 hover:bg-red-600 hover:text-white text-red-400 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-[0.98]"
+                                                        >
+                                                            <FiSquare size={14} />
+                                                            {t('staff.clock_out') || 'Mesai Bitir'}
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            disabled={shiftBusy}
+                                                            onClick={handleClockIn}
+                                                            className="flex-1 flex items-center justify-center gap-2 py-3 bg-emerald-600/10 border border-emerald-500/25 hover:bg-emerald-600 hover:text-white text-emerald-400 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-[0.98]"
+                                                        >
+                                                            <FiPlay size={14} />
+                                                            {t('staff.clock_in') || 'Mesai Başlat'}
+                                                        </button>
+                                                    )}
+
+                                                    {/* Mola Butonu (Sadece garson rolü için) */}
+                                                    {user?.role === 'waiter' && staffReport?.lastShift && !staffReport.lastShift.clock_out && (
+                                                        <button
+                                                            type="button"
+                                                            disabled={breakBusy}
+                                                            onClick={handleToggleBreak}
+                                                            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-[0.98] border ${
+                                                                staffReport?.waiterOnBreak
+                                                                    ? 'bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-900/30'
+                                                                    : 'bg-amber-600/10 border-amber-500/25 hover:bg-amber-600 hover:text-white text-amber-400'
+                                                            }`}
+                                                        >
+                                                            <FiCoffee size={14} />
+                                                            {staffReport?.waiterOnBreak ? (t('waiter.break_end') || 'Molayı Bitir') : (t('waiter.break_start') || 'Molaya Çık')}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </motion.div>
                             )}
@@ -272,6 +543,116 @@ export const StaffPanelModal: React.FC = () => {
                                             </p>
                                         </div>
 
+                                    </div>
+                                </motion.div>
+                            )}
+
+                            {staffPanelTab === 'help' && (
+                                <motion.div key="help" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-6">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-2xl font-black text-white tracking-tighter">{t('staff.help_settings') || 'Ayarlar & Destek Merkezi'}</h3>
+                                        <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-2">
+                                            <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                                            {isOnline ? 'SİSTEM ÇEVRİMİÇİ' : 'BAĞLANTI YOK'}
+                                        </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        {/* Sistem Teşhis & Durum Kartı */}
+                                        <div className="p-6 rounded-3xl bg-white/5 border border-white/5 space-y-4">
+                                            <h4 className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                                                <FiGlobe className="text-blue-500"/> {t('staff.system_diag') || 'Sistem Teşhis & Durum'}
+                                            </h4>
+                                            
+                                            <div className="space-y-3">
+                                                <div className="flex justify-between items-center p-3 rounded-2xl bg-black/20 text-xs">
+                                                    <span className="font-bold text-slate-500 uppercase">{t('staff.network') || 'İnternet Bağlantısı'}</span>
+                                                    <span className={`font-black uppercase tracking-wider ${isOnline ? 'text-emerald-400' : 'text-rose-500'}`}>
+                                                        {isOnline ? 'AKTİF (ÇEVRİMİÇİ)' : 'BAĞLANTI KESİLDİ'}
+                                                    </span>
+                                                </div>
+
+                                                <div className="flex justify-between items-center p-3 rounded-2xl bg-black/20 text-xs">
+                                                    <span className="font-bold text-slate-500 uppercase">{t('staff.pos_version') || 'Terminal Sürümü'}</span>
+                                                    <span className="font-black text-white">v2.4.0 Premium</span>
+                                                </div>
+
+                                                <div className="flex justify-between items-center p-3 rounded-2xl bg-black/20 text-xs">
+                                                    <span className="font-bold text-slate-500 uppercase">{t('staff.user_auth') || 'Yetki Seviyesi'}</span>
+                                                    <span className="font-black text-amber-400 uppercase tracking-widest">{user?.role || 'Staff'}</span>
+                                                </div>
+
+                                                <div className="flex justify-between items-center p-3 rounded-2xl bg-black/20 text-xs">
+                                                    <span className="font-bold text-slate-500 uppercase">{t('staff.host') || 'Bağlantı Adresi'}</span>
+                                                    <span className="font-bold text-slate-400 select-all">{window.location.host}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Sorumlu Çağırma & WhatsApp Desteği */}
+                                        <div className="p-6 rounded-3xl bg-white/5 border border-white/5 space-y-4">
+                                            <h4 className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                                                <FaWhatsapp className="text-emerald-500"/> {t('staff.supervisor_support') || 'Sorumlu & Yönetici Çağır'}
+                                            </h4>
+                                            
+                                            <div className="space-y-4">
+                                                <p className="text-[11px] font-bold text-slate-400 leading-relaxed uppercase tracking-wide">
+                                                    {t('staff.support_desc') || 'Herhangi bir aksaklık durumunda doğrudan sorumlu yöneticiyle WhatsApp üzerinden anında sohbet başlatın:'}
+                                                </p>
+                                                
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const defaultNum = '+905423821034';
+                                                        const num = settings?.integrations?.whatsapp?.phoneNumber || settings?.phone || defaultNum;
+                                                        const rawNum = num.replace(/\s+/g, '').replace(/[^\d+]/g, '');
+                                                        const text = encodeURIComponent(
+                                                            `Merhaba, NextPOS Terminali üzerinden bir yardıma ihtiyacım var. Aktif Personel: ${user?.name || user?.username || 'Staff'} (${user?.role || 'Staff'}). Lütfen acil olarak yardımcı olabilir misiniz?`
+                                                        );
+                                                        window.open(`https://wa.me/${rawNum}?text=${text}`, '_blank');
+                                                    }}
+                                                    className="w-full flex items-center justify-center gap-2 py-4 bg-emerald-600/10 border border-emerald-500/25 hover:bg-emerald-600 hover:text-white text-emerald-400 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-[0.98] shadow-lg hover:shadow-emerald-500/10"
+                                                >
+                                                    <FaWhatsapp size={18} />
+                                                    {t('staff.call_supervisor') || 'Sorumlu Çağır (WhatsApp)'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Admine Acil Mesaj Gönder */}
+                                    <div className="bg-white/5 border border-white/5 rounded-3xl p-6 space-y-4">
+                                        <h4 className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                                            <FiSend className="text-pink-500"/> {t('staff.msg_admin') || 'Yöneticiye / Admine Acil Mesaj Gönder'}
+                                        </h4>
+                                        <p className="text-[11px] font-bold text-slate-400 leading-relaxed uppercase tracking-wide">
+                                            {t('staff.msg_admin_desc') || 'Yazacağınız mesaj anlık olarak tüm POS terminallerine ve yönetici paneline acil servis çağrısı bildirimi olarak düşecektir:'}
+                                        </p>
+                                        
+                                        <div className="relative">
+                                            <textarea
+                                                value={urgentMsg}
+                                                onChange={(e) => setUrgentMsg(e.target.value)}
+                                                placeholder={t('staff.msg_admin_placeholder') || 'Örn: Masalarda POS cihazı kağıdı bitti, lütfen yedek getirebilir misiniz?'}
+                                                className="w-full h-24 p-4 rounded-2xl bg-black/35 border border-white/5 text-sm font-bold text-white placeholder-slate-600 focus:outline-none focus:border-pink-500/50 focus:ring-1 focus:ring-pink-500/30 transition-all custom-scrollbar resize-none"
+                                            />
+                                        </div>
+
+                                        <div className="flex justify-end">
+                                            <button
+                                                type="button"
+                                                disabled={sendingMsg || !urgentMsg.trim()}
+                                                onClick={handleSendUrgentMsg}
+                                                className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-[0.98] shadow-lg ${
+                                                    urgentMsg.trim()
+                                                        ? 'bg-pink-600 text-white hover:bg-pink-500 shadow-pink-900/30'
+                                                        : 'bg-white/5 text-slate-600 border border-transparent cursor-not-allowed'
+                                                }`}
+                                            >
+                                                <FiSend size={12} />
+                                                {sendingMsg ? 'Gönderiliyor...' : (t('staff.send_msg') || 'Mesajı Gönder')}
+                                            </button>
+                                        </div>
                                     </div>
                                 </motion.div>
                             )}

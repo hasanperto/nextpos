@@ -3,6 +3,8 @@ import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../store/useAuthStore';
 import { usePosStore } from '../store/usePosStore';
 import { useUIStore } from '../store/useUIStore';
+import { useNotificationStore } from '../store/useNotificationStore';
+import { getSocketOrigin } from '../lib/socketOrigin';
 import toast from 'react-hot-toast';
 import { FaWhatsapp } from 'react-icons/fa6';
 import { FiPhoneCall } from 'react-icons/fi';
@@ -34,11 +36,11 @@ export const useCashierRealtimeSync = () => {
     useEffect(() => {
         if (!token || !tenantId) return;
 
-        const socketUrl = import.meta.env.VITE_API_URL || window.location.origin;
-        const newSocket = io(socketUrl, {
+        const newSocket = io(getSocketOrigin(), {
             auth: { token },
             query: { tenantId },
-            transports: ['websocket']
+            path: '/socket.io',
+            transports: ['polling', 'websocket'],
         });
 
         setSocket(newSocket);
@@ -94,7 +96,16 @@ export const useCashierRealtimeSync = () => {
                     </div>
                 </div>
             ), { position: 'top-right', duration: 10000 });
-            
+            // Premium bildirim kartı
+            useNotificationStore.getState().addNotification({
+                kind: 'whatsapp_order',
+                title: 'Yeni WhatsApp Siparişi!',
+                body: data.customerName || data.phone || 'Yeni mesaj geldi',
+                customerName: data.customerName,
+                totalAmount: data.total,
+                ttl: 15000,
+            });
+            void playNotification('new_order');
             void fetchOrders();
         };
 
@@ -104,42 +115,6 @@ export const useCashierRealtimeSync = () => {
                 receivedAt: new Date().toISOString()
             };
             addRecentCall(callData);
-            
-            toast.custom((t) => (
-                <div 
-                    onClick={() => { toast.dismiss(t.id); useUIStore.getState().setCallerId(true, data); }}
-                    className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-white dark:bg-slate-900 shadow-2xl rounded-3xl pointer-events-auto flex ring-1 ring-black ring-opacity-5 border-2 border-emerald-500 cursor-pointer hover:brightness-105 active:scale-[0.98] transition-all`}
-                >
-                    <div className="flex-1 w-0 p-4">
-                        <div className="flex items-start">
-                            <div className="flex-shrink-0 pt-0.5">
-                                <div className="h-12 w-12 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/30">
-                                    <FiPhoneCall size={24} />
-                                </div>
-                            </div>
-                            <div className="ml-4 flex-1">
-                                <p className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">
-                                    Gelen Arama!
-                                </p>
-                                <p className="mt-1 text-xs font-bold text-slate-900 dark:text-white tabular-nums">
-                                    {data.number}
-                                </p>
-                                <p className="text-xs font-bold text-slate-500 dark:text-slate-400 truncate">
-                                    {data.name || 'Bilinmeyen Numara'}
-                                </p>
-                                <div className="mt-2 flex gap-2">
-                                    <button 
-                                        onClick={() => { toast.dismiss(t.id); useUIStore.getState().setCallerId(true, data); }}
-                                        className="text-[10px] font-black uppercase tracking-wider px-3 py-1.5 bg-emerald-500 text-white rounded-lg shadow-md hover:brightness-110"
-                                    >
-                                        Cevapla / Görüntüle
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            ), { position: 'top-right', duration: 15000 });
         };
 
         const flush = () => {
@@ -149,28 +124,65 @@ export const useCashierRealtimeSync = () => {
 
         const onOrderReady = (data: any) => {
             const orderIdStr = String(data.orderId || '');
-            toast.success(`Sipariş Hazır: #${orderIdStr.length > 4 ? orderIdStr.slice(-4) : orderIdStr}`, {
+            const shortId = orderIdStr.length > 4 ? orderIdStr.slice(-4) : orderIdStr;
+            toast.success(`Sipariş Hazır: #${shortId}`, {
                 icon: '🍳',
                 style: { background: '#10b981', color: '#fff', fontWeight: 'bold' }
             });
+            // Premium bildirim kartı
+            useNotificationStore.getState().addNotification({
+                kind: 'item_ready',
+                title: `Sipariş #${shortId} Hazır!`,
+                body: data.tableName ? `Masa: ${data.tableName}` : 'Mutfaktan hazır bilgisi',
+                tableId: data.tableId != null ? Number(data.tableId) : undefined,
+                tableName: data.tableName,
+                orderId: data.orderId,
+                ttl: 12000,
+            });
+            void playNotification('item_ready');
             void fetchOrders();
         };
 
         const onServiceCall = (data: any) => {
-            toast(`Masa ${data.tableName}: ${data.type === 'bill' ? 'Hesap İstiyor' : 'Garson Çağırıyor'}`, {
-                icon: data.type === 'bill' ? '🧾' : '🔔',
+            const isBill = data.type === 'bill' || data.callType?.includes('bill');
+            toast(`Masa ${data.tableName}: ${isBill ? 'Hesap İstiyor' : 'Garson Çağırıyor'}`, {
+                icon: isBill ? '🧾' : '🔔',
                 duration: 10000,
                 position: 'top-right'
             });
+            // Premium bildirim kartı
+            useNotificationStore.getState().addNotification({
+                kind: 'service_call',
+                title: isBill ? 'Hesap İsteniyor' : 'Garson Çağrılıyor',
+                body: `Masa ${data.tableName || '?'} — ${isBill ? 'Hesap talebi' : 'Müşteri garson bekliyor'}`,
+                tableId: data.tableId != null ? Number(data.tableId) : undefined,
+                tableName: data.tableName,
+                ttl: 15000,
+            });
+            void playNotification('service_call');
             void fetchTables();
         };
 
+        const onServiceCallUnanswered = (data: any) => {
+            const waited = Number(data?.waitedSeconds) || 60;
+            toast.error(`Garson ${waited} sn icinde yanitlamadi, cagriniz baska garsona yonlendirildi.`, {
+                duration: 9000,
+                position: 'top-right',
+                icon: '⏱️',
+            });
+        };
+
         const onTableFocused = (data: any) => {
-            setTablePresence(data.tableId, data.waiterName);
+            if (!data?.tableId) return;
+            useUIStore.getState().setTablePresence(Number(data.tableId), {
+                waiterId: data.waiterId != null ? Number(data.waiterId) : 0,
+                waiterName: String(data.waiterName || '')
+            });
         };
 
         const onTableBlurred = (data: any) => {
-            setTablePresence(data.tableId, null);
+            if (!data?.tableId) return;
+            useUIStore.getState().setTablePresence(Number(data.tableId), null);
         };
 
         const onOnlineOrder = (data: any) => {
@@ -199,6 +211,16 @@ export const useCashierRealtimeSync = () => {
                 position: 'top-right',
                 icon: '🌐'
             });
+            // Premium bildirim kartı
+            useNotificationStore.getState().addNotification({
+                kind: 'external_order',
+                title: 'Yeni Online Sipariş!',
+                body: `${data.customerName || 'Web Siparişi'} — ${data.order_type === 'delivery' ? 'Teslimat' : 'Gel-Al'}`,
+                customerName: data.customerName,
+                totalAmount: data.total,
+                ttl: 15000,
+            });
+            void playNotification('new_order');
         };
 
 
@@ -221,8 +243,11 @@ export const useCashierRealtimeSync = () => {
 
         socket.on('connect', onConnect);
         socket.on('customer:service_call', onServiceCall);
+        socket.on('cashier:service_call_unanswered', onServiceCallUnanswered);
         socket.on('table:focused', onTableFocused);
         socket.on('table:blurred', onTableBlurred);
+        socket.on('table:viewing', onTableFocused);
+        socket.on('table:stopped_viewing', onTableBlurred);
         socket.on('external_order:new', onOnlineOrder);
         socket.on('customer:whatsapp_order', onWhatsAppOrder);
         socket.on('sync:menu_revision', scheduleMenuPull);
@@ -240,10 +265,31 @@ export const useCashierRealtimeSync = () => {
             flush();
         });
         socket.on('table:session_opened', flush);
-        socket.on('order:courier_updated', flush);
+        socket.on('order:courier_updated', (data: any) => {
+            if (data?.courierId == null) {
+                toast.error(`⚠️ Kurye Sipariş #${data?.orderId} atamasını KABUL ETMEDİ / İPTAL ETTİ!`, {
+                    duration: 8000,
+                    id: `courier-release-${data?.orderId}`,
+                });
+            } else {
+                toast.success(`🛵 Kurye Sipariş #${data?.orderId} atamasını KABUL ETTİ!`, {
+                    duration: 6000,
+                    id: `courier-claim-${data?.orderId}`,
+                });
+            }
+            flush();
+        });
         socket.on('kitchen:ticket_updated', flush);
         socket.on('INCOMING_CALL', onIncomingCall);
         socket.on('external_order:simulated', onOnlineOrder);
+        socket.on('CLEAR_CALL_HISTORY_SIGNAL', () => {
+            localStorage.removeItem('pos-call-history');
+            useUIStore.setState({ recentCalls: [], pendingCalls: 0 });
+            toast.success('Arama geçmişi temizlendi.');
+            setTimeout(() => {
+                window.location.reload();
+            }, 500);
+        });
 
 
         const bc = new BroadcastChannel('pos-test-channel');
@@ -277,20 +323,25 @@ export const useCashierRealtimeSync = () => {
             if (tablesPullRef.current) clearTimeout(tablesPullRef.current);
             socket.off('connect', onConnect);
             socket.off('customer:service_call', onServiceCall);
+            socket.off('cashier:service_call_unanswered', onServiceCallUnanswered);
             socket.off('table:focused', onTableFocused);
             socket.off('table:blurred', onTableBlurred);
+            socket.off('table:viewing', onTableFocused);
+            socket.off('table:stopped_viewing', onTableBlurred);
             socket.off('external_order:new', onOnlineOrder);
             socket.off('customer:whatsapp_order', onWhatsAppOrder);
             socket.off('sync:menu_revision', scheduleMenuPull);
             socket.off('sync:tables_changed', scheduleTablesPull);
-            socket.off('order:new', flush);
+            socket.off('order:new');
             socket.off('order:ready', onOrderReady);
             socket.off('order:status_changed', flush);
-            socket.off('payment:received', flush);
+            socket.off('payment:received');
             socket.off('table:session_opened', flush);
-            socket.off('order:courier_updated', flush);
+            socket.off('order:courier_updated');
             socket.off('kitchen:ticket_updated', flush);
             socket.off('INCOMING_CALL', onIncomingCall);
+            socket.off('external_order:simulated');
+            socket.off('CLEAR_CALL_HISTORY_SIGNAL');
             bc.close();
         };
     }, [

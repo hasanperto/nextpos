@@ -1,6 +1,14 @@
 import { Request, Response } from 'express';
+import type { Server as SocketServer } from 'socket.io';
 import { withTenant } from '../lib/db.js';
 import { ensureStockRecipeSchema } from '../services/stock-inventory.service.js';
+
+function emitLowStockAlert(req: Request, tenantId: string, rows: unknown[]): void {
+    if (!rows.length) return;
+    const io = req.app.get('io') as SocketServer | undefined;
+    if (!io) return;
+    io.to(`tenant:${tenantId}`).emit('stock:low', { rows, at: Date.now() });
+}
 
 /** Kritik stok alarm listesi (stock_qty <= min_stock_qty). */
 export const getLowStockAlertsHandler = async (req: Request, res: Response) => {
@@ -36,6 +44,8 @@ export const getLowStockAlertsHandler = async (req: Request, res: Response) => {
             );
             return Array.isArray(r) ? r : [];
         });
+
+        emitLowStockAlert(req, tenantId, rows);
 
         res.json({ rows });
     } catch (e) {

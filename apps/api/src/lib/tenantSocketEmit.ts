@@ -7,7 +7,9 @@ export function emitTenantMenuCatalogStale(req: Request): void {
     if (!tenantId) return;
     const io = req.app.get('io') as SocketServer | undefined;
     if (!io) return;
-    io.to(`tenant:${tenantId}`).emit('sync:menu_revision', { at: Date.now() });
+    const payload = { at: Date.now() };
+    io.to(`tenant:${tenantId}`).emit('sync:menu_revision', payload);
+    io.to(`tenant:${tenantId}`).emit('menu:updated', payload);
 }
 
 /** Salon/masa/bölge düzeni — konum güncellemesi `sync/pull` revizyonuna dahil olmayabilir; istemci masaları yeniler. */

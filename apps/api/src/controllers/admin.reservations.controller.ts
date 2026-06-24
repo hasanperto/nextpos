@@ -113,6 +113,22 @@ export const createReservationAdmin = async (req: Request, res: Response) => {
             }
             return ins;
         });
+        
+        const io = req.app.get('io');
+        if (io) {
+            const payload = {
+                id: created.insertId,
+                table_id: table_id || null,
+                customer_name: String(customer_name).trim(),
+                reservation_at: new Date(String(reservation_at)).toISOString(),
+                status,
+                at: Date.now(),
+            };
+            io.to(`tenant:${tenantId}`).emit('reservation:created', payload);
+            io.to(`tenant:${tenantId}`).emit('reservations:updated', payload);
+            io.to(`tenant:${tenantId}`).emit('tables:updated');
+        }
+
         res.status(201).json({ ok: true, id: created.insertId });
     } catch (e) {
         console.error('createReservationAdmin', e);
@@ -187,6 +203,12 @@ export const updateReservationAdmin = async (req: Request, res: Response) => {
             }
         });
 
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`tenant:${tenantId}`).emit('reservations:updated');
+            io.to(`tenant:${tenantId}`).emit('tables:updated');
+        }
+
         res.json({ ok: true });
     } catch (e: any) {
         if (e.message === 'NOT_FOUND') return res.status(404).json({ error: 'Rezervasyon bulunamadı' });
@@ -213,6 +235,13 @@ export const deleteReservationAdmin = async (req: Request, res: Response) => {
                 await conn.query(`UPDATE tables SET status = 'available' WHERE id = ? AND status = 'reserved'`, [row.table_id]);
             }
         });
+
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`tenant:${tenantId}`).emit('reservations:updated');
+            io.to(`tenant:${tenantId}`).emit('tables:updated');
+        }
+
         res.json({ ok: true });
     } catch (e: any) {
         if (e.message === 'NOT_FOUND') return res.status(404).json({ error: 'Rezervasyon bulunamadı' });

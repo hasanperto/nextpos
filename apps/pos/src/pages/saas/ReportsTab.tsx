@@ -10,12 +10,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export const ReportsTab: React.FC = () => {
     const { t } = useSaaSLocale();
-    const { growthReport, fetchGrowthReport, settings } = useSaaSStore();
+    const { growthReport, fetchGrowthReport, settings, fetchResellerZReportsSummary, resellerZReportsSummary } = useSaaSStore();
     const currency = settings?.currency || '€';
     
     useEffect(() => { 
         fetchGrowthReport(); 
-    }, [fetchGrowthReport]);
+        fetchResellerZReportsSummary();
+    }, [fetchGrowthReport, fetchResellerZReportsSummary]);
     
     const gr = growthReport;
 
@@ -82,9 +83,9 @@ export const ReportsTab: React.FC = () => {
                         title={t('reports.monthlyGrowth')} 
                         icon={<FiTrendingUp className="text-emerald-400" />}
                         action={
-                            <div className="flex bg-slate-900/40 rounded-xl p-1 border border-white/5 shadow-xl">
-                                <button className="px-3 py-1 text-[9px] font-black text-white bg-blue-600 rounded-lg uppercase">Tenants</button>
-                                <button className="px-3 py-1 text-[9px] font-black text-slate-500 hover:text-white uppercase transition-colors">Revenue</button>
+                            <div className="flex bg-white dark:bg-slate-900 shadow-sm rounded-xl p-1 border border-slate-200 dark:border-slate-800 shadow-xl">
+                                <button className="px-3 py-1 text-[9px] font-black text-slate-800 dark:text-white bg-blue-600 rounded-lg uppercase">Tenants</button>
+                                <button className="px-3 py-1 text-[9px] font-black text-slate-500 hover:text-slate-800 dark:text-white uppercase transition-colors">Revenue</button>
                             </div>
                         }
                     >
@@ -103,10 +104,10 @@ export const ReportsTab: React.FC = () => {
                                                 transition={{ delay: i * 0.1 }}
                                             >
                                                 <div className="flex justify-between items-center mb-2 px-1">
-                                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{m.month}</span>
-                                                    <span className="text-[11px] font-black text-white italic">+{m.new_tenants} <span className="text-[8px] text-slate-600 not-italic uppercase tracking-tighter">New Nodes</span></span>
+                                                    <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{m.month}</span>
+                                                    <span className="text-[11px] font-black text-slate-800 dark:text-white italic">+{m.new_tenants} <span className="text-[8px] text-slate-600 not-italic uppercase tracking-tighter">New Nodes</span></span>
                                                 </div>
-                                                <div className="h-4 bg-white/[0.02] border border-white/5 rounded-full overflow-hidden p-0.5 group-hover:border-blue-500/20 transition-all">
+                                                <div className="h-4 bg-white/[0.02] border border-slate-200 dark:border-slate-800 rounded-full overflow-hidden p-0.5 group-hover:border-blue-500/20 transition-all">
                                                     <motion.div 
                                                         className="h-full bg-gradient-to-r from-blue-600 via-indigo-500 to-cyan-500 rounded-full relative shadow-[0_0_15px_rgba(59,130,246,0.2)]" 
                                                         initial={{ width: 0 }}
@@ -120,10 +121,10 @@ export const ReportsTab: React.FC = () => {
                                         );
                                     })}
                                 </div>
-                                <div className="relative p-12 bg-white/[0.012] rounded-[48px] border border-white/5 hidden lg:flex flex-col items-center justify-center text-center overflow-hidden group">
+                                <div className="relative p-12 bg-white/[0.012] rounded-2xl border border-slate-200 dark:border-slate-800 hidden lg:flex flex-col items-center justify-center text-center overflow-hidden group">
                                     <div className="absolute inset-0 bg-gradient-to-br from-blue-600/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                                     <FiTarget size={120} className="text-blue-500/10 mb-6 group-hover:scale-110 transition-transform duration-700" />
-                                    <div className="text-4xl font-black text-white italic tracking-tighter mb-2">AESTHETIC-DRIVEN</div>
+                                    <div className="text-4xl font-black text-slate-800 dark:text-white italic tracking-tighter mb-2">AESTHETIC-DRIVEN</div>
                                     <div className="text-xs font-black text-blue-400 uppercase tracking-[0.4em] mb-4">Growth Strategy 2026</div>
                                     <p className="text-[10px] text-slate-500 font-bold max-w-[200px] leading-relaxed uppercase opacity-40 group-hover:opacity-100 transition-opacity">Dynamic resource allocation and reseller micro-incentives active.</p>
                                     <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-500 to-indigo-500 opacity-20" />
@@ -144,21 +145,21 @@ export const ReportsTab: React.FC = () => {
                                             key={row.id} 
                                             layout
                                             variants={itemVariants}
-                                            className="flex items-center gap-5 p-5 bg-slate-900/40 backdrop-blur-xl rounded-[32px] border border-white/5 hover:border-amber-400/30 transition-all group relative overflow-hidden"
+                                            className="flex items-center gap-5 p-5 bg-white dark:bg-slate-900 shadow-sm rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-amber-400/30 transition-all group relative overflow-hidden"
                                         >
                                             <div className="absolute top-0 right-0 p-8 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity rotate-12">
                                                 <FiAward size={80} />
                                             </div>
-                                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-base font-black shadow-2xl relative overflow-hidden ${
+                                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-base font-black shadow-sm relative overflow-hidden ${
                                                 i === 0 ? 'bg-gradient-to-br from-amber-400 to-amber-600 text-amber-900' : 
                                                 i === 1 ? 'bg-gradient-to-br from-slate-300 to-slate-400 text-slate-800' :
                                                 i === 2 ? 'bg-gradient-to-br from-orange-400 to-orange-600 text-orange-900' :
-                                                'bg-white/5 text-slate-500 border border-white/10'
+                                                'bg-white/5 text-slate-500 border border-slate-200 dark:border-slate-800'
                                             }`}>
                                                 {i + 1}
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="font-black text-white text-base tracking-tight mb-1 truncate group-hover:text-amber-400 transition-colors uppercase italic">{row.name}</div>
+                                                <div className="font-black text-slate-800 dark:text-white text-base tracking-tight mb-1 truncate group-hover:text-amber-400 transition-colors uppercase italic">{row.name}</div>
                                                 <div className="flex items-center gap-2">
                                                     <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-lg border ${
                                                         row.subscription_plan === 'enterprise' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' : 
@@ -187,7 +188,7 @@ export const ReportsTab: React.FC = () => {
                         <div className="grid grid-cols-1 gap-4">
                             {gr?.planDistribution?.map((p: any, i: number) => {
                                 const colors = [
-                                    'from-slate-800 to-slate-900 border-white/5 text-slate-500', 
+                                    'from-slate-800 to-slate-900 border-slate-200 dark:border-slate-800 text-slate-500', 
                                     'from-blue-600/20 to-indigo-600/10 border-blue-500/20 text-blue-400', 
                                     'from-amber-600/20 to-orange-600/10 border-amber-500/20 text-amber-400'
                                 ];
@@ -200,13 +201,13 @@ export const ReportsTab: React.FC = () => {
                                                 key={i} 
                                                 variants={itemVariants}
                                                 whileHover={{ x: 10 }}
-                                                className={`bg-gradient-to-br ${currentStyle} p-6 rounded-[32px] border flex items-center gap-6 group transition-all`}
+                                                className={`bg-gradient-to-br ${currentStyle} p-6 rounded-2xl border flex items-center gap-6 group transition-all`}
                                             >
                                                 <div className={`p-4 bg-white/5 rounded-2xl group-hover:scale-110 transition-transform ${lastClass.replace('text-', 'text-opacity-80 text-')}`}>
                                                     {icons[i] || icons[0]}
                                                 </div>
                                         <div>
-                                            <div className="text-3xl font-black text-white italic tracking-tighter leading-none mb-1">{p.count}</div>
+                                            <div className="text-3xl font-black text-slate-800 dark:text-white italic tracking-tighter leading-none mb-1">{p.count}</div>
                                             <div className="text-[10px] font-black uppercase tracking-[0.2em]">{p.plan} {t('reports.totalRest')}</div>
                                         </div>
                                         <FiArrowUpRight className="ml-auto opacity-0 group-hover:opacity-40 transition-opacity" size={24} />
@@ -217,6 +218,58 @@ export const ReportsTab: React.FC = () => {
                     </SectionCard>
                 </div>
             </div>
+
+            {/* 4. Reseller Z-Report Summary */}
+            {resellerZReportsSummary && resellerZReportsSummary.summary && resellerZReportsSummary.summary.length > 0 && (
+                <div className="px-4 sm:px-0">
+                    <SectionCard 
+                        title="Bayi Z-Raporu Özeti (Konsolide)" 
+                        icon={<FiTarget className="text-rose-400" />}
+                        action={
+                            <div className="flex bg-white dark:bg-slate-900 shadow-sm rounded-xl p-1 border border-slate-200 dark:border-slate-800 shadow-xl">
+                                <span className="px-3 py-1 text-[9px] font-black text-slate-800 dark:text-white bg-rose-600 rounded-lg uppercase">
+                                    Total Revenue: {currency}{Number(resellerZReportsSummary.totalRevenue).toLocaleString()}
+                                </span>
+                            </div>
+                        }
+                    >
+                        <div className="overflow-x-auto -mx-6 custom-scrollbar">
+                            <table className="w-full text-left border-separate border-spacing-y-2 px-6">
+                                <thead>
+                                    <tr className="text-slate-500 text-[9px] font-black uppercase tracking-[0.2em] opacity-60">
+                                        <th className="px-6 py-4">Restoran</th>
+                                        <th className="px-6 py-4 text-center">Toplam Sipariş</th>
+                                        <th className="px-6 py-4 text-right">Nakit</th>
+                                        <th className="px-6 py-4 text-right">Kredi Kartı</th>
+                                        <th className="px-6 py-4 text-right">Toplam Ciro</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {resellerZReportsSummary.summary.map((row: any) => (
+                                        <tr key={row.tenantId} className="group hover:bg-white/[0.02] transition-colors">
+                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent first:rounded-l-[24px] last:rounded-r-[24px] border-y border-slate-200 dark:border-slate-800 first:border-l last:border-r">
+                                                <div className="font-black text-slate-800 dark:text-white text-[13px] uppercase tracking-tight italic truncate">{row.tenantName}</div>
+                                            </td>
+                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0 text-center font-bold text-slate-600 dark:text-slate-500 dark:text-slate-400">
+                                                {row.orders}
+                                            </td>
+                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0 text-right text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+                                                {currency}{Number(row.cash).toLocaleString()}
+                                            </td>
+                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0 text-right text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+                                                {currency}{Number(row.card).toLocaleString()}
+                                            </td>
+                                            <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0 rounded-r-[24px] border-r text-right font-black text-emerald-400 tabular-nums italic">
+                                                {currency}{Number(row.revenue).toLocaleString()}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </SectionCard>
+                </div>
+            )}
         </motion.div>
     );
 };

@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { withTenant } from '../lib/db.js';
 import { isTenantModuleEnabled } from '../services/billing.service.js';
 import { WhatsAppService } from '../services/whatsapp.service.js';
+import { DeliveryZoneService } from '../services/delivery-zone.service.js';
+import { normalizePhone } from '../lib/phone.js';
 
 export const handleIncomingCall = async (req: Request, res: Response) => {
     try {
@@ -23,6 +25,8 @@ export const handleIncomingCall = async (req: Request, res: Response) => {
             return res.status(403).json({ error: 'Bu özellik mevcut paketinizde aktif değil.' });
         }
 
+        let authFailed = false;
+
         await withTenant(tenantId, async (connection) => {
             const [branchRows]: any = await connection.query(
                 "SELECT settings FROM branches WHERE id = 1"
@@ -33,12 +37,21 @@ export const handleIncomingCall = async (req: Request, res: Response) => {
 
             // API Anahtarı doğrulaması (Eğer demo değilse)
             if (!isDemo && callerIdSettings.androidKey !== apiKey) {
-                return res.status(403).json({ error: 'Geçersiz API Anahtarı' });
+                authFailed = true;
+                res.status(403).json({ error: 'Geçersiz API Anahtarı' });
+                return;
             }
 
+            const defaultCC = String(callerIdSettings.defaultCountryCode || '90');
+            const defaultAC = callerIdSettings.defaultAreaCode ? String(callerIdSettings.defaultAreaCode) : undefined;
+            const normalizedIncoming = normalizePhone(number, defaultCC, defaultAC);
+
             const [customerRows]: any = await connection.query(
-                "SELECT id, name, address FROM customers WHERE phone LIKE ?",
-                [`%${String(number).slice(-10)}%`]
+                `SELECT c.id, c.name, 
+                        (SELECT address FROM customer_addresses WHERE customer_id = c.id ORDER BY is_default DESC, id DESC LIMIT 1) as address 
+                 FROM customers c 
+                 WHERE c.phone = ? OR c.phone LIKE ?`,
+                [normalizedIncoming, `%${String(number).slice(-10)}%`]
             );
 
             const customer = customerRows[0] || null;
@@ -49,7 +62,7 @@ export const handleIncomingCall = async (req: Request, res: Response) => {
             if (io) {
                 // 1. Kiracı Bildirimi (Kasiyer Ekranı)
                 io.to(`tenant:${tenantId}`).emit('INCOMING_CALL', {
-                    number,
+                    number: normalizedIncoming || number,
                     name: customer ? customer.name : (name || 'Bilinmeyen Numara'),
                     customerId: customer ? customer.id : null,
                     address: customer ? customer.address : null,
@@ -81,6 +94,8 @@ export const handleIncomingCall = async (req: Request, res: Response) => {
                 }
             }
         });
+
+        if (authFailed) return;
 
         res.json({ success: true });
     } catch (error: any) {
@@ -378,6 +393,45 @@ async function botHandleMessage(args: {
     const text = normalizeMsg(message).toLowerCase();
     const rawIndex = parseIndex(text);
 
+    // WHATSAPP TELEFON DOĞRULAMA KODU KONTROLÜ
+    if (text.includes('nextpos') && (text.includes('kodum') || text.includes('dogrulama') || text.includes('doğrulama'))) {
+        const matches = text.match(/\d{6}/);
+        if (matches) {
+            const code = matches[0];
+            const cleanPhone = phone.replace(/\D/g, '');
+
+            try {
+                await connection.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS whatsapp_verified BOOLEAN DEFAULT false`);
+                await connection.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS whatsapp_verification_code VARCHAR(10) NULL`);
+            } catch { /* ignore */ }
+
+            // Müşteriyi telefon numarasına göre bul ve kodunu eşleştir
+            const [custRows]: any = await connection.query(
+                `SELECT id, whatsapp_verification_code FROM customers WHERE phone LIKE ? LIMIT 1`,
+                [`%${cleanPhone.slice(-8)}`]
+            );
+
+            const customer = custRows?.[0];
+            if (customer && customer.whatsapp_verification_code === code) {
+                await connection.query(
+                    `UPDATE customers SET whatsapp_verified = true, whatsapp_verification_code = NULL WHERE id = ?`,
+                    [customer.id]
+                );
+
+                if (io) {
+                    io.to(`tenant:${tenantId}`).emit('customer:whatsapp_verified', {
+                        phone: phone,
+                        customerId: customer.id
+                    });
+                }
+
+                return `Telefon numaranız başarıyla doğrulandı! NextPOS üyesi olarak siparişinize devam edebilirsiniz. 🌟`;
+            } else {
+                return `Gönderdiğiniz doğrulama kodu eşleşmedi veya geçersiz. Lütfen Web QR menüdeki kodu kontrol edip tekrar deneyin.`;
+            }
+        }
+    }
+
     let session = await loadSession(connection, phone);
 
     if (!session.customerId) {
@@ -520,6 +574,17 @@ async function botHandleMessage(args: {
         }
         const addr = normalizeMsg(message);
         if (addr.length < 6) return ['Adres çok kısa. Lütfen tam adres yazın:', '', '0) Ana Menü'].join('\n');
+        
+        const validation = await DeliveryZoneService.validateAddress(connection, addr, 0);
+        if (!validation.allowed && validation.reason === 'AddressOutsideDeliveryArea') {
+            return [
+                'Üzgünüz, girdiğiniz adres teslimat bölgelerimizin dışındadır ❌',
+                'Lütfen teslimat bölgemiz dahilinde olan farklı bir adres yazın:',
+                '',
+                '0) Ana Menü',
+            ].join('\n');
+        }
+
         const next: BotSession = { ...session, address: addr, step: 'ORDER_ENTRY' };
         await saveSession(connection, phone, next);
         return renderOrderEntry(next);
@@ -557,6 +622,31 @@ async function botHandleMessage(args: {
         if (rawIndex === 8) {
             if (!session.cart.length) return ['Sepet boş. Önce ürün ekleyin.', '', '2) Menü', '0) Ana Menü'].join('\n');
             const total = session.cart.reduce((a, x) => a + Number(x.unitPrice) * Number(x.qty), 0);
+
+            if (session.serviceType === 'delivery' && session.address) {
+                const validation = await DeliveryZoneService.validateAddress(connection, session.address, total);
+                if (!validation.allowed) {
+                    if (validation.reason === 'AddressOutsideDeliveryArea') {
+                        return [
+                            'Üzgünüz, belirttiğiniz adres teslimat bölgelerimizin dışındadır ❌',
+                            '',
+                            'Adresiniz: ' + session.address,
+                            'Farklı bir adres yazmak veya Gel-Al sipariş vermek için 0 yazıp ana menüye dönebilirsiniz.',
+                        ].join('\n');
+                    }
+                    if (validation.reason === 'MinOrderNotReached') {
+                        return [
+                            `Bu bölge (${validation.zoneName}) için minimum sipariş tutarı ${validation.minOrder}€ olmalıdır ❌`,
+                            `Mevcut sepetiniz: ${total.toFixed(2)}€`,
+                            '',
+                            'Sipariş vermeye devam etmek için:',
+                            '2) Menüye dön ve ürün ekle',
+                            '0) Ana Menü',
+                        ].join('\n');
+                    }
+                }
+            }
+
             const svc = session.serviceType === 'delivery' ? 'Paket' : 'Gel-Al';
             const addr = session.serviceType === 'delivery' ? `Adres: ${session.address || '-'}` : undefined;
             const lines = session.cart.map((x) => `${x.qty}x ${x.name}`);
@@ -759,6 +849,11 @@ export const handleWhatsAppWebhook = async (req: Request, res: Response) => {
         const apiKey = String(key || '');
         const isDemo = apiKey === 'DEMO' || apiKey === 'ANAHTAR-YOK';
 
+        const enabled = await isTenantModuleEnabled(tenantId, 'whatsapp_orders');
+        if (!enabled) {
+            return res.status(403).json({ error: 'WhatsApp Sipariş modülü mevcut paketinizde aktif değil.' });
+        }
+
         const incoming = parseWhatsAppIncoming(req.body);
         if (!incoming) return res.status(200).json({ ok: true });
         const phone = incoming.from.replace(/\D/g, '');
@@ -811,6 +906,11 @@ export const simulateWhatsAppBotHandler = async (req: any, res: Response) => {
     try {
         const tenantId = String(req.body?.tenantId || req.tenantId || req.user?.tenantId || '').trim();
         if (!tenantId) return res.status(400).json({ error: 'Tenant ID zorunludur' });
+
+        const enabled = await isTenantModuleEnabled(tenantId, 'whatsapp_orders');
+        if (!enabled) {
+            return res.status(403).json({ error: 'WhatsApp Sipariş modülü mevcut paketinizde aktif değil.' });
+        }
 
         const phoneRaw = String(req.body?.phone || '+491620001122');
         const phone = phoneRaw.replace(/\D/g, '').slice(0, 20);

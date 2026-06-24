@@ -45,14 +45,18 @@ export const initAutomatedBackups = () => {
 export const runAutomatedBackups = async () => {
     try {
         const [tenants]: any = await queryPublic(
-            `SELECT id, name, schema_name, subscription_plan FROM \`public\`.tenants WHERE status = 'active'`,
+            `SELECT t.id, t.name, t.schema_name, t.subscription_plan,
+                    EXISTS(SELECT 1 FROM \`public\`.tenant_modules tm WHERE tm.tenant_id::text = t.id::text AND tm.module_code = 'backup_module' AND tm.is_active = true) as has_backup_module
+             FROM \`public\`.tenants t 
+             WHERE t.status = 'active'`,
         );
 
         if (!Array.isArray(tenants)) return;
 
         for (const tenant of tenants) {
             const plan = tenant.subscription_plan;
-            if (plan !== 'enterprise' && plan !== 'pro') continue;
+            const hasBackupModule = !!tenant.has_backup_module;
+            if (plan !== 'enterprise' && plan !== 'pro' && !hasBackupModule) continue;
 
             const [lastBackup]: any = await queryPublic(
                 `
@@ -75,6 +79,8 @@ export const runAutomatedBackups = async () => {
                 if (plan === 'enterprise' && hoursSinceLastBackup >= 24) {
                     needsBackup = true;
                 } else if (plan === 'pro' && hoursSinceLastBackup >= 7 * 24) {
+                    needsBackup = true;
+                } else if (hasBackupModule && hoursSinceLastBackup >= 24) {
                     needsBackup = true;
                 }
             }

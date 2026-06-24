@@ -30,7 +30,8 @@ import { SettingsPage } from './pages/SettingsPage.tsx';
 type Tab = 'dashboard' | 'restaurants' | 'commissions' | 'support' | 'finance' | 'shop' | 'settings';
 
 function LangSwitcher() {
-    const { lang, setLang } = useResellerStore();
+    const lang = useResellerStore(s => s.lang);
+    const setLang = useResellerStore(s => s.setLang);
     const flags: Record<Lang, string> = { tr: '🇹🇷', de: '🇩🇪', en: '🇬🇧' };
     const langs: Lang[] = ['tr', 'de', 'en'];
     return (
@@ -50,8 +51,19 @@ function LangSwitcher() {
 }
 
 export function App() {
-    const { token, admin, isLoading, error, login, verifyLogin2fa, resendLogin2fa, logout, lang, login2faRequired, login2faMethod } = useResellerStore();
-    const t = (k: string) => messages[lang][k] || k;
+    const token = useResellerStore(s => s.token);
+    const admin = useResellerStore(s => s.admin);
+    const isLoading = useResellerStore(s => s.isLoading);
+    const error = useResellerStore(s => s.error);
+    const login = useResellerStore(s => s.login);
+    const verifyLogin2fa = useResellerStore(s => s.verifyLogin2fa);
+    const resendLogin2fa = useResellerStore(s => s.resendLogin2fa);
+    const logout = useResellerStore(s => s.logout);
+    const lang = useResellerStore(s => s.lang);
+    const login2faRequired = useResellerStore(s => s.login2faRequired);
+    const login2faMethod = useResellerStore(s => s.login2faMethod);
+
+    const t = (k: string) => messages[lang]?.[k] || messages['de']?.[k] || messages['en']?.[k] || messages['tr']?.[k] || k;
 
     const [loginForm, setLoginForm] = useState({ username: '', password: '' });
     const [twofaCode, setTwofaCode] = useState('');
@@ -66,6 +78,19 @@ export function App() {
         };
         mq.addEventListener('change', onMq);
         return () => mq.removeEventListener('change', onMq);
+    }, []);
+
+    useEffect(() => {
+        const handleNavigate = (e: Event) => {
+            const customEvent = e as CustomEvent<{ page: Tab; search?: string; action?: string }>;
+            if (!customEvent.detail) return;
+            const { page } = customEvent.detail;
+            setActiveTab(page);
+            setDetailTenantId(null);
+            setMobileNavOpen(false);
+        };
+        window.addEventListener('reseller:navigate', handleNavigate);
+        return () => window.removeEventListener('reseller:navigate', handleNavigate);
     }, []);
 
     useEffect(() => {
@@ -104,12 +129,12 @@ export function App() {
                             <FiShield className="text-blue-500" size={40} />
                         </div>
                         <h1 className="text-4xl font-black text-white tracking-tighter">
-                            NEXTPOS <span className="text-blue-500">BAYİ</span>
+                            NEXTPOS <span className="text-blue-500">{t('app.title').toUpperCase()}</span>
                         </h1>
                         <p className="text-slate-500 mt-2 font-medium uppercase tracking-[0.2em] text-[10px]">{t('login.subtitle')}</p>
                     </div>
 
-                    <form onSubmit={handleLogin} className="bg-slate-900/50 backdrop-blur-2xl p-8 rounded-[32px] border border-white/5 shadow-2xl space-y-6">
+                    <form key={lang} onSubmit={handleLogin} className="bg-slate-900/50 backdrop-blur-2xl p-8 rounded-[32px] border border-white/5 shadow-2xl space-y-6">
                         <div>
                             <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-2">{t('login.username')}</label>
                             <input
@@ -134,7 +159,7 @@ export function App() {
                         ) : (
                             <div>
                                 <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block mb-2">
-                                    2FA Kodu ({login2faMethod || 'email'})
+                                    {t('login.twofaCode')} ({login2faMethod || t('login.twofaMethodEmail')})
                                 </label>
                                 <input
                                     type="text"
@@ -148,7 +173,7 @@ export function App() {
                                     onClick={() => void resendLogin2fa()}
                                     className="mt-2 text-xs text-blue-300 hover:text-blue-200"
                                 >
-                                    Kodu yeniden gonder
+                                    {t('login.twofaResend')}
                                 </button>
                             </div>
                         )}
@@ -162,7 +187,7 @@ export function App() {
                             disabled={isLoading}
                             className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl text-white font-black hover:shadow-2xl hover:shadow-blue-600/40 active:scale-[0.98] transition-all disabled:opacity-50 text-sm tracking-widest uppercase"
                         >
-                            {isLoading ? t('login.loading') : login2faRequired ? '2FA Doğrula' : t('login.submit')}
+                            {isLoading ? t('login.loading') : login2faRequired ? t('login.twofaSubmit') : t('login.submit')}
                         </button>
                     </form>
 
@@ -294,7 +319,7 @@ export function App() {
                             </div>
                             <div className="flex flex-col min-w-0">
                                 <span className="text-xs font-black text-white truncate">{admin.name || admin.username}</span>
-                                <span className="text-[9px] text-blue-400 font-bold uppercase truncate">{admin.email || 'Bayi'}</span>
+                                <span className="text-[9px] text-blue-400 font-bold uppercase truncate">{admin.email || t('app.roleReseller')}</span>
                             </div>
                         </div>
                     </div>

@@ -7,7 +7,7 @@ async function waitForApi(request: any) {
     let lastStatus: number | null = null;
     while (Date.now() < deadline) {
         try {
-            const res = await request.get('http://127.0.0.1:5000/api/v1/health');
+            const res = await request.get('http://127.0.0.1:3101/api/v1/health');
             lastStatus = res.status();
             if (res.ok()) return;
         } catch {

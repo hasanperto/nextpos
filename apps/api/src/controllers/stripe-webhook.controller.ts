@@ -4,6 +4,7 @@ import {
     fulfillResellerWalletTopupFromStripeSession,
     getSystemStripeSecretKey,
 } from '../services/reseller-stripe-topup.service.js';
+import { fulfillResellerPlanPurchaseFromStripeSession } from '../services/reseller-plan-card-purchase.service.js';
 
 const STRIPE_API_VERSION = '2025-02-24.acacia' as Stripe.LatestApiVersion;
 
@@ -46,6 +47,7 @@ export async function handleStripeWebhook(req: Request, res: Response) {
         if (event.type === 'checkout.session.completed') {
             const session = event.data.object as Stripe.Checkout.Session;
             await fulfillResellerWalletTopupFromStripeSession(session);
+            await fulfillResellerPlanPurchaseFromStripeSession(session);
         }
     } catch (e) {
         console.error('[Stripe webhook] handler error:', e);

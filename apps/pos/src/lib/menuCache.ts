@@ -1,5 +1,6 @@
 import toast from 'react-hot-toast';
 import { offlineDb, type SnapRow } from './offlineDb';
+import { isNetworkOffline } from './offlinePolicy';
 
 const catKey = (lang: string) => `menu:cat:${lang}`;
 const prodKey = (lang: string) => `menu:prod:${lang}`;
@@ -15,11 +16,7 @@ if (typeof window !== 'undefined') {
 }
 
 export function isOfflineNow(): boolean {
-    // Yerel geliştirmede (localhost/127.0.0.1) her zaman online varsayalım veya navigator'a güvenelim
-    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-        return false; 
-    }
-    return typeof navigator !== 'undefined' && !navigator.onLine;
+    return isNetworkOffline();
 }
 
 /** Çevrimdışı önbellek kullanıldığında bir kez toast */

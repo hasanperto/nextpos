@@ -1,14 +1,53 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { withTenant, withTenantTransaction } from '../lib/db.js';
-import { applyOrderRecipeDeduction, InsufficientStockError } from '../services/stock-inventory.service.js';
+import { applyOrderRecipeDeduction, InsufficientStockError, ensureStockRecipeSchema } from '../services/stock-inventory.service.js';
 import { effectiveTableQrCode, tableWhereByQrParam } from '../lib/tableQr.js';
-import { pickLeastLoadedWaiterForSection } from '../lib/waiterSectionColumns.js';
+import { resolveServiceCallWaiterTarget } from '../lib/service-call-waiter-target.js';
 import { getCategoriesHandler, getProductsHandler } from './menu.controller.js';
+import { DeliveryZoneService } from '../services/delivery-zone.service.js';
+
+const EXTERNAL_ORDER_TYPES = new Set(['delivery', 'takeaway', 'web', 'phone']);
+
+function phoneDigitsOnly(value: string): string {
+    return value.replace(/\D/g, '');
+}
+
+function phonesMatch(stored: string | null | undefined, provided: string | null | undefined): boolean {
+    const a = phoneDigitsOnly(String(stored || ''));
+    const b = phoneDigitsOnly(String(provided || ''));
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const tail = 6;
+    if (a.length >= tail && b.length >= tail) return a.slice(-tail) === b.slice(-tail);
+    return false;
+}
+
+async function assertCustomerPhoneAccess(
+    connection: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+    customerId: number,
+    phoneRaw?: string | null,
+): Promise<boolean> {
+    if (!customerId || !phoneRaw?.trim()) return false;
+    const [rows]: any = await connection.query('SELECT phone FROM customers WHERE id = ? LIMIT 1', [customerId]);
+    return phonesMatch(rows?.[0]?.phone, phoneRaw);
+}
 
 async function ensureServiceCallsTargetUserForQr(connection: { query: (sql: string, params?: unknown[]) => Promise<unknown> }) {
     try {
         await connection.query(`ALTER TABLE service_calls ADD COLUMN IF NOT EXISTS target_user_id INTEGER NULL`);
+    } catch {
+        /* ignore */
+    }
+    try {
+        await connection.query(
+            `ALTER TABLE service_calls ADD COLUMN IF NOT EXISTS assignee_set_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`
+        );
+    } catch {
+        /* ignore */
+    }
+    try {
+        await connection.query(`ALTER TABLE service_calls ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMPTZ NULL`);
     } catch {
         /* ignore */
     }
@@ -25,6 +64,16 @@ async function ensureQrMembershipPendingColumns(connection: { query: (sql: strin
     }
     try {
         await connection.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS qr_pending_order_id INTEGER NULL`);
+    } catch {
+        /* ignore */
+    }
+    try {
+        await connection.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS whatsapp_verified BOOLEAN DEFAULT false`);
+    } catch {
+        /* ignore */
+    }
+    try {
+        await connection.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS whatsapp_verification_code VARCHAR(10) NULL`);
     } catch {
         /* ignore */
     }
@@ -105,6 +154,7 @@ const qrExternalOrderSchema = z.object({
     customerPhone: z.string().min(5),
     orderType: z.enum(['delivery', 'takeaway']),
     address: z.string().optional(),
+    addressLabel: z.string().optional(),
     paymentMethod: z.enum(['cash', 'card', 'paypal', 'google_pay']),
     notes: z.string().optional(),
     /** Kayıtlı müşteri (QR identify sonrası) */
@@ -201,9 +251,10 @@ export const resolveTableByQrHandler = async (req: Request, res: Response) => {
             const { clause, params } = tableWhereByQrParam(qrCode);
             const [rows]: any = await connection.query(
                 `SELECT t.id, t.name, t.qr_code, t.branch_id, t.section_id,
-                        s.name AS section_name
+                        s.name AS section_name, b.settings AS branch_settings
                  FROM tables t
                  LEFT JOIN sections s ON s.id = t.section_id
+                 LEFT JOIN branches b ON b.id = t.branch_id
                  WHERE ${clause}`,
                 params
             );
@@ -212,6 +263,28 @@ export const resolveTableByQrHandler = async (req: Request, res: Response) => {
 
         if (!row) {
             return res.status(404).json({ error: 'Masa bulunamadı' });
+        }
+
+        let taxRate = 19;
+        let currency = 'EUR';
+        if (row.branch_settings) {
+            try {
+                const settingsObj = typeof row.branch_settings === 'string' 
+                    ? JSON.parse(row.branch_settings) 
+                    : row.branch_settings;
+                
+                if (settingsObj?.taxRate != null) {
+                    taxRate = Number(settingsObj.taxRate);
+                } else if (Array.isArray(settingsObj?.vat)) {
+                    const sorted = [...settingsObj.vat].sort((a: any, b: any) => b.value - a.value);
+                    taxRate = sorted[0]?.value ?? 19;
+                }
+                if (settingsObj?.currency) {
+                    currency = String(settingsObj.currency);
+                }
+            } catch (err) {
+                // ignore parsing error
+            }
         }
 
         const session = await withTenant(tenantId, async (connection) => {
@@ -232,6 +305,8 @@ export const resolveTableByQrHandler = async (req: Request, res: Response) => {
             qrCode: effectiveTableQrCode(row),
             activeSessionId: session?.id ?? null,
             waiterId: session?.waiter_id ?? null,
+            taxRate,
+            currency,
         });
     } catch (e) {
         console.error('resolveTableByQrHandler', e);
@@ -367,6 +442,14 @@ export const createQrMenuOrderHandler = async (req: Request, res: Response) => {
         const tenantId = req.tenantId!;
         const data = qrOrderSchema.parse(req.body);
 
+        try {
+            await withTenant(tenantId, async (conn) => {
+                await ensureStockRecipeSchema(conn);
+            });
+        } catch (e: any) {
+            console.warn('ensureStockRecipeSchema error:', e?.message || e);
+        }
+
         const order = await withTenantTransaction(tenantId, async (connection) => {
             try {
                 await connection.query(
@@ -389,11 +472,6 @@ export const createQrMenuOrderHandler = async (req: Request, res: Response) => {
             const tableName = String(tr[0].table_name || '');
             const sectionId = tr[0].section_id != null ? Number(tr[0].section_id) : null;
 
-            const assignedWaiterId = await pickLeastLoadedWaiterForSection(
-                connection,
-                Number.isFinite(sectionId) ? sectionId : null
-            );
-
             const [sr]: any = await connection.query(
                 `SELECT id, waiter_id FROM table_sessions
                  WHERE table_id = ? AND closed_at IS NULL
@@ -402,6 +480,12 @@ export const createQrMenuOrderHandler = async (req: Request, res: Response) => {
             );
             const sessionId = sr?.[0]?.id != null ? Number(sr[0].id) : null;
             const sessionWaiterId = sr?.[0]?.waiter_id != null ? Number(sr[0].waiter_id) : null;
+
+            const assignedWaiterId = await resolveServiceCallWaiterTarget(connection, {
+                sectionId: Number.isFinite(sectionId) ? sectionId : null,
+                sessionWaiterId,
+                explicitWaiterId: null,
+            });
 
             const lines: {
                 productId: number;
@@ -608,17 +692,19 @@ export const createQrServiceCallHandler = async (req: Request, res: Response) =>
             const sessionWaiterId = sess?.waiter_id != null ? Number(sess.waiter_id) : null;
             const sectionId = table.section_id != null ? Number(table.section_id) : null;
 
-            let targetUserId: number | null = null;
-            if (data.callType === 'call_waiter') {
-                targetUserId = await pickLeastLoadedWaiterForSection(
-                    connection,
-                    Number.isFinite(sectionId) ? sectionId : null
-                );
+            /** Oturum garsonu öncelikli; moladaysa veya yoksa müsait garsona yönlendir */
+            const targetUserId = await resolveServiceCallWaiterTarget(connection, {
+                sectionId: Number.isFinite(sectionId) ? sectionId : null,
+                sessionWaiterId,
+                explicitWaiterId: null,
+            });
+            if (targetUserId == null) {
+                throw new Error('NO_WAITER_AVAILABLE');
             }
 
             const [ins]: any = await connection.query(
-                `INSERT INTO service_calls (table_id, session_id, call_type, status, message, target_user_id)
-                 VALUES (?, ?, ?, 'pending', NULL, ?)`,
+                `INSERT INTO service_calls (table_id, session_id, call_type, status, message, target_user_id, assignee_set_at)
+                 VALUES (?, ?, ?, 'pending', NULL, ?, CURRENT_TIMESTAMP)`,
                 [table.id, sess?.id ?? null, data.callType, targetUserId]
             );
             const newId = ins.insertId as number;
@@ -670,6 +756,9 @@ export const createQrServiceCallHandler = async (req: Request, res: Response) =>
         if (error.message === 'TABLE_NOT_FOUND') {
             return res.status(404).json({ error: 'Masa bulunamadı' });
         }
+        if (error.message === 'NO_WAITER_AVAILABLE') {
+            return res.status(409).json({ error: 'Müsait garson bulunamadı' });
+        }
         console.error('createQrServiceCallHandler', error);
         res.status(500).json({ error: 'Kayıt oluşturulamadı' });
     }
@@ -691,8 +780,12 @@ export const createExternalOrderHandler = async (req: Request, res: Response) =>
             // 1. Müşteri: kayıtlı id veya telefonla bul / oluştur
             let customerId: number | null = data.customerId ?? null;
             if (customerId) {
-                const [ver]: any = await connection.query(`SELECT id FROM customers WHERE id = ? LIMIT 1`, [customerId]);
-                if (!ver?.length) customerId = null;
+                const [ver]: any = await connection.query(`SELECT id, phone FROM customers WHERE id = ? LIMIT 1`, [customerId]);
+                if (!ver?.length) {
+                    customerId = null;
+                } else if (!phonesMatch(ver[0].phone, data.customerPhone)) {
+                    customerId = null;
+                }
             }
             if (!customerId) {
                 const [crows]: any = await connection.query(
@@ -707,6 +800,22 @@ export const createExternalOrderHandler = async (req: Request, res: Response) =>
                     [data.customerName, data.customerPhone],
                 );
                 customerId = cins.insertId;
+            }
+
+            // Save new delivery address if customer is logged in
+            if (customerId && data.orderType === 'delivery' && data.address?.trim()) {
+                const cleanAddr = data.address.trim();
+                const [addrExists]: any = await connection.query(
+                    'SELECT id FROM customer_addresses WHERE customer_id = ? AND LOWER(TRIM(address)) = LOWER(TRIM(?)) LIMIT 1',
+                    [customerId, cleanAddr]
+                );
+                if (!addrExists?.length) {
+                    const label = data.addressLabel?.trim() || 'QR Adres';
+                    await connection.query(
+                        'INSERT INTO customer_addresses (customer_id, label, address, is_default) VALUES (?, ?, ?, false)',
+                        [customerId, label, cleanAddr]
+                    );
+                }
             }
 
             // 2. Fiyatları hesapla
@@ -733,6 +842,21 @@ export const createExternalOrderHandler = async (req: Request, res: Response) =>
 
             const vat = defaultVatRate();
             const { net: netSubtotal, tax: taxAmount, gross: totalAmount } = grossToNetAndTax(grossTotal, vat);
+
+            if (data.orderType === 'delivery') {
+                if (!data.address?.trim()) {
+                    throw new Error('DELIVERY_ADDRESS_REQUIRED');
+                }
+                const validation = await DeliveryZoneService.validateAddress(connection, data.address, grossTotal);
+                if (!validation.allowed) {
+                    if (validation.reason === 'AddressOutsideDeliveryArea') {
+                        throw new Error('ADDRESS_OUTSIDE_DELIVERY_AREA');
+                    }
+                    if (validation.reason === 'MinOrderNotReached') {
+                        throw new Error(`MIN_ORDER_NOT_REACHED:${validation.zoneName}:${validation.minOrder}`);
+                    }
+                }
+            }
 
             // 3. Siparişi oluştur (status: 'pending')
             // Using 'qr_portal' to match the enum in init.sql
@@ -807,7 +931,7 @@ export const createExternalOrderHandler = async (req: Request, res: Response) =>
             // Room name in useCashierRealtimeSync is just 'tenantId' or 'tenant:tenantId'?
             // Let's check useCashierRealtimeSync.ts: socket.emit('join:tenant', tenantId);
             // In cashier.ts (socket server), join:tenant joins req.tenantId.
-            io.to(tenantId).emit('external_order:new', {
+            io.to(`tenant:${tenantId}`).emit('external_order:new', {
                 tenantId,
                 ...result,
                 paymentMethod: data.paymentMethod,
@@ -830,6 +954,23 @@ export const createExternalOrderHandler = async (req: Request, res: Response) =>
                 detail: error.payload,
             });
         }
+        if (error.message === 'DELIVERY_ADDRESS_REQUIRED') {
+            return res.status(400).json({ error: 'Teslimat adresi gereklidir' });
+        }
+        if (error.message === 'ADDRESS_OUTSIDE_DELIVERY_AREA') {
+            return res.status(400).json({ error: 'Belirtilen adres teslimat bölgelerimizin dışındadır' });
+        }
+        if (typeof error.message === 'string' && error.message.startsWith('MIN_ORDER_NOT_REACHED:')) {
+            const parts = error.message.split(':');
+            const zoneName = parts[1];
+            const minOrder = parts[2];
+            return res.status(400).json({
+                error: `Bu bölge (${zoneName}) için minimum sipariş tutarı ${minOrder}€ olmalıdır.`
+            });
+        }
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Geçersiz sipariş verisi', details: error.flatten() });
+        }
         console.error('CRITICAL: createExternalOrderHandler ERROR:', error.message, error.stack);
         res.status(500).json({ error: 'Sipariş işlenirken bir hata oluştu: ' + error.message });
     }
@@ -839,17 +980,34 @@ export const createExternalOrderHandler = async (req: Request, res: Response) =>
 export const getExternalOrdersHandler = async (req: Request, res: Response) => {
     try {
         const tenantId = req.tenantId!;
+        const statusQuery = typeof req.query.statuses === 'string' ? req.query.statuses.trim() : '';
+        const statuses = statusQuery ? statusQuery.split(',').map(s => s.trim()).filter(Boolean) : [];
+
         const orders = await withTenant(tenantId, async (connection) => {
             await ensureQrMembershipPendingColumns(connection);
-            const [rows]: any = await connection.query(
-                `SELECT o.*, c.name as customer_name, c.phone as customer_phone,
-                        (c.id IS NOT NULL AND COALESCE(c.qr_pending_confirmation, false) = true AND c.qr_pending_order_id = o.id) AS customer_membership_pending_pos
-                 FROM orders o
-                 LEFT JOIN customers c ON c.id = o.customer_id
-                 WHERE o.source IN ('qr_portal'::order_source, 'whatsapp'::order_source) 
-                 AND o.status NOT IN ('completed'::order_status, 'cancelled'::order_status)
-                 ORDER BY o.created_at DESC`
-            );
+            
+            let queryStr = `
+                SELECT o.*, COALESCE(o.customer_name, c.name) as customer_name, c.phone as customer_phone,
+                       u.name as courier_name,
+                       (c.id IS NOT NULL AND COALESCE(c.qr_pending_confirmation, false) = true AND c.qr_pending_order_id = o.id) AS customer_membership_pending_pos
+                FROM orders o
+                LEFT JOIN customers c ON c.id = o.customer_id
+                LEFT JOIN users u ON u.id = o.courier_id
+                WHERE o.source IN ('qr_portal'::order_source, 'whatsapp'::order_source)
+            `;
+            
+            const queryParams: any[] = [];
+            
+            if (statuses.length > 0) {
+                queryStr += ` AND o.status::text IN (${statuses.map(() => '?').join(',')})`;
+                statuses.forEach(s => queryParams.push(s));
+            } else {
+                queryStr += ` AND o.status NOT IN ('completed'::order_status, 'cancelled'::order_status)`;
+            }
+            
+            queryStr += ` ORDER BY o.created_at DESC`;
+            
+            const [rows]: any = await connection.query(queryStr, queryParams);
             
             const ordersWithItems = [];
             for (const order of rows) {
@@ -884,11 +1042,51 @@ export const confirmExternalOrderHandler = async (req: Request, res: Response) =
                 [orderId]
             );
 
-            await connection.query(
-                `UPDATE customers SET qr_pending_confirmation = false, qr_pending_order_id = NULL
-                 WHERE qr_pending_order_id = ?`,
+            // Siparişle ilişkili müşteri ID'sini bul
+            const [orderRows]: any = await connection.query(
+                "SELECT customer_id FROM orders WHERE id = ?",
                 [orderId]
             );
+            const customerId = orderRows?.[0]?.customer_id;
+
+            if (customerId) {
+                const [crows]: any = await connection.query(
+                    "SELECT customer_code, personal_qr FROM customers WHERE id = ?",
+                    [customerId]
+                );
+                const crow = crows?.[0];
+                const updates: string[] = [
+                    "qr_pending_confirmation = false",
+                    "qr_pending_order_id = NULL",
+                    "whatsapp_verified = true"
+                ];
+                const params: any[] = [];
+
+                if (!crow?.customer_code) {
+                    const nextCode = Math.floor(100000 + Math.random() * 900000).toString();
+                    updates.push("customer_code = ?");
+                    params.push(nextCode);
+                }
+
+                if (!crow?.personal_qr) {
+                    const nextQr = `MEMBER-${customerId}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+                    updates.push("personal_qr = ?");
+                    params.push(nextQr);
+                }
+
+                params.push(customerId);
+                await connection.query(
+                    `UPDATE customers SET ${updates.join(', ')} WHERE id = ?`,
+                    params
+                );
+            } else {
+                // Yedek mekanizma (qr_pending_order_id ile)
+                await connection.query(
+                    `UPDATE customers SET qr_pending_confirmation = false, qr_pending_order_id = NULL, whatsapp_verified = true
+                     WHERE qr_pending_order_id = ?`,
+                    [orderId]
+                );
+            }
 
             const [items]: any = await connection.query(
                 "SELECT oi.*, p.name as product_name FROM order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ?",
@@ -903,7 +1101,7 @@ export const confirmExternalOrderHandler = async (req: Request, res: Response) =
         });
 
         const io = req.app.get('io');
-        if (io) io.to(tenantId).emit('order:status_update', { orderId, status: 'confirmed' });
+        if (io) io.to(`tenant:${tenantId}`).emit('order:status_update', { orderId, status: 'confirmed' });
 
         res.json({ success: true, message: 'Sipariş onaylandı ve mutfağa gönderildi' });
     } catch (e: any) {
@@ -989,7 +1187,8 @@ export const provisionalExternalOrderMembershipHandler = async (req: Request, re
             const custId = Number(o.customer_id);
             const [crows]: any = await connection.query(
                 `SELECT id, name, phone, customer_code, personal_qr,
-                        COALESCE(qr_pending_confirmation, false) AS qp, qr_pending_order_id
+                        COALESCE(qr_pending_confirmation, false) AS qp, qr_pending_order_id,
+                        COALESCE(whatsapp_verified, false) AS whatsapp_verified
                  FROM customers WHERE id = ? FOR UPDATE`,
                 [custId]
             );
@@ -1033,9 +1232,10 @@ export const provisionalExternalOrderMembershipHandler = async (req: Request, re
                     : null);
 
             const fin = await finalizeQrMemberRegistration(connection, custId, { deliveryAddress: addr });
+            const isWaVerified = crow.whatsapp_verified === true || crow.whatsapp_verified === 1 || String(crow.whatsapp_verified) === 'true';
             await connection.query(
-                `UPDATE customers SET qr_pending_confirmation = true, qr_pending_order_id = ? WHERE id = ?`,
-                [orderId, custId]
+                `UPDATE customers SET qr_pending_confirmation = ?, qr_pending_order_id = ? WHERE id = ?`,
+                [isWaVerified ? false : true, isWaVerified ? null : orderId, custId]
             );
             return {
                 kind: 'created_pending' as const,
@@ -1095,19 +1295,41 @@ export const trackOrderHandler = async (req: Request, res: Response) => {
     try {
         const tenantId = req.tenantId!;
         const orderId = req.params.id;
+        const phoneQuery = String(req.query.phone || '').trim();
 
         const order = await withTenant(tenantId, async (connection) => {
             const [rows]: any = await connection.query(
-                `SELECT status, order_type::text AS order_type, total_amount, payment_status, created_at, updated_at,
-                        delivery_address
-                 FROM orders WHERE id = ?`,
+                `SELECT o.status, o.order_type::text AS order_type, o.total_amount, o.payment_status, o.created_at, o.updated_at,
+                        o.delivery_address, c.phone AS customer_phone
+                 FROM orders o
+                 LEFT JOIN customers c ON c.id = o.customer_id
+                 WHERE o.id = ?`,
                 [orderId]
             );
             return rows[0];
         });
 
         if (!order) return res.status(404).json({ error: 'Sipariş bulunamadı' });
-        res.json(order);
+
+        const orderType = String(order.order_type || '');
+        if (EXTERNAL_ORDER_TYPES.has(orderType) && order.customer_phone) {
+            if (!phoneQuery) {
+                return res.status(403).json({ error: 'Sipariş sorgusu için telefon doğrulaması gerekli' });
+            }
+            if (!phonesMatch(order.customer_phone, phoneQuery)) {
+                return res.status(403).json({ error: 'Telefon numarası eşleşmiyor' });
+            }
+        }
+
+        res.json({
+            status: order.status,
+            order_type: order.order_type,
+            total_amount: order.total_amount,
+            payment_status: order.payment_status,
+            created_at: order.created_at,
+            updated_at: order.updated_at,
+            delivery_address: order.delivery_address,
+        });
     } catch (e: any) {
         res.status(500).json({ error: 'Sorgulama başarısız' });
     }
@@ -1180,19 +1402,18 @@ export const qrIdentifyCustomerHandler = async (req: Request, res: Response) => 
             await ensureQrMembershipPendingColumns(connection);
             const normPhone = (p: string) => p.replace(/[\s\-()]/g, '');
 
+            let found: any = null;
+
             if (legacyQ) {
-                const noSpace = legacyQ.replace(/\s/g, '');
-                const likePat = `%${legacyQ.replace(/[%_\\]/g, '')}%`;
                 const [rows]: any = await connection.query(
-                    `SELECT id, name, phone, customer_code, reward_points, email
+                    `SELECT id, name, phone, customer_code, reward_points, email, COALESCE(whatsapp_verified, false) AS whatsapp_verified
                      FROM customers 
                      WHERE ${identifyCustomerNotPendingSql}
                      AND (customer_code = ? 
                         OR phone = ? 
                         OR REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '(', ''), ')', '') = ?
                         OR email = ?
-                        OR LOWER(TRIM(name)) = LOWER(?)
-                        OR (CHAR_LENGTH(?) >= 2 AND name LIKE ?))
+                        OR LOWER(TRIM(name)) = LOWER(?))
                      LIMIT 1`,
                     [
                         legacyQ,
@@ -1200,30 +1421,20 @@ export const qrIdentifyCustomerHandler = async (req: Request, res: Response) => 
                         normPhone(legacyQ),
                         legacyQ,
                         legacyQ,
-                        legacyQ,
-                        likePat,
                     ]
                 );
-                return rows[0];
-            }
-
-            if (!customerCode && !phoneRaw && !nameRaw) {
-                return null;
-            }
-
-            if (customerCode) {
+                found = rows[0];
+            } else if (customerCode) {
                 const [byCode]: any = await connection.query(
-                    `SELECT id, name, phone, customer_code, reward_points, email
+                    `SELECT id, name, phone, customer_code, reward_points, email, COALESCE(whatsapp_verified, false) AS whatsapp_verified
                      FROM customers WHERE ${identifyCustomerNotPendingSql} AND customer_code = ? LIMIT 1`,
                     [customerCode]
                 );
-                if (byCode?.[0]) return byCode[0];
-            }
-
-            if (phoneRaw) {
+                if (byCode?.[0]) found = byCode[0];
+            } else if (phoneRaw) {
                 const p = normPhone(phoneRaw);
                 const [byPhone]: any = await connection.query(
-                    `SELECT id, name, phone, customer_code, reward_points, email
+                    `SELECT id, name, phone, customer_code, reward_points, email, COALESCE(whatsapp_verified, false) AS whatsapp_verified
                      FROM customers 
                      WHERE ${identifyCustomerNotPendingSql}
                      AND (phone = ? 
@@ -1231,29 +1442,27 @@ export const qrIdentifyCustomerHandler = async (req: Request, res: Response) => 
                      LIMIT 1`,
                     [phoneRaw, p]
                 );
-                if (byPhone?.[0]) return byPhone[0];
-            }
-
-            if (nameRaw) {
+                if (byPhone?.[0]) found = byPhone[0];
+            } else if (nameRaw) {
                 const [byName]: any = await connection.query(
-                    `SELECT id, name, phone, customer_code, reward_points, email
+                    `SELECT id, name, phone, customer_code, reward_points, email, COALESCE(whatsapp_verified, false) AS whatsapp_verified
                      FROM customers 
                      WHERE ${identifyCustomerNotPendingSql} AND LOWER(TRIM(name)) = LOWER(?)
                      LIMIT 1`,
                     [nameRaw]
                 );
-                if (byName?.[0]) return byName[0];
-                const [byNameLike]: any = await connection.query(
-                    `SELECT id, name, phone, customer_code, reward_points, email
-                     FROM customers 
-                     WHERE ${identifyCustomerNotPendingSql} AND name LIKE ? AND CHAR_LENGTH(?) >= 2
-                     LIMIT 1`,
-                    [`%${nameRaw.replace(/[%_\\]/g, '')}%`, nameRaw]
-                );
-                if (byNameLike?.[0]) return byNameLike[0];
+                if (byName?.[0]) found = byName[0];
             }
 
-            return null;
+            if (found) {
+                const [addrRows]: any = await connection.query(
+                    'SELECT id, label, address, district, city, is_default FROM customer_addresses WHERE customer_id = ? ORDER BY is_default DESC, id DESC',
+                    [found.id]
+                );
+                found.addresses = addrRows;
+            }
+
+            return found;
         });
 
         if (!customer) {
@@ -1263,5 +1472,262 @@ export const qrIdentifyCustomerHandler = async (req: Request, res: Response) => 
     } catch (error) {
         console.error('qrIdentifyCustomerHandler', error);
         res.status(500).json({ error: 'Tanımlama başarısız' });
+    }
+};
+
+/** GET /api/v1/qr-web/addresses — Müşterinin kayıtlı adreslerini getirir */
+export const qrGetAddressesHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const customerId = Number(req.query.customerId);
+        const phone = String(req.query.phone || '');
+        if (!customerId || !phone.trim()) {
+            return res.status(400).json({ error: 'Müşteri ID ve telefon gereklidir' });
+        }
+
+        const addresses = await withTenant(tenantId, async (connection) => {
+            const allowed = await assertCustomerPhoneAccess(connection, customerId, phone);
+            if (!allowed) return null;
+            const [rows]: any = await connection.query(
+                'SELECT id, label, address, district, city, is_default FROM customer_addresses WHERE customer_id = ? ORDER BY is_default DESC, id DESC',
+                [customerId]
+            );
+            return rows || [];
+        });
+
+        if (addresses === null) {
+            return res.status(403).json({ error: 'Telefon doğrulaması başarısız' });
+        }
+
+        res.json(addresses);
+    } catch (error) {
+        console.error('qrGetAddressesHandler', error);
+        res.status(500).json({ error: 'Adresler yüklenemedi' });
+    }
+};
+
+/** POST /api/v1/qr-web/addresses — Yeni adres ekler */
+export const qrAddAddressHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const { customerId, label, address, phone } = req.body;
+        
+        if (!customerId || !address?.trim() || !phone?.trim()) {
+            return res.status(400).json({ error: 'Müşteri ID, telefon ve adres gereklidir' });
+        }
+
+        const result = await withTenantTransaction(tenantId, async (connection) => {
+            const allowed = await assertCustomerPhoneAccess(connection, Number(customerId), phone);
+            if (!allowed) throw new Error('PHONE_MISMATCH');
+            const cleanLabel = label?.trim() || 'Adres';
+            const cleanAddress = address.trim();
+
+            // İlk adres ise varsayılan yapalım
+            const [existing]: any = await connection.query(
+                'SELECT id FROM customer_addresses WHERE customer_id = ? LIMIT 1',
+                [customerId]
+            );
+            const isDefault = !existing || existing.length === 0;
+
+            const [ins]: any = await connection.query(
+                'INSERT INTO customer_addresses (customer_id, label, address, is_default) VALUES (?, ?, ?, ?)',
+                [customerId, cleanLabel, cleanAddress, isDefault]
+            );
+
+            const [newAddr]: any = await connection.query(
+                'SELECT id, label, address, district, city, is_default FROM customer_addresses WHERE id = ?',
+                [ins.insertId]
+            );
+            return newAddr?.[0] || null;
+        });
+
+        res.json(result);
+    } catch (error: any) {
+        if (error?.message === 'PHONE_MISMATCH') {
+            return res.status(403).json({ error: 'Telefon doğrulaması başarısız' });
+        }
+        console.error('qrAddAddressHandler', error);
+        res.status(500).json({ error: 'Adres eklenemedi' });
+    }
+};
+
+/** DELETE /api/v1/qr-web/addresses/:id — Adresi siler */
+export const qrDeleteAddressHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const addressId = Number(req.params.id);
+        const customerId = Number(req.query.customerId);
+        const phone = String(req.query.phone || '');
+
+        if (!addressId || !customerId || !phone.trim()) {
+            return res.status(400).json({ error: 'Adres ID, müşteri ID ve telefon gereklidir' });
+        }
+
+        const ok = await withTenantTransaction(tenantId, async (connection) => {
+            const allowed = await assertCustomerPhoneAccess(connection, customerId, phone);
+            if (!allowed) return false;
+            // Silinecek adres varsayılan ise, başka bir adresi varsayılan yapalım
+            const [target]: any = await connection.query(
+                'SELECT is_default FROM customer_addresses WHERE id = ? AND customer_id = ?',
+                [addressId, customerId]
+            );
+            
+            await connection.query(
+                'DELETE FROM customer_addresses WHERE id = ? AND customer_id = ?',
+                [addressId, customerId]
+            );
+
+            if (target?.[0]?.is_default) {
+                const [other]: any = await connection.query(
+                    'SELECT id FROM customer_addresses WHERE customer_id = ? ORDER BY id DESC LIMIT 1',
+                    [customerId]
+                );
+                if (other?.[0]?.id) {
+                    await connection.query(
+                        'UPDATE customer_addresses SET is_default = true WHERE id = ?',
+                        [other[0].id]
+                    );
+                }
+            }
+            return true;
+        });
+
+        if (!ok) {
+            return res.status(403).json({ error: 'Telefon doğrulaması başarısız' });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('qrDeleteAddressHandler', error);
+        res.status(500).json({ error: 'Adres silinemedi' });
+    }
+};
+
+/** PUT /api/v1/qr-web/addresses/:id/default — Adresi varsayılan yapar */
+export const qrSetDefaultAddressHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const addressId = Number(req.params.id);
+        const { customerId, phone } = req.body;
+
+        if (!addressId || !customerId || !phone?.trim()) {
+            return res.status(400).json({ error: 'Adres ID, müşteri ID ve telefon gereklidir' });
+        }
+
+        const ok = await withTenantTransaction(tenantId, async (connection) => {
+            const allowed = await assertCustomerPhoneAccess(connection, Number(customerId), phone);
+            if (!allowed) return false;
+            await connection.query(
+                'UPDATE customer_addresses SET is_default = false WHERE customer_id = ?',
+                [customerId]
+            );
+            await connection.query(
+                'UPDATE customer_addresses SET is_default = true WHERE id = ? AND customer_id = ?',
+                [addressId, customerId]
+            );
+            return true;
+        });
+
+        if (!ok) {
+            return res.status(403).json({ error: 'Telefon doğrulaması başarısız' });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('qrSetDefaultAddressHandler', error);
+        res.status(500).json({ error: 'Varsayılan adres güncellenemedi' });
+    }
+};
+
+export const qrVerifyRequestHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const { name, phone } = z.object({
+            name: z.string().min(2),
+            phone: z.string().min(5)
+        }).parse(req.body);
+
+        const cleanPhone = phone.replace(/\D/g, '');
+        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit random code
+
+        const result = await withTenant(tenantId, async (connection) => {
+            // Kolonların olduğundan emin ol
+            try {
+                await connection.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS whatsapp_verified BOOLEAN DEFAULT false`);
+                await connection.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS whatsapp_verification_code VARCHAR(10) NULL`);
+            } catch { /* ignore */ }
+
+            // Müşteriyi bul veya oluştur
+            const [crows]: any = await connection.query(`SELECT id, whatsapp_verified FROM customers WHERE phone = ? LIMIT 1`, [phone]);
+            let customerId: number;
+            let alreadyVerified = false;
+
+            if (crows?.[0]) {
+                customerId = crows[0].id;
+                alreadyVerified = Boolean(crows[0].whatsapp_verified);
+                if (!alreadyVerified) {
+                    await connection.query(`UPDATE customers SET whatsapp_verification_code = ? WHERE id = ?`, [verificationCode, customerId]);
+                }
+            } else {
+                const [cins]: any = await connection.query(
+                    `INSERT INTO customers (name, phone, whatsapp_verification_code, created_at) VALUES (?, ?, ?, NOW())`,
+                    [name, phone, verificationCode]
+                );
+                customerId = cins.insertId;
+            }
+
+            // Restoranın WhatsApp numarasını bul (branch settings integrations'dan)
+            const [branchRows]: any = await connection.query(`SELECT settings FROM branches WHERE id = 1`);
+            const settings = branchRows?.[0]?.settings || {};
+            const integrations = settings.integrations || {};
+            const whatsappPhone = integrations.whatsapp?.phoneNumber || '';
+
+            return {
+                alreadyVerified,
+                verificationCode,
+                whatsappPhone
+            };
+        });
+
+        res.json({
+            success: true,
+            alreadyVerified: result.alreadyVerified,
+            code: result.verificationCode,
+            whatsappPhone: result.whatsappPhone
+        });
+    } catch (error: any) {
+        console.error('qrVerifyRequestHandler error:', error);
+        res.status(500).json({ error: 'Doğrulama isteği oluşturulamadı' });
+    }
+};
+
+export const qrVerifyCheckHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const phone = String(req.query.phone || '').trim();
+
+        if (!phone) {
+            return res.status(400).json({ error: 'Telefon numarası zorunludur' });
+        }
+
+        const verified = await withTenant(tenantId, async (connection) => {
+            try {
+                await connection.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS whatsapp_verified BOOLEAN DEFAULT false`);
+            } catch { /* ignore */ }
+
+            const [rows]: any = await connection.query(
+                `SELECT whatsapp_verified FROM customers WHERE phone = ? LIMIT 1`,
+                [phone]
+            );
+            return rows?.[0]?.whatsapp_verified === true || rows?.[0]?.whatsapp_verified === 1;
+        });
+
+        res.json({
+            success: true,
+            verified
+        });
+    } catch (error: any) {
+        console.error('qrVerifyCheckHandler error:', error);
+        res.status(500).json({ error: 'Doğrulama durumu kontrol edilemedi' });
     }
 };

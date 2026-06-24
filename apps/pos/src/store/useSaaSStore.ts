@@ -27,7 +27,29 @@ export interface Tenant {
     device_reset_used?: number;
     device_reset_remaining?: number;
     device_reset_month?: string;
+    qr_domain?: string | null;
+    qr_domain_status?: string | null;
     created_at: string;
+    wallet_balance?: number;
+    company_title?: string;
+    created_by?: string;
+    created_by_role?: string;
+    settings?: any;
+}
+
+export interface SaasAdminRow {
+    id: number;
+    username: string;
+    full_name: string | null;
+    email: string | null;
+    role: string;
+    is_active: boolean;
+    last_login: string | null;
+    created_at: string;
+    company_name: string | null;
+    available_licenses: number;
+    wallet_balance: number;
+    reseller_plan_id: number | null;
 }
 
 export interface BillingModuleRow {
@@ -150,6 +172,7 @@ interface SupportTicket {
     id: number;
     tenant_id: string;
     tenant_name?: string;
+    reseller_company_name?: string;
     subject: string;
     message: string;
     status: 'open' | 'in_progress' | 'waiting' | 'closed';
@@ -250,6 +273,25 @@ interface FinancialSummary {
     pendingBreakdown?: { tenant: number; resellerChannel: number; other: number };
     paidByPaymentType?: { payment_type: string; total: number; count: number }[];
     lastUpdate?: string;
+}
+
+export interface DashboardOverview {
+    pendingPayments: { count: number; total: number };
+    walletDepositsPending: { count: number; total: number };
+    resellerTopupsPending: { count: number; total: number };
+    paidThisMonth: { count: number; total: number };
+    tenantWallets: { count: number; total: number };
+    recentPayments: Array<{
+        id: number;
+        amount: number;
+        payment_type?: string;
+        payment_method?: string;
+        status?: string;
+        created_at?: string;
+        tenant_name?: string | null;
+        reseller_name?: string | null;
+        tenant_id?: string | null;
+    }>;
 }
 
 interface AuditLog {
@@ -426,10 +468,13 @@ interface SaaSState {
     posInvoiceEvents: any[];
     selectedTenantId: string | null;
     selectedPosInvoiceNo: string | null;
+    expenses: any[];
+    totalExpense: number;
     auditLogs: AuditLog[];
     securitySummary: SecuritySummary | null;
     apiKeys: ApiKey[];
     growthReport: GrowthReport | null;
+    resellerZReportsSummary: any | null;
     plans: SubscriptionPlan[];
     promoCodes: PromoCode[];
     customerNotes: CustomerNote[];
@@ -446,6 +491,7 @@ interface SaaSState {
     resellerWalletTopups: ResellerWalletTopupRow[];
     /** Süper admin: bekleyen bayi cüzdan talebi sayısı */
     resellerTopupPendingCount: number | null;
+    dashboardOverview: DashboardOverview | null;
     /** Paket × modül matrisi (son yüklenen) */
     planModuleMatrix: { planCode: string; modules: PlanModuleRow[] } | null;
     billingModuleCatalog: BillingModuleRow[];
@@ -474,8 +520,15 @@ interface SaaSState {
     fetchTickets: () => Promise<void>;
     fetchSettings: () => Promise<void>;
     createBackup: () => Promise<boolean>;
-    createTenant: (data: any) => Promise<boolean>;
+    createTenant: (data: any) => Promise<any>;
     updateTenant: (id: string, data: any) => Promise<boolean>;
+    /** Süper admin: tenant soft-delete (API → status inactive) */
+    deleteTenant: (id: string) => Promise<boolean>;
+    /** Süper admin: SaaS panel kullanıcıları (saas_admins) */
+    saasAdmins: SaasAdminRow[];
+    fetchSaasAdmins: () => Promise<void>;
+    patchSaasAdminActive: (id: number, is_active: boolean) => Promise<boolean>;
+    resetSaasAdminPassword: (id: number, newPassword: string) => Promise<boolean>;
     updateTicket: (id: number, status: string) => Promise<boolean>;
     updateSettings: (data: SystemSettings) => Promise<boolean>;
 
@@ -491,6 +544,7 @@ interface SaaSState {
     purchaseResellerPlan: (planId: number) => Promise<boolean>;
     fetchResellerWalletTopupsAdmin: () => Promise<void>;
     fetchResellerTopupPendingCount: () => Promise<void>;
+    fetchDashboardOverview: () => Promise<void>;
     reviewResellerWalletTopup: (id: number, action: 'approve' | 'reject') => Promise<{ ok: boolean; error?: string }>;
 
     // Finance
@@ -498,13 +552,13 @@ interface SaaSState {
     fetchFinancialSummary: () => Promise<void>;
     fetchFinanceInbox: () => Promise<void>;
     addPayment: (data: any) => Promise<boolean>;
-    updatePaymentStatus: (id: number, status: string) => Promise<boolean>;
-    recordSubscriptionPayment: (tenantId: string, amount?: number, billingCycle?: 'monthly' | 'yearly') => Promise<boolean>;
+    updatePaymentStatus: (id: number, status: string, amount?: number, paymentMethod?: string, description?: string) => Promise<boolean>;
+    recordSubscriptionPayment: (tenantId: string, amount?: number, billingCycle?: 'monthly' | 'yearly', description?: string) => Promise<boolean>;
     sendPaymentDueMail: (paymentId: number) => Promise<boolean>;
     fetchAccountingUpcoming: () => Promise<void>;
     fetchAccountingInstallments: (status?: string) => Promise<void>;
     fetchAccountingNotifications: (limit?: number) => Promise<void>;
-    fetchAccountingAllPayments: (filters?: any) => Promise<void>;
+    fetchAccountingAllPayments: (filters?: Record<string, string | number | undefined | null>) => Promise<void>;
     fetchInvoices: (filters?: { status?: string; tenant?: string; from?: string; to?: string }) => Promise<void>;
     fetchInvoiceDetail: (invoiceNumber: string) => Promise<any | null>;
     fetchPosInvoices: (tenantId: string, filters?: { from?: string; to?: string; branchId?: number; cashierId?: number; status?: string; paymentStatus?: string; paymentMethod?: string; q?: string; limit?: number }) => Promise<any[]>;
@@ -514,7 +568,12 @@ interface SaaSState {
     fetchPosInvoiceEvents: (tenantId: string, filters?: { posInvoiceNo?: string; from?: string; to?: string; eventType?: string; limit?: number }) => Promise<any[]>;
     setSelectedTenantId: (tenantId: string | null) => void;
     setSelectedPosInvoiceNo: (posInvoiceNo: string | null) => void;
-
+    
+    // Gider ve Maliyet Raporlaması
+    fetchExpenses: () => Promise<void>;
+    createExpense: (data: any) => Promise<boolean>;
+    suspendTenantForOverdueInvoice: (invoiceId: number) => Promise<boolean>;
+    
     // Security
     fetchAuditLogs: (filters?: any) => Promise<void>;
     fetchSecuritySummary: () => Promise<void>;
@@ -525,6 +584,7 @@ interface SaaSState {
 
     // Reports
     fetchGrowthReport: () => Promise<void>;
+    fetchResellerZReportsSummary: () => Promise<void>;
 
     // Plans
     fetchPlans: () => Promise<void>;
@@ -552,6 +612,7 @@ interface SaaSState {
     fetchTicketDetail: (id: number) => Promise<any>;
     fetchTicketMessages: (ticketId: number) => Promise<void>;
     sendTicketMessage: (ticketId: number, message: string) => Promise<boolean>;
+    createSupportTicket: (data: { subject: string; message: string; priority: string; category: string; tenant_id?: string | null }) => Promise<boolean>;
     fetchKnowledgeBase: () => Promise<void>;
     addKBArticle: (data: any) => Promise<boolean>;
 
@@ -667,15 +728,19 @@ export const useSaaSStore = create<SaaSState>()(
             posInvoiceEvents: [],
             selectedTenantId: null,
             selectedPosInvoiceNo: null,
+            expenses: [],
+            totalExpense: 0,
             auditLogs: [], securitySummary: null,
-            apiKeys: [], growthReport: null, plans: [], promoCodes: [],
+            apiKeys: [], growthReport: null, resellerZReportsSummary: null, plans: [], promoCodes: [],
             customerNotes: [], contracts: [], systemHealth: null, alertRules: [],
             ticketMessages: [], supportStats: null, backupStats: null, knowledgeBase: [],
             selectedTicket: null,
             resellers: [],
             resellerPlans: [],
             resellerWalletTopups: [],
+            saasAdmins: [],
             resellerTopupPendingCount: null,
+            dashboardOverview: null,
             planModuleMatrix: null,
             billingModuleCatalog: [],
             billingModulesAdmin: [],
@@ -732,12 +797,15 @@ export const useSaaSStore = create<SaaSState>()(
                 token: null, admin: null, tenants: [], stats: null, backups: [], tickets: [],
                 settings: null, payments: [], financialSummary: null, auditLogs: [],
                 financeInbox: null, accountingUpcoming: [], accountingInstallments: [], accountingNotifications: [], accountingAllPayments: null, invoices: [], posInvoices: [], posInvoiceEvents: [],
+                saasAdmins: [],
                 selectedTenantId: null, selectedPosInvoiceNo: null,
-                securitySummary: null, apiKeys: [], growthReport: null, plans: [], promoCodes: [],
+                expenses: [], totalExpense: 0,
+                securitySummary: null, apiKeys: [], growthReport: null, resellerZReportsSummary: null, plans: [], promoCodes: [],
                 customerNotes: [], contracts: [], systemHealth: null, alertRules: [],
                 ticketMessages: [], supportStats: null, backupStats: null, knowledgeBase: [], selectedTicket: null, resellers: [],
                 resellerWalletTopups: [],
                 resellerTopupPendingCount: null,
+            dashboardOverview: null,
                 planModuleMatrix: null, billingModuleCatalog: [], billingModulesAdmin: [], billingModulesAdminError: null,
             }),
 
@@ -824,6 +892,14 @@ export const useSaaSStore = create<SaaSState>()(
                         const data = (await res.json()) as { count?: number };
                         set({ resellerTopupPendingCount: Number(data.count ?? 0) });
                     }
+                } catch {}
+            },
+            fetchDashboardOverview: async () => {
+                const { token } = get();
+                if (!token) return;
+                try {
+                    const res = await api('/dashboard/overview', token);
+                    if (res.ok) set({ dashboardOverview: await res.json() });
                 } catch {}
             },
             reviewResellerWalletTopup: async (id, action) => {
@@ -952,8 +1028,10 @@ export const useSaaSStore = create<SaaSState>()(
                 try {
                     const res = await api('/', token, { method: 'POST', body: JSON.stringify(data) });
                     if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Tenant oluşturulamadı'); }
-                    await get().fetchTenants(); await get().fetchStats(); set({ isLoading: false }); return true;
-                } catch (error: any) { set({ isLoading: false, error: error.message }); return false; }
+                    const json = await res.json();
+                    await get().fetchTenants(); await get().fetchStats(); set({ isLoading: false }); 
+                    return json;
+                } catch (error: any) { set({ isLoading: false, error: error.message }); throw error; }
             },
             updateTenant: async (id, data) => {
                 const { token } = get(); set({ isLoading: true, error: null });
@@ -962,6 +1040,80 @@ export const useSaaSStore = create<SaaSState>()(
                     if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Güncelleme hatası'); }
                     await get().fetchTenants(); await get().fetchStats(); set({ isLoading: false }); return true;
                 } catch (error: any) { set({ isLoading: false, error: error.message }); return false; }
+            },
+            deleteTenant: async (id) => {
+                const { token } = get();
+                if (!token) return false;
+                set({ isLoading: true, error: null });
+                try {
+                    const res = await api(`/${id}`, token, { method: 'DELETE' });
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        throw new Error(err.error || 'Pasifleştirme başarısız');
+                    }
+                    await get().fetchTenants();
+                    await get().fetchStats();
+                    set({ isLoading: false });
+                    return true;
+                } catch (error: any) {
+                    set({ isLoading: false, error: error.message });
+                    return false;
+                }
+            },
+
+            fetchSaasAdmins: async () => {
+                const { token } = get();
+                if (!token) return;
+                try {
+                    const res = await api('/saas-admins', token);
+                    if (res.ok) {
+                        const data = (await res.json()) as SaasAdminRow[];
+                        set({ saasAdmins: Array.isArray(data) ? data : [] });
+                    }
+                } catch {
+                    /* yut */
+                }
+            },
+            patchSaasAdminActive: async (id, is_active) => {
+                const { token } = get();
+                if (!token) return false;
+                set({ error: null });
+                try {
+                    const res = await api(`/saas-admins/${id}/active`, token, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ is_active }),
+                    });
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        set({ error: err.error || 'Durum güncellenemedi' });
+                        return false;
+                    }
+                    await get().fetchSaasAdmins();
+                    return true;
+                } catch (e: any) {
+                    set({ error: e?.message || 'Durum güncellenemedi' });
+                    return false;
+                }
+            },
+            resetSaasAdminPassword: async (id, newPassword) => {
+                const { token } = get();
+                if (!token) return false;
+                set({ error: null });
+                try {
+                    const res = await api(`/saas-admins/${id}/reset-password`, token, {
+                        method: 'POST',
+                        body: JSON.stringify({ new_password: newPassword }),
+                    });
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        set({ error: err.error || 'Şifre sıfırlanamadı' });
+                        return false;
+                    }
+                    return true;
+                } catch (e: any) {
+                    set({ error: e?.message || 'Şifre sıfırlanamadı' });
+                    return false;
+                }
             },
 
             // ═══════════════════ FINANCE ═══════════════════
@@ -972,6 +1124,37 @@ export const useSaaSStore = create<SaaSState>()(
                     const res = await api(`/finance/payments?${params}`, token);
                     if (res.ok) set({ payments: await res.json() });
                 } catch {}
+            },
+            fetchExpenses: async () => {
+                const { token } = get(); if (!token) return;
+                try {
+                    const res = await api('/finance/expenses', token);
+                    if (res.ok) {
+                        const data = await res.json();
+                        set({ expenses: data.expenses, totalExpense: data.totalExpense });
+                    }
+                } catch {}
+            },
+            createExpense: async (data: any) => {
+                const { token } = get(); if (!token) return false;
+                try {
+                    const res = await api('/finance/expenses', token, { method: 'POST', body: JSON.stringify(data) });
+                    if (res.ok) {
+                        get().fetchExpenses();
+                        return true;
+                    }
+                    return false;
+                } catch { return false; }
+            },
+            suspendTenantForOverdueInvoice: async (invoiceId: number) => {
+                const { token } = get(); if (!token) return false;
+                try {
+                    const res = await api(`/finance/invoices/${invoiceId}/suspend`, token, { method: 'POST' });
+                    if (res.ok) {
+                        return true;
+                    }
+                    return false;
+                } catch { return false; }
             },
             fetchFinancialSummary: async () => {
                 const { token } = get(); if (!token) return;
@@ -995,17 +1178,17 @@ export const useSaaSStore = create<SaaSState>()(
                     return false;
                 } catch { return false; }
             },
-            updatePaymentStatus: async (id, status) => {
+            updatePaymentStatus: async (id, status, amount, paymentMethod, description) => {
                 const { token } = get();
                 try {
                     const res = await api(`/finance/payments/${id}/status`, token, {
-                        method: 'PATCH', body: JSON.stringify({ status }),
+                        method: 'PATCH', body: JSON.stringify({ status, amount, paymentMethod, description }),
                     });
                     if (res.ok) { get().fetchPayments(); get().fetchFinancialSummary(); return true; }
                     return false;
                 } catch { return false; }
             },
-            recordSubscriptionPayment: async (tenantId: string, amount?: number, billingCycle?: 'monthly' | 'yearly') => {
+            recordSubscriptionPayment: async (tenantId: string, amount?: number, billingCycle?: 'monthly' | 'yearly', description?: string) => {
                 const { token } = get();
                 if (!token) return false;
                 try {
@@ -1014,7 +1197,7 @@ export const useSaaSStore = create<SaaSState>()(
                         body: JSON.stringify({
                             ...(billingCycle ? { billingCycle } : {}),
                             ...(amount != null ? { amount } : {}),
-                            description: `Abonelik yenileme bildirimi`,
+                            description: description || `Abonelik yenileme bildirimi`,
                         }),
                     });
                     if (res.ok) {
@@ -1061,11 +1244,19 @@ export const useSaaSStore = create<SaaSState>()(
                     if (res.ok) set({ accountingNotifications: await res.json() });
                 } catch {}
             },
-            fetchAccountingAllPayments: async (filters?: any) => {
+            fetchAccountingAllPayments: async (filters?: Record<string, string | number | undefined | null>) => {
                 const { token } = get(); if (!token) return;
                 try {
-                    const params = new URLSearchParams(filters || {}).toString();
-                    const res = await api(`/finance/accounting/all-payments?${params}`, token);
+                    const qs = new URLSearchParams();
+                    if (filters) {
+                        for (const [k, v] of Object.entries(filters)) {
+                            if (v !== undefined && v !== null && String(v).trim() !== '') {
+                                qs.set(k, String(v).trim());
+                            }
+                        }
+                    }
+                    const q = qs.toString();
+                    const res = await api(`/finance/accounting/all-payments${q ? `?${q}` : ''}`, token);
                     if (res.ok) set({ accountingAllPayments: await res.json() });
                 } catch {}
             },
@@ -1219,6 +1410,13 @@ export const useSaaSStore = create<SaaSState>()(
                 try {
                     const res = await api('/reports/growth', token);
                     if (res.ok) set({ growthReport: await res.json() });
+                } catch {}
+            },
+            fetchResellerZReportsSummary: async () => {
+                const { token } = get(); if (!token) return;
+                try {
+                    const res = await api('/resellers/z-reports-summary', token);
+                    if (res.ok) set({ resellerZReportsSummary: await res.json() });
                 } catch {}
             },
 
@@ -1380,6 +1578,22 @@ export const useSaaSStore = create<SaaSState>()(
                     if (res.ok) { get().fetchTicketMessages(ticketId); return true; }
                     return false;
                 } catch { return false; }
+            },
+            createSupportTicket: async (data) => {
+                const { token } = get();
+                try {
+                    const res = await api('/support/tickets', token, {
+                        method: 'POST',
+                        body: JSON.stringify(data),
+                    });
+                    if (res.ok) {
+                        get().fetchTickets();
+                        return true;
+                    }
+                    return false;
+                } catch {
+                    return false;
+                }
             },
             fetchKnowledgeBase: async () => {
                 const { token } = get(); if (!token) return;

@@ -56,23 +56,23 @@ export const PlanModulesMatrixCard: React.FC = () => {
                     type="button"
                     onClick={handleSave}
                     disabled={saving || !modules.length}
-                    className="text-xs bg-violet-600 text-white px-3 py-2 rounded-xl font-bold flex items-center gap-1 disabled:opacity-40"
+                    className="text-xs bg-violet-600 text-slate-800 dark:text-white px-3 py-2 rounded-xl font-bold flex items-center gap-1 disabled:opacity-40"
                 >
                     <FiSave size={12} /> {saving ? t('plans.matrix.saving') : t('plans.matrix.save')}
                 </button>
             }
         >
             <p className="text-xs text-slate-500 mb-4">
-                {t('plans.matrix.helpPrefix')} <strong className="text-slate-300">{t('plans.mode.included')}</strong> ({t('plans.matrix.free')}),{' '}
-                <strong className="text-slate-300">{t('plans.mode.addon')}</strong> {t('plans.matrix.or')}{' '}
-                <strong className="text-slate-300">{t('plans.mode.locked')}</strong>.
+                {t('plans.matrix.helpPrefix')} <strong className="text-slate-600 dark:text-slate-500 dark:text-slate-400">{t('plans.mode.included')}</strong> ({t('plans.matrix.free')}),{' '}
+                <strong className="text-slate-600 dark:text-slate-500 dark:text-slate-400">{t('plans.mode.addon')}</strong> {t('plans.matrix.or')}{' '}
+                <strong className="text-slate-600 dark:text-slate-500 dark:text-slate-400">{t('plans.mode.locked')}</strong>.
             </p>
             <div className="flex flex-wrap items-center gap-4 mb-6">
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('plans.matrix.plan')}</label>
                 <select
                     value={planCode}
                     onChange={(e) => setPlanCode(e.target.value)}
-                    className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white min-w-[200px]"
+                    className="bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-800 dark:text-white min-w-[200px]"
                 >
                     {planOptions.map((o) => (
                         <option key={o.value} value={o.value} className="bg-slate-900">
@@ -81,10 +81,10 @@ export const PlanModulesMatrixCard: React.FC = () => {
                     ))}
                 </select>
             </div>
-            <div className="overflow-x-auto rounded-2xl border border-white/5">
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
                 <table className="w-full text-left text-sm">
                     <thead>
-                        <tr className="text-[10px] font-black uppercase tracking-widest text-slate-500 border-b border-white/5">
+                        <tr className="text-[10px] font-black uppercase tracking-widest text-slate-500 border-b border-slate-200 dark:border-slate-800">
                             <th className="px-4 py-3">{t('plans.matrix.colModule')}</th>
                             <th className="px-4 py-3">{t('plans.matrix.colPrice')}</th>
                             <th className="px-4 py-3">{t('plans.matrix.colStatus')}</th>
@@ -94,10 +94,10 @@ export const PlanModulesMatrixCard: React.FC = () => {
                         {modules.map((m) => (
                             <tr key={m.code} className="hover:bg-white/[0.02]">
                                 <td className="px-4 py-3">
-                                    <div className="font-bold text-white">{m.name}</div>
+                                    <div className="font-bold text-slate-800 dark:text-white">{m.name}</div>
                                     <div className="text-[10px] text-slate-500 font-mono">{m.code}</div>
                                 </td>
-                                <td className="px-4 py-3 text-slate-400">
+                                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
                                     {currency}{m.setup_price} / {currency}{m.monthly_price}
                                 </td>
                                 <td className="px-4 py-3">
@@ -109,7 +109,7 @@ export const PlanModulesMatrixCard: React.FC = () => {
                                                 [m.code]: e.target.value as 'included' | 'addon' | 'locked',
                                             }))
                                         }
-                                        className="bg-slate-800 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white"
+                                        className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-800 dark:text-white"
                                     >
                                         {(['included', 'addon', 'locked'] as const).map((mode) => (
                                             <option key={mode} value={mode} className="bg-slate-900">

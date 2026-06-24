@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { FiShoppingCart, FiCheck, FiPackage, FiZap, FiTag, FiHome, FiAward } from 'react-icons/fi';
-import { useResellerStore } from '../store/useResellerStore.ts';
+import { FiShoppingCart, FiCheck, FiPackage, FiZap, FiTag, FiHome, FiAward, FiCreditCard, FiBriefcase, FiDollarSign } from 'react-icons/fi';
+import { useResellerStore, type ResellerPlan } from '../store/useResellerStore.ts';
 import { messages } from '../i18n/messages.ts';
+import { Modal } from '../components/Shared.tsx';
 import { WalletCardVisual } from '../components/WalletCardVisual.tsx';
+
+type PurchasePayMethod = 'bank_transfer' | 'wallet_balance' | 'admin_card' | 'cash';
+
+const PURCHASE_METHOD_ORDER: PurchasePayMethod[] = ['bank_transfer', 'admin_card', 'wallet_balance', 'cash'];
 
 type ResellerWalletSettings = {
     currency?: string;
@@ -33,17 +38,16 @@ type TopupRow = {
 };
 
 export function ShopPage() {
-    const {
-        lang,
-        resellerPlans,
-        fetchResellerPlans,
-        purchaseResellerPlan,
-        isLoading,
-        admin,
-        token,
-        fetchStats,
-    } = useResellerStore();
-    const t = (k: string) => messages[lang][k] || k;
+    const lang = useResellerStore(s => s.lang);
+    const resellerPlans = useResellerStore(s => s.resellerPlans);
+    const fetchResellerPlans = useResellerStore(s => s.fetchResellerPlans);
+    const purchaseResellerPlan = useResellerStore(s => s.purchaseResellerPlan);
+    const cancelPlanPurchase = useResellerStore(s => s.cancelPlanPurchase);
+    const isLoading = useResellerStore(s => s.isLoading);
+    const admin = useResellerStore(s => s.admin);
+    const token = useResellerStore(s => s.token);
+    const fetchStats = useResellerStore(s => s.fetchStats);
+    const t = (k: string) => messages[lang]?.[k] || messages['de']?.[k] || messages['en']?.[k] || messages['tr']?.[k] || k;
     const [topupAmount, setTopupAmount] = useState('');
     const [topupNote, setTopupNote] = useState('');
     const [topupMethod, setTopupMethod] = useState<TopupPayMethod>('bank_transfer');
@@ -59,10 +63,38 @@ export function ShopPage() {
     const [cardExpiry, setCardExpiry] = useState('');
     const [cardCvc, setCardCvc] = useState('');
     const [cardFocus, setCardFocus] = useState<'number' | 'name' | 'expiry' | 'cvc' | null>(null);
+    const [purchasePlan, setPurchasePlan] = useState<ResellerPlan | null>(null);
+    const [purchaseMethod, setPurchaseMethod] = useState<PurchasePayMethod>('bank_transfer');
+    const [purchaseBusy, setPurchaseBusy] = useState(false);
 
     useEffect(() => {
         fetchResellerPlans();
     }, [fetchResellerPlans]);
+
+    useEffect(() => {
+        const q = new URLSearchParams(window.location.search);
+        if (q.get('plan_purchase') === 'ok') {
+            toast.success(t('shop.purchaseModal.cardPaidSuccess'));
+            void fetchResellerPlans();
+            void fetchStats();
+            window.history.replaceState({}, '', window.location.pathname);
+        } else if (q.get('plan_purchase') === 'cancel') {
+            const paymentIdRaw = q.get('payment_id');
+            const paymentId = paymentIdRaw ? Number(paymentIdRaw) : NaN;
+            window.history.replaceState({}, '', window.location.pathname);
+            if (Number.isFinite(paymentId)) {
+                void cancelPlanPurchase(paymentId).then((r) => {
+                    if (r.ok) {
+                        toast(r.reverted ? t('shop.purchaseModal.cancelReverted') : t('shop.purchaseModal.cardCancel'));
+                    } else {
+                        toast.error(r.error || t('shop.purchaseModal.cardCancel'));
+                    }
+                });
+            } else {
+                toast.error(t('shop.purchaseModal.cardCancel'));
+            }
+        }
+    }, [fetchResellerPlans, fetchStats, cancelPlanPurchase, t]);
 
     useEffect(() => {
         if (token) void fetchStats();
@@ -251,14 +283,86 @@ export function ShopPage() {
         return list;
     }, [resellerPlans, currentPlanId]);
 
-    const handlePurchase = async (planId: number) => {
-        if (!globalThis.confirm(t('shop.confirmPurchase'))) return;
-        const r = await purchaseResellerPlan(planId);
+    const getPlanCost = useCallback(
+        (plan: ResellerPlan) => {
+            const planPrice = parseFloat(String(plan.price));
+            if (!hasAssignedPlan || currentPrice === 0) return planPrice;
+            return Math.max(0, planPrice - currentPrice);
+        },
+        [hasAssignedPlan, currentPrice],
+    );
+
+    const purchaseMethods = PURCHASE_METHOD_ORDER;
+
+    const cardPaymentDisabled =
+        !walletSettingsLoaded || activeGw === 'none';
+
+    const purchaseMethodIcon = (pm: PurchasePayMethod) => {
+        if (pm === 'bank_transfer') return <FiHome size={16} />;
+        if (pm === 'admin_card') return <FiCreditCard size={16} />;
+        if (pm === 'cash') return <FiDollarSign size={16} />;
+        return <FiBriefcase size={16} />;
+    };
+
+    const purchaseMethodLabel = (pm: PurchasePayMethod) => {
+        const key = `rest.modal.pay.${pm}` as const;
+        const lbl = t(key);
+        return lbl === key ? pm : lbl;
+    };
+
+    const purchaseMethodHint = (pm: PurchasePayMethod) => {
+        if (pm === 'wallet_balance') return t('shop.purchaseModal.walletHint');
+        if (pm === 'admin_card') return cardPaymentDisabled ? t('shop.walletCardNotConfigured') : t('shop.purchaseModal.cardHint');
+        if (pm === 'cash') return t('shop.purchaseModal.cashHint');
+        return t('shop.purchaseModal.bankHint');
+    };
+
+    const isPurchaseMethodDisabled = (pm: PurchasePayMethod, cost: number) => {
+        const walletBal = Number(admin?.wallet_balance ?? 0);
+        if (pm === 'wallet_balance' && cost > 0 && walletBal < cost) return true;
+        if (pm === 'admin_card' && cardPaymentDisabled) return true;
+        return false;
+    };
+
+    const openPurchaseModal = (plan: ResellerPlan) => {
+        setPurchaseMethod('bank_transfer');
+        setPurchasePlan(plan);
+        void loadWalletSettings();
+    };
+
+    const confirmPurchase = async () => {
+        if (!purchasePlan) return;
+        const cost = getPlanCost(purchasePlan);
+        const walletBal = Number(admin?.wallet_balance ?? 0);
+        if (purchaseMethod === 'wallet_balance' && cost > 0 && walletBal < cost) {
+            toast.error(t('shop.purchaseModal.walletInsufficient'));
+            return;
+        }
+        if (purchaseMethod === 'admin_card' && cardPaymentDisabled) {
+            toast.error(t('shop.walletCardNotConfigured'));
+            return;
+        }
+        setPurchaseBusy(true);
+        const r = await purchaseResellerPlan(purchasePlan.id, purchaseMethod);
+        setPurchaseBusy(false);
+        if (r.ok && r.requiresCardPayment && r.checkoutUrl) {
+            setPurchasePlan(null);
+            toast.success(t('shop.purchaseModal.cardRedirect'));
+            window.location.href = r.checkoutUrl;
+            return;
+        }
         if (r.ok) {
-            toast.success(t('shop.alertSuccess'));
+            setPurchasePlan(null);
+            toast.success(r.message || (r.paymentStatus === 'pending' ? t('shop.purchaseModal.pendingSuccess') : t('shop.alertSuccess')));
             void fetchResellerPlans();
             void fetchStats();
-        } else if (r.error) toast.error(r.error);
+        } else if (r.error) {
+            toast.error(r.error);
+        }
+    };
+
+    const handlePurchase = (plan: ResellerPlan) => {
+        openPurchaseModal(plan);
     };
 
     return (
@@ -583,7 +687,7 @@ export function ShopPage() {
                             <div className="p-8 pt-0 mt-auto">
                                 <button
                                     type="button"
-                                    onClick={() => handlePurchase(plan.id)}
+                                    onClick={() => handlePurchase(plan)}
                                     disabled={isLoading || isCurrent || isLower}
                                     className="w-full py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:shadow-lg hover:shadow-blue-600/30"
                                 >
@@ -604,6 +708,101 @@ export function ShopPage() {
             {resellerPlans.length === 0 && !isLoading && (
                 <p className="text-center text-slate-500 text-sm">{t('shop.empty')}</p>
             )}
+
+            <Modal
+                show={!!purchasePlan}
+                onClose={() => !purchaseBusy && setPurchasePlan(null)}
+                title={
+                    purchasePlan && hasAssignedPlan && purchasePlan.id !== currentPlanId
+                        ? t('shop.purchaseModal.upgradeTitle')
+                        : t('shop.purchaseModal.title')
+                }
+                className="max-w-lg"
+            >
+                {purchasePlan ? (
+                    <div className="space-y-5">
+                        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{purchasePlan.name}</p>
+                            <p className="text-2xl font-black text-white mt-1">€{getPlanCost(purchasePlan).toFixed(2)}</p>
+                            <p className="text-[10px] text-slate-500 mt-1">{t('shop.purchaseModal.amount')}</p>
+                            {hasAssignedPlan && currentPlan ? (
+                                <p className="text-[10px] text-violet-300/90 mt-2">
+                                    {t('shop.purchaseModal.fromPlan').replace('{name}', currentPlan.name)}
+                                </p>
+                            ) : null}
+                        </div>
+
+                        <div className="space-y-2">
+                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t('shop.purchaseModal.method')}</p>
+                            <div className="grid grid-cols-2 gap-2">
+                                {purchaseMethods.map((pm) => {
+                                    const cost = getPlanCost(purchasePlan);
+                                    const disabled = isPurchaseMethodDisabled(pm, cost);
+                                    return (
+                                        <button
+                                            key={pm}
+                                            type="button"
+                                            disabled={disabled}
+                                            onClick={() => setPurchaseMethod(pm)}
+                                            className={`text-left rounded-xl border px-3 py-3 transition-all flex gap-2.5 ${
+                                                purchaseMethod === pm
+                                                    ? 'border-emerald-500/50 bg-emerald-600/20 ring-1 ring-emerald-500/30'
+                                                    : 'border-white/10 bg-black/20 hover:border-white/20'
+                                            } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                        >
+                                            <span className={`shrink-0 p-2 rounded-lg ${purchaseMethod === pm ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 text-slate-400'}`}>
+                                                {purchaseMethodIcon(pm)}
+                                            </span>
+                                            <span className="min-w-0">
+                                                <span className="text-[10px] font-black text-white block uppercase leading-tight">{purchaseMethodLabel(pm)}</span>
+                                                <span className="text-[9px] text-slate-500 mt-0.5 block leading-snug">{purchaseMethodHint(pm)}</span>
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {purchaseMethod === 'bank_transfer' && walletSettingsLoaded && (walletSettings?.reseller_bank_accounts?.length ?? 0) > 0 ? (
+                            <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-3 space-y-2">
+                                <p className="text-[10px] font-black text-sky-200 uppercase tracking-wider">{t('shop.walletBankTitle')}</p>
+                                {(walletSettings?.reseller_bank_accounts ?? []).map((row, idx) => (
+                                    <div key={idx} className="text-[10px] text-slate-300 font-mono leading-relaxed border-t border-white/5 pt-2 first:border-0 first:pt-0">
+                                        <div className="font-bold text-white">{row.bank_name || '—'}</div>
+                                        <div>{row.iban || '—'}</div>
+                                    </div>
+                                ))}
+                                <p className="text-[10px] text-sky-100/80 leading-relaxed">{t('rest.modal.pay.bankPendingHint')}</p>
+                            </div>
+                        ) : null}
+
+                        {purchaseMethod === 'wallet_balance' ? (
+                            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-[10px] text-emerald-200">
+                                {t('shop.purchaseModal.walletBalance').replace('{amount}', Number(admin?.wallet_balance ?? 0).toFixed(2))}
+                            </div>
+                        ) : null}
+
+                        <div className="flex justify-end gap-2 pt-2 border-t border-white/5">
+                            <button
+                                type="button"
+                                disabled={purchaseBusy}
+                                onClick={() => setPurchasePlan(null)}
+                                className="px-4 py-2 text-sm text-slate-300 hover:text-white"
+                            >
+                                {t('rest.modal.cancel')}
+                            </button>
+                            <button
+                                type="button"
+                                disabled={purchaseBusy || isPurchaseMethodDisabled(purchaseMethod, getPlanCost(purchasePlan))}
+                                onClick={() => void confirmPurchase()}
+                                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-sm font-black disabled:opacity-50"
+                            >
+                                {purchaseBusy ? t('finance.loading') : t('shop.purchaseModal.confirm')}
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
+            </Modal>
         </div>
     );
 }

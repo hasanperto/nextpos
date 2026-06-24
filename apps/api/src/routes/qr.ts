@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { publicTenantMiddleware } from '../middleware/publicTenant.js';
+import { requireTenantModule } from '../middleware/requireTenantModule.js';
 import {
     resolveTableByQrHandler,
     qrMenuCategoriesHandler,
@@ -8,19 +9,18 @@ import {
     createQrServiceCallHandler,
     createExternalOrderHandler,
     getPendingExternalOrderCountHandler,
-    getExternalOrdersHandler,
-    confirmExternalOrderHandler,
-    cancelExternalOrderHandler,
-    provisionalExternalOrderMembershipHandler,
     trackOrderHandler,
     getCourierStatsHandler,
     qrIdentifyCustomerHandler,
     qrMenuSpotlightHandler,
+    qrVerifyRequestHandler,
+    qrVerifyCheckHandler,
 } from '../controllers/qr.controller.js';
 
 export const qrRouter = Router();
 
 qrRouter.use(publicTenantMiddleware);
+qrRouter.use(requireTenantModule('qr_menu'));
 
 qrRouter.get('/tables/:qrCode', resolveTableByQrHandler);
 qrRouter.get('/identify', qrIdentifyCustomerHandler);
@@ -31,11 +31,9 @@ qrRouter.post('/orders', createQrMenuOrderHandler);
 qrRouter.post('/service-call', createQrServiceCallHandler);
 qrRouter.get('/pending-count', getPendingExternalOrderCountHandler);
 qrRouter.post('/external-order', createExternalOrderHandler);
-qrRouter.get('/external-orders', getExternalOrdersHandler);
-qrRouter.post('/external-orders/:id/confirm', confirmExternalOrderHandler);
-qrRouter.post('/external-orders/:id/cancel', cancelExternalOrderHandler);
-qrRouter.post('/external-orders/:id/provisional-membership', provisionalExternalOrderMembershipHandler);
 qrRouter.get('/track/:id', trackOrderHandler);
 qrRouter.get('/courier-stats', getCourierStatsHandler);
+qrRouter.post('/verify-request', qrVerifyRequestHandler);
+qrRouter.get('/verify-check', qrVerifyCheckHandler);
 
 export default qrRouter;

@@ -8,6 +8,15 @@ export type ZReportPayload = {
     paymentsByMethod: { method: string; total: number; tips: number; cnt: number }[];
     payments: { payment_total: number; tip_total: number; payment_lines: number };
     orders: { orders: number; gross: number; tax: number; subtotal: number };
+    tipsBreakdown?: { courier_tips: number; pool_tips: number };
+    waitersBreakdown?: {
+        waiter_id: number;
+        waiter_name: string;
+        cash_collected: number;
+        card_collected: number;
+        total_collected: number;
+        cnt: number;
+    }[];
     tss_signature?: string;
     /** `z_business_day_locks` tablosunda bu tarih için kayıt var mı */
     dayLocked?: boolean;
@@ -25,11 +34,33 @@ async function ensureZDayLocksTable(conn: { query: (sql: string, params?: unknow
     `);
 }
 
+async function ensureDailySummariesTable(conn: { query: (sql: string, params?: unknown[]) => Promise<unknown> }) {
+    await conn.query(`
+        CREATE TABLE IF NOT EXISTS daily_summaries (
+            id SERIAL PRIMARY KEY,
+            report_date DATE NOT NULL,
+            branch_id INTEGER NOT NULL DEFAULT 1,
+            total_revenue NUMERIC(12,2) DEFAULT 0,
+            subtotal NUMERIC(12,2) DEFAULT 0,
+            tax_total NUMERIC(12,2) DEFAULT 0,
+            tss_signature TEXT,
+            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(report_date, branch_id)
+        )
+    `);
+}
+
+async function ensureOrdersTipColumnsExist(conn: any) {
+    await conn.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tip_amount DECIMAL(10,2) DEFAULT 0`);
+    await conn.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS tip_owner_type VARCHAR(16) DEFAULT 'courier'`);
+}
+
 async function loadZReportPayload(
     conn: { query: (sql: string, params: unknown[]) => Promise<unknown> },
     date: string,
     branchId: number | undefined
 ): Promise<ZReportPayload> {
+    await ensureOrdersTipColumnsExist(conn);
     const branchO = branchId ? ' AND o.branch_id = ?' : '';
     const paramsDay = branchId ? [date, branchId] : [date];
 
@@ -78,6 +109,40 @@ async function loadZReportPayload(
         paramsDay
     );
 
+    const [tipBreakdownRows]: any = await conn.query(
+        `SELECT
+            COALESCE(SUM(CASE WHEN tip_owner_type = 'courier' THEN COALESCE(tip_amount, 0) ELSE 0 END), 0)::float AS courier_tips,
+            COALESCE(SUM(CASE WHEN tip_owner_type = 'pool' THEN COALESCE(tip_amount, 0) ELSE 0 END), 0)::float AS pool_tips
+         FROM orders
+         WHERE updated_at::date = ?::date
+           AND status = 'completed'
+           AND deleted_at IS NULL
+           ${branchOrders}`,
+        paramsDay
+    );
+
+    const [waitersBreakdownRows]: any = await conn.query(
+        `SELECT 
+            u.id AS waiter_id,
+            u.name AS waiter_name,
+            COALESCE(SUM(CASE WHEN p.method = 'cash' THEN p.amount ELSE 0 END), 0)::float AS cash_collected,
+            COALESCE(SUM(CASE WHEN p.method = 'card' THEN p.amount ELSE 0 END), 0)::float AS card_collected,
+            COALESCE(SUM(p.amount), 0)::float AS total_collected,
+            COUNT(*)::int AS cnt
+         FROM payments p
+         INNER JOIN orders o ON p.order_id = o.id
+         INNER JOIN users u ON p.cashier_id = u.id
+         WHERE p.created_at::date = ?::date
+           AND p.status = 'completed'
+           AND o.status NOT IN ('cancelled')
+           AND o.deleted_at IS NULL
+           AND u.role = 'waiter'
+           ${branchO}
+         GROUP BY u.id, u.name
+         ORDER BY total_collected DESC`,
+        paramsDay
+    );
+
     return {
         date,
         paymentsByMethod: Array.isArray(byMethod) ? byMethod : [],
@@ -92,6 +157,11 @@ async function loadZReportPayload(
             tax: 0,
             subtotal: 0,
         },
+        tipsBreakdown: tipBreakdownRows?.[0] || {
+            courier_tips: 0,
+            pool_tips: 0,
+        },
+        waitersBreakdown: Array.isArray(waitersBreakdownRows) ? waitersBreakdownRows : [],
         tss_signature: undefined
     };
 }
@@ -265,6 +335,8 @@ function pipeZReportPdf(res: Response, data: ZReportPayload): void {
     doc.fontSize(10).text(`Total payments: ${euro(p.payment_total)}`);
     doc.text(`Payment lines: ${p.payment_lines}`);
     doc.text(`Tips total: ${euro(p.tip_total)}`);
+    doc.text(`Tips (courier): ${euro(Number(data.tipsBreakdown?.courier_tips || 0))}`);
+    doc.text(`Tips (team pool): ${euro(Number(data.tipsBreakdown?.pool_tips || 0))}`);
     doc.moveDown(0.8);
 
     doc.fontSize(12).text('Orders (same day)', { underline: true });
@@ -301,6 +373,36 @@ function pipeZReportPdf(res: Response, data: ZReportPayload): void {
         if (y > 720) {
             doc.addPage();
             y = 48;
+        }
+    }
+
+    if (data.waitersBreakdown && data.waitersBreakdown.length > 0) {
+        y += 12;
+        if (y > 650) {
+            doc.addPage();
+            y = 48;
+        }
+        doc.fontSize(12).text('Waiters Cash & Card Collections', col1, y, { underline: true });
+        y += 18;
+
+        doc.fontSize(9).fillColor('#444');
+        doc.text('Waiter Name', col1, y);
+        doc.text('Tx Count', col2, y);
+        doc.text('Cash', col3, y);
+        doc.text('Total Collected', col4, y);
+        doc.fillColor('#000');
+        y += 16;
+        doc.fontSize(10);
+        for (const row of data.waitersBreakdown) {
+            doc.text(String(row.waiter_name), col1, y, { width: 140 });
+            doc.text(String(row.cnt), col2, y);
+            doc.text(euro(row.cash_collected), col3, y);
+            doc.text(euro(row.total_collected), col4, y);
+            y += 18;
+            if (y > 720) {
+                doc.addPage();
+                y = 48;
+            }
         }
     }
 
@@ -369,6 +471,7 @@ export const getZReportHandler = async (req: Request, res: Response) => {
 
         const data = await withTenant(tenantId, async (conn: any) => {
             await ensureZDayLocksTable(conn);
+            await ensureDailySummariesTable(conn);
             const payload = await loadZReportPayload(conn, date, req.branchId);
             const branchId = req.branchId || 1;
             const [lk]: any = await conn.query(
@@ -389,7 +492,7 @@ export const getZReportHandler = async (req: Request, res: Response) => {
                     'INSERT INTO daily_summaries (report_date, branch_id, total_revenue, subtotal, tax_total) VALUES (?::date, ?, ?, ?, ?) RETURNING id',
                     [date, branchId, payload.orders.gross, payload.orders.subtotal, payload.orders.tax]
                 );
-                reportId = Number(insertRows?.[0]?.id || 0);
+                reportId = Number(insertRows?.insertId || insertRows?.[0]?.id || 0);
                 if (!reportId) {
                     throw new Error('daily_summaries INSERT RETURNING id başarısız');
                 }
@@ -405,9 +508,9 @@ export const getZReportHandler = async (req: Request, res: Response) => {
         });
 
         res.json(data);
-    } catch (error) {
+    } catch (error: any) {
         console.error('z-close report:', error);
-        res.status(500).json({ error: 'Z raporu oluşturulamadı' });
+        res.status(500).json({ error: 'Z raporu oluşturulamadı', detail: error?.message || String(error) });
     }
 };
 
@@ -483,9 +586,33 @@ export const getStaffPerformanceHandler = async (req: Request, res: Response) =>
                 [from || '2000-01-01', to || '2100-01-01']
             );
 
+            // Ciro ve Tahsilat Performansı (Kasiyer, Garson, Kurye)
+            const [paymentRows]: any = await connection.query(
+                `SELECT 
+                    u.id as staff_id,
+                    u.name as staff_name,
+                    u.role as staff_role,
+                    COUNT(p.id)::int as total_payments,
+                    COALESCE(SUM(p.amount), 0)::float as total_amount,
+                    COALESCE(SUM(CASE WHEN p.method = 'cash' THEN p.amount ELSE 0 END), 0)::float as total_cash,
+                    COALESCE(SUM(CASE WHEN p.method = 'card' THEN p.amount ELSE 0 END), 0)::float as total_card,
+                    COALESCE(SUM(p.tip_amount), 0)::float as total_tips
+                 FROM users u
+                 JOIN payments p ON u.id = p.cashier_id
+                 INNER JOIN orders o ON p.order_id = o.id
+                 WHERE p.status = 'completed'
+                   AND o.status NOT IN ('cancelled')
+                   AND o.deleted_at IS NULL
+                   AND DATE(p.created_at) BETWEEN ? AND ?
+                 GROUP BY u.id, u.name, u.role
+                 ORDER BY total_amount DESC`,
+                [from || '2000-01-01', to || '2100-01-01']
+            );
+
             return {
                 pickupStats: rows,
-                deliveryStats: deliveryRows
+                deliveryStats: deliveryRows,
+                paymentStats: paymentRows
             };
         });
 

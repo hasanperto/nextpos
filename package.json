@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "turbo dev",
-    "dev:stack": "turbo run dev --filter=@nextpos/api --filter=pos",
+    "dev:stack": "turbo run dev --filter=@nextpos/api --filter=pos --filter=qr-menu",
     "restart:dev": "node scripts/restart-dev.mjs",
     "restart:all": "node scripts/restart-all.mjs",
     "setup:local": "node scripts/setup-local.mjs",
@@ -12,6 +12,7 @@
     "lint": "turbo lint",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,cjs,json,md,css}\"",
+    "check:api": "node scripts/check-api.mjs",
     "dev:api": "turbo dev --filter=@nextpos/api",
     "dev:pos": "turbo dev --filter=pos",
     "dev:admin": "turbo dev --filter=admin",

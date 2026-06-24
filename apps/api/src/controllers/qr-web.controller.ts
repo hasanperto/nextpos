@@ -10,6 +10,12 @@ import {
     trackOrderHandler,
     qrIdentifyCustomerHandler,
     qrMenuSpotlightHandler,
+    qrGetAddressesHandler,
+    qrAddAddressHandler,
+    qrDeleteAddressHandler,
+    qrSetDefaultAddressHandler,
+    qrVerifyRequestHandler,
+    qrVerifyCheckHandler,
 } from './qr.controller.js';
 
 export {
@@ -20,6 +26,12 @@ export {
     trackOrderHandler as qrWebTrackOrderHandler,
     qrIdentifyCustomerHandler as qrWebIdentifyHandler,
     qrMenuSpotlightHandler as qrWebSpotlightHandler,
+    qrGetAddressesHandler as qrWebGetAddressesHandler,
+    qrAddAddressHandler as qrWebAddAddressHandler,
+    qrDeleteAddressHandler as qrWebDeleteAddressHandler,
+    qrSetDefaultAddressHandler as qrWebSetDefaultAddressHandler,
+    qrVerifyRequestHandler as qrWebVerifyRequestHandler,
+    qrVerifyCheckHandler as qrWebVerifyCheckHandler,
 };
 
 export const qrWebCategoriesHandler = (req: Request, res: Response) => getCategoriesHandler(req, res);

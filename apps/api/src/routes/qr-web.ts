@@ -12,6 +12,12 @@ import {
     qrWebTrackOrderHandler,
     qrWebIdentifyHandler,
     qrWebSpotlightHandler,
+    qrWebGetAddressesHandler,
+    qrWebAddAddressHandler,
+    qrWebDeleteAddressHandler,
+    qrWebSetDefaultAddressHandler,
+    qrWebVerifyRequestHandler,
+    qrWebVerifyCheckHandler,
 } from '../controllers/qr-web.controller.js';
 
 export const qrWebRouter = Router();
@@ -29,5 +35,13 @@ qrWebRouter.get('/spotlight', qrWebSpotlightHandler);
 qrWebRouter.post('/external-order', qrWebExternalOrderHandler);
 qrWebRouter.get('/track/:id', qrWebTrackOrderHandler);
 qrWebRouter.get('/identify', qrWebIdentifyHandler);
+qrWebRouter.post('/verify-request', qrWebVerifyRequestHandler);
+qrWebRouter.get('/verify-check', qrWebVerifyCheckHandler);
+
+// Customer Addresses management routes
+qrWebRouter.get('/addresses', qrWebGetAddressesHandler);
+qrWebRouter.post('/addresses', qrWebAddAddressHandler);
+qrWebRouter.delete('/addresses/:id', qrWebDeleteAddressHandler);
+qrWebRouter.put('/addresses/:id/default', qrWebSetDefaultAddressHandler);
 
 export default qrWebRouter;

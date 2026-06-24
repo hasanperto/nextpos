@@ -124,7 +124,7 @@ export const SecurityTab: React.FC = () => {
             variants={containerVariants}
         >
             <div className="flex justify-center mb-12">
-                <div className="flex bg-slate-900/60 backdrop-blur-3xl rounded-[32px] p-2 border border-white/5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-x-auto no-scrollbar max-w-full">
+                <div className="flex bg-slate-900/60 backdrop-blur-3xl rounded-2xl p-2 border border-slate-200 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-x-auto no-scrollbar max-w-full">
                     <div className="flex items-center gap-1">
                         {[
                             { id: 'audit' as const, label: t('security.tabAudit') || 'Audit Stream', icon: <FiActivity />, count: auditLogs.length },
@@ -192,7 +192,7 @@ export const SecurityTab: React.FC = () => {
                             action={
                                 activeSecurityTab === 'audit' && (
                                     <div className="flex flex-col gap-2">
-                                        <div className="flex bg-slate-900/60 rounded-[18px] p-1 border border-white/5 shadow-inner">
+                                        <div className="flex bg-slate-900/60 rounded-xl p-1 border border-slate-200 dark:border-slate-800 shadow-inner">
                                             {['all', 'login', 'create', 'delete'].map(f => (
                                                 <button 
                                                     key={f} 
@@ -200,8 +200,8 @@ export const SecurityTab: React.FC = () => {
                                                     onClick={() => setAuditFilter(f)} 
                                                     className={`px-4 py-2 rounded-[14px] text-[9px] font-black uppercase tracking-widest transition-all ${
                                                         auditFilter === f 
-                                                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
-                                                            : 'text-slate-500 hover:text-white'
+                                                            ? 'bg-blue-600 text-slate-800 dark:text-white shadow-lg shadow-blue-600/20' 
+                                                            : 'text-slate-500 hover:text-slate-800 dark:text-white'
                                                     }`}
                                                 >
                                                     {f === 'all' ? t('security.filterAll') : f.toUpperCase()}
@@ -213,24 +213,24 @@ export const SecurityTab: React.FC = () => {
                                                 value={advancedAuditFilters.endpoint}
                                                 onChange={(e) => setAdvancedAuditFilters((p) => ({ ...p, endpoint: e.target.value }))}
                                                 placeholder="Endpoint"
-                                                className="bg-slate-900/60 border border-white/10 rounded-xl px-3 py-2 text-[11px] text-white"
+                                                className="bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-[11px] text-slate-800 dark:text-white"
                                             />
                                             <input
                                                 value={advancedAuditFilters.actor}
                                                 onChange={(e) => setAdvancedAuditFilters((p) => ({ ...p, actor: e.target.value }))}
                                                 placeholder="Actor"
-                                                className="bg-slate-900/60 border border-white/10 rounded-xl px-3 py-2 text-[11px] text-white"
+                                                className="bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-[11px] text-slate-800 dark:text-white"
                                             />
                                             <input
                                                 value={advancedAuditFilters.tenant_id}
                                                 onChange={(e) => setAdvancedAuditFilters((p) => ({ ...p, tenant_id: e.target.value }))}
                                                 placeholder="Tenant ID"
-                                                className="bg-slate-900/60 border border-white/10 rounded-xl px-3 py-2 text-[11px] text-white"
+                                                className="bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-[11px] text-slate-800 dark:text-white"
                                             />
                                             <select
                                                 value={advancedAuditFilters.risk_level}
                                                 onChange={(e) => setAdvancedAuditFilters((p) => ({ ...p, risk_level: e.target.value }))}
-                                                className="bg-slate-900/60 border border-white/10 rounded-xl px-3 py-2 text-[11px] text-white"
+                                                className="bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-[11px] text-slate-800 dark:text-white"
                                             >
                                                 <option value="">Risk</option>
                                                 <option value="low">LOW</option>
@@ -240,7 +240,7 @@ export const SecurityTab: React.FC = () => {
                                             <select
                                                 value={advancedAuditFilters.method}
                                                 onChange={(e) => setAdvancedAuditFilters((p) => ({ ...p, method: e.target.value }))}
-                                                className="bg-slate-900/60 border border-white/10 rounded-xl px-3 py-2 text-[11px] text-white"
+                                                className="bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-[11px] text-slate-800 dark:text-white"
                                             >
                                                 <option value="">Method</option>
                                                 <option value="GET">GET</option>
@@ -252,18 +252,18 @@ export const SecurityTab: React.FC = () => {
                                                 type="date"
                                                 value={advancedAuditFilters.from}
                                                 onChange={(e) => setAdvancedAuditFilters((p) => ({ ...p, from: e.target.value }))}
-                                                className="bg-slate-900/60 border border-white/10 rounded-xl px-3 py-2 text-[11px] text-white"
+                                                className="bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-[11px] text-slate-800 dark:text-white"
                                             />
                                             <input
                                                 type="date"
                                                 value={advancedAuditFilters.to}
                                                 onChange={(e) => setAdvancedAuditFilters((p) => ({ ...p, to: e.target.value }))}
-                                                className="bg-slate-900/60 border border-white/10 rounded-xl px-3 py-2 text-[11px] text-white"
+                                                className="bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-[11px] text-slate-800 dark:text-white"
                                             />
                                             <button
                                                 type="button"
                                                 onClick={exportAuditCsv}
-                                                className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl px-3 py-2 text-[11px] font-black uppercase tracking-widest"
+                                                className="bg-emerald-600 hover:bg-emerald-500 text-slate-800 dark:text-white rounded-xl px-3 py-2 text-[11px] font-black uppercase tracking-widest"
                                             >
                                                 CSV
                                             </button>
@@ -299,41 +299,41 @@ export const SecurityTab: React.FC = () => {
                                                 variants={itemVariants}
                                                 className="group hover:bg-white/[0.02] transition-colors"
                                             >
-                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent first:rounded-l-[24px] last:rounded-r-[24px] border-y border-white/5 first:border-l last:border-r">
+                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent first:rounded-l-[24px] last:rounded-r-[24px] border-y border-slate-200 dark:border-slate-800 first:border-l last:border-r">
                                                     <div className="flex flex-col">
                                                         <span className="text-[11px] font-black text-blue-400 select-all italic tracking-tighter">{log.ip_address}</span>
                                                         <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest mt-1">NODE: {log.ip_address === '127.0.0.1' ? 'INTERNAL CORE' : 'EXTERNAL EDGE'}</span>
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-white/5 border-l-0">
+                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0">
                                                     <div className="flex items-center gap-3">
-                                                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 border border-white/5 flex items-center justify-center font-black text-slate-400 text-[10px]">
+                                                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center font-black text-slate-500 dark:text-slate-400 text-[10px]">
                                                             {log.user_id?.[0]?.toUpperCase() || 'S'}
                                                         </div>
-                                                        <span className="text-[10px] font-black text-white uppercase tracking-tight italic">USER_{log.user_id || 'SYSTEM'}</span>
+                                                        <span className="text-[10px] font-black text-slate-800 dark:text-white uppercase tracking-tight italic">USER_{log.user_id || 'SYSTEM'}</span>
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-white/5 border-l-0">
+                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0">
                                                     <Badge 
                                                         color={(log.action?.includes('delete') || log.action?.includes('security')) ? 'rose' : log.action?.includes('create') ? 'emerald' : 'blue'}
                                                     >
                                                         {log.action?.toUpperCase()}
                                                     </Badge>
                                                 </td>
-                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-white/5 border-l-0">
-                                                    <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{log.entity_type}</div>
+                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0">
+                                                    <div className="text-[10px] font-black text-slate-600 dark:text-slate-500 dark:text-slate-400 uppercase tracking-widest">{log.entity_type}</div>
                                                     <div className="text-[8px] text-slate-600 font-bold mt-1">ID: {log.entity_id}</div>
                                                 </td>
-                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-white/5 border-l-0">
+                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0">
                                                     <div className="text-[10px] font-black text-cyan-300">{readNewValue(log, 'method') || '-'}</div>
                                                     <div className="text-[8px] text-slate-500 mt-1">{readNewValue(log, 'status_code') || '-'}</div>
                                                 </td>
-                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-white/5 border-l-0">
+                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent border-y border-slate-200 dark:border-slate-800 border-l-0">
                                                     <Badge color={log.risk_level === 'high' ? 'rose' : log.risk_level === 'medium' ? 'amber' : 'emerald'}>
                                                         {String(log.risk_level || 'low').toUpperCase()}
                                                     </Badge>
                                                 </td>
-                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent last:rounded-r-[24px] border-y border-white/5 border-l-0 first:border-l last:border-r text-[10px] font-mono text-slate-500 italic text-right">
+                                                <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-transparent last:rounded-r-[24px] border-y border-slate-200 dark:border-slate-800 border-l-0 first:border-l last:border-r text-[10px] font-mono text-slate-500 italic text-right">
                                                     {new Date(log.created_at).toLocaleString()}
                                                 </td>
                                             </motion.tr>
@@ -361,7 +361,7 @@ export const SecurityTab: React.FC = () => {
                                 action={
                                     <button 
                                         onClick={() => setIsAddKeyModalOpen(true)}
-                                        className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl text-[10px] font-black shadow-xl shadow-blue-600/20 flex items-center gap-2 active:scale-95 transition-all uppercase tracking-widest"
+                                        className="bg-blue-600 hover:bg-blue-500 text-slate-800 dark:text-white px-6 py-3 rounded-2xl text-[10px] font-black shadow-xl shadow-blue-600/20 flex items-center gap-2 active:scale-95 transition-all uppercase tracking-widest"
                                     >
                                         <FiPlus size={14} /> NEW ACCESS TOKEN
                                     </button>
@@ -369,7 +369,7 @@ export const SecurityTab: React.FC = () => {
                             >
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {apiKeys.length > 0 ? apiKeys.map(key => (
-                                        <div key={key.id} className="p-6 bg-slate-900/40 rounded-[32px] border border-white/5 hover:border-blue-500/20 transition-all group relative overflow-hidden">
+                                        <div key={key.id} className="p-6 bg-white dark:bg-slate-900 shadow-sm rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-blue-500/20 transition-all group relative overflow-hidden">
                                             <div className="absolute -right-4 -bottom-4 opacity-5 rotate-12 group-hover:scale-125 transition-transform"><FiKey size={60} /></div>
                                             <div className="flex justify-between items-start mb-4">
                                                 <div className="flex items-center gap-3">
@@ -377,15 +377,15 @@ export const SecurityTab: React.FC = () => {
                                                         <FiTarget size={18} />
                                                     </div>
                                                     <div>
-                                                        <div className="text-xs font-black text-white italic tracking-tight">{key.name}</div>
+                                                        <div className="text-xs font-black text-slate-800 dark:text-white italic tracking-tight">{key.name}</div>
                                                         <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">{key.tenant_name || 'MASTER'}</div>
                                                     </div>
                                                 </div>
                                                 <Badge color="emerald">ACTIVE</Badge>
                                             </div>
-                                            <div className="bg-black/20 p-3 rounded-xl border border-white/5 mb-4 group/key">
+                                            <div className="bg-black/20 p-3 rounded-xl border border-slate-200 dark:border-slate-800 mb-4 group/key">
                                                 <div className="text-[9px] text-slate-600 uppercase font-black tracking-widest mb-1">ACCESS TOKEN</div>
-                                                <div className="text-[10px] font-mono text-slate-300 break-all select-all">{key.key_value}</div>
+                                                <div className="text-[10px] font-mono text-slate-600 dark:text-slate-500 dark:text-slate-400 break-all select-all">{key.key_value}</div>
                                             </div>
                                             <div className="flex justify-between items-center text-[9px] font-black text-slate-500 uppercase tracking-widest">
                                                 <span>PERMS: {key.permissions}</span>
@@ -409,15 +409,15 @@ export const SecurityTab: React.FC = () => {
                                         { label: 'DISK USAGE', value: '42%', color: 'blue', icon: <FiHardDrive /> },
                                         { label: 'WEB CONNS', value: '1,243', color: 'indigo', icon: <FiGlobe /> }
                                     ].map((h, i) => (
-                                        <div key={i} className="space-y-3 group text-slate-500 hover:text-white transition-colors">
+                                        <div key={i} className="space-y-3 group text-slate-500 hover:text-slate-800 dark:text-white transition-colors">
                                             <div className="flex justify-between items-baseline pr-1">
-                                                <div className="flex items-center gap-3 text-slate-500 group-hover:text-white transition-colors">
+                                                <div className="flex items-center gap-3 text-slate-500 group-hover:text-slate-800 dark:text-white transition-colors">
                                                     {React.cloneElement(h.icon as any, { size: 14, className: "opacity-40" })}
                                                     <span className="text-[9px] font-black uppercase tracking-[0.2em]">{h.label}</span>
                                                 </div>
-                                                <span className="text-sm font-black italic text-white tabular-nums">{h.value}</span>
+                                                <span className="text-sm font-black italic text-slate-800 dark:text-white tabular-nums">{h.value}</span>
                                             </div>
-                                            <div className="w-full bg-slate-900/50 h-2 rounded-full overflow-hidden border border-white/5 shadow-inner p-0.5">
+                                            <div className="w-full bg-slate-900/50 h-2 rounded-full overflow-hidden border border-slate-200 dark:border-slate-800 shadow-inner p-0.5">
                                                 <motion.div 
                                                     initial={{ width: 0 }}
                                                     animate={{ width: h.value }}
@@ -440,7 +440,7 @@ export const SecurityTab: React.FC = () => {
              {/* API KEY ENROLLMENT MODAL */}
              <Modal show={isAddKeyModalOpen} onClose={() => setIsAddKeyModalOpen(false)} title={t('security.apiModalTitle') || 'Key Enrollment'} maxWidth="max-w-xl">
                 <form onSubmit={handleCreateApiKey} className="space-y-8">
-                    <div className="bg-white/[0.02] border border-white/5 rounded-[40px] p-8 space-y-6">
+                    <div className="bg-white/[0.02] border border-slate-200 dark:border-slate-800 rounded-2xl p-8 space-y-6">
                         <SelectGroup 
                             label={t('security.apiTenant') || 'Target Authority'} 
                             value={newKey.tenant_id} 
@@ -459,15 +459,15 @@ export const SecurityTab: React.FC = () => {
                             ]} 
                         />
                     </div>
-                    <div className="bg-amber-500/10 p-6 rounded-[32px] border border-amber-500/20 shadow-xl shadow-amber-500/5">
+                    <div className="bg-amber-500/10 p-6 rounded-2xl border border-amber-500/20 shadow-xl shadow-amber-500/5">
                         <p className="text-[11px] text-amber-500 font-black uppercase tracking-widest leading-relaxed flex gap-4">
                             <FiAlertTriangle className="flex-shrink-0" size={18} />
                             {t('security.apiWarn') || 'SECURITY ALERT: These keys provide programmatic access to your infrastructure. Never share them and always rotate them every 90 days.'}
                         </p>
                     </div>
                     <div className="flex gap-4">
-                         <button type="button" onClick={() => setIsAddKeyModalOpen(false)} className="flex-1 py-4 text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition-all">Cancel</button>
-                         <button type="submit" className="flex-[2] py-4 bg-amber-600 hover:bg-amber-500 text-white font-black rounded-2xl shadow-2xl shadow-amber-900/40 active:scale-95 transition-all text-[11px] tracking-widest uppercase border border-white/10 italic">{t('security.apiCreate') || 'GENERATE SECURE KEY'}</button>
+                         <button type="button" onClick={() => setIsAddKeyModalOpen(false)} className="flex-1 py-4 text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-800 dark:text-white transition-all">Cancel</button>
+                         <button type="submit" className="flex-[2] py-4 bg-amber-600 hover:bg-amber-500 text-slate-800 dark:text-white font-black rounded-2xl shadow-sm shadow-amber-900/40 active:scale-95 transition-all text-[11px] tracking-widest uppercase border border-slate-200 dark:border-slate-800 italic">{t('security.apiCreate') || 'GENERATE SECURE KEY'}</button>
                     </div>
                 </form>
             </Modal>

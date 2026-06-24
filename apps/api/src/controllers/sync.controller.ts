@@ -3,6 +3,32 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { withTenant } from '../lib/db.js';
 import { processPendingSyncQueue } from '../services/sync-process.service.js';
+import {
+    computeGraceExpiresAt,
+    computePinUnlockExpiresAt,
+    issueOfflineGraceToken,
+    parseOfflineSecurity,
+    verifyOfflineGraceToken,
+} from '../services/offline-security.service.js';
+
+async function loadBranchSettingsJson(tenantId: string, branchId: number): Promise<Record<string, unknown>> {
+    return withTenant(tenantId, async (connection) => {
+        const [rows]: any = await connection.query('SELECT settings FROM branches WHERE id = ? LIMIT 1', [branchId]);
+        const raw = rows?.[0]?.settings;
+        if (!raw) return {};
+        return typeof raw === 'string' ? (JSON.parse(raw) as Record<string, unknown>) : (raw as Record<string, unknown>);
+    });
+}
+
+function readDeviceId(req: Request): string | null {
+    const id = String(req.headers['x-device-id'] || '').trim();
+    return id.length >= 8 ? id : null;
+}
+
+function readOfflineToken(req: Request): string | null {
+    const t = String(req.headers['x-offline-token'] || '').trim();
+    return t.length > 20 ? t : null;
+}
 
 const pushBodySchema = z.object({
     items: z
@@ -79,6 +105,27 @@ export async function postSyncPushHandler(req: Request, res: Response) {
             return res.status(403).json({ error: 'Offline sync yalnızca tenant oturumu ile kullanılabilir' });
         }
 
+        const branchId = req.branchId || 1;
+        const branchSettings = await loadBranchSettingsJson(tenantId, branchId);
+        const offlineCfg = parseOfflineSecurity(branchSettings);
+        const deviceId = readDeviceId(req);
+        const offlineToken = readOfflineToken(req);
+
+        if (offlineToken) {
+            const claims = verifyOfflineGraceToken(offlineToken);
+            if (!claims || claims.tenantId !== tenantId) {
+                return res.status(403).json({ error: 'Geçersiz veya süresi dolmuş offline yetki', code: 'OFFLINE_TOKEN_INVALID' });
+            }
+            if (deviceId && claims.deviceId !== deviceId) {
+                return res.status(403).json({ error: 'Cihaz offline yetkisi uyuşmuyor', code: 'OFFLINE_DEVICE_MISMATCH' });
+            }
+        } else if (offlineCfg.strictHeartbeat) {
+            return res.status(403).json({
+                error: 'Senkron için geçerli offline güvenlik jetonu gerekli',
+                code: 'OFFLINE_TOKEN_REQUIRED',
+            });
+        }
+
         const data = pushBodySchema.parse(req.body);
 
         const { queued, skippedSynced } = await upsertSyncQueueItems(tenantId, data.items);
@@ -127,6 +174,93 @@ export async function getSyncStatusHandler(req: Request, res: Response) {
     } catch (error) {
         console.error('getSyncStatusHandler', error);
         res.status(500).json({ error: 'Durum okunamadı' });
+    }
+}
+
+/** Sunucu doğrulamalı heartbeat — sahte offline / sahte sunucuya karşı grace jetonu üretir */
+export async function getSyncHeartbeatHandler(req: Request, res: Response) {
+    try {
+        const tenantId = req.tenantId;
+        if (!tenantId) {
+            return res.status(403).json({ error: 'Sadece tenant oturumu' });
+        }
+
+        const deviceId = readDeviceId(req);
+        if (!deviceId) {
+            return res.status(400).json({ error: 'x-device-id başlığı gerekli' });
+        }
+
+        const branchId = req.branchId || 1;
+        const branchSettings = await loadBranchSettingsJson(tenantId, branchId);
+        const cfg = parseOfflineSecurity(branchSettings);
+        const graceExpiresAt = computeGraceExpiresAt(cfg.maxOfflineHours);
+        const offlineToken = issueOfflineGraceToken({ tenantId, deviceId, graceExpiresAt });
+
+        res.json({
+            ok: true,
+            tenantId,
+            deviceId,
+            serverTime: new Date().toISOString(),
+            graceExpiresAt,
+            offlineToken,
+            pinUnlockExpiresAt: null as number | null,
+            offlineSecurity: cfg,
+        });
+    } catch (error) {
+        console.error('getSyncHeartbeatHandler', error);
+        res.status(500).json({ error: 'Heartbeat başarısız' });
+    }
+}
+
+/** Admin PIN ile offline mod onayı — sahte bağlantı / kasıtlı kesinti sonrası devam */
+export async function postSyncOfflineUnlockHandler(req: Request, res: Response) {
+    try {
+        const tenantId = req.tenantId;
+        if (!tenantId) {
+            return res.status(403).json({ error: 'Sadece tenant oturumu' });
+        }
+
+        const { pinCode } = z.object({ pinCode: z.string().length(6) }).parse(req.body);
+        const deviceId = readDeviceId(req);
+        if (!deviceId) {
+            return res.status(400).json({ error: 'x-device-id başlığı gerekli' });
+        }
+
+        const admin = await withTenant(tenantId, async (connection) => {
+            const [rows]: any = await connection.query(
+                "SELECT id FROM users WHERE pin_code = ? AND role = 'admin' AND status = 'active' LIMIT 1",
+                [pinCode],
+            );
+            return rows[0] || null;
+        });
+
+        if (!admin) {
+            return res.status(401).json({ error: 'Geçersiz yönetici PIN kodu', code: 'OFFLINE_PIN_INVALID' });
+        }
+
+        const branchId = req.branchId || 1;
+        const branchSettings = await loadBranchSettingsJson(tenantId, branchId);
+        const cfg = parseOfflineSecurity(branchSettings);
+        const graceExpiresAt = computeGraceExpiresAt(cfg.maxOfflineHours);
+        const pinUnlockExpiresAt = computePinUnlockExpiresAt(cfg.pinUnlockHours);
+        const offlineToken = issueOfflineGraceToken({ tenantId, deviceId, graceExpiresAt });
+
+        res.json({
+            ok: true,
+            tenantId,
+            deviceId,
+            serverTime: new Date().toISOString(),
+            graceExpiresAt,
+            pinUnlockExpiresAt,
+            offlineToken,
+            message: 'Offline mod yönetici onayı ile açıldı',
+        });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Geçersiz PIN' });
+        }
+        console.error('postSyncOfflineUnlockHandler', error);
+        res.status(500).json({ error: 'Offline onay başarısız' });
     }
 }
 

@@ -1,5 +1,5 @@
 /**
- * API (3001) ve POS Vite (5173) portlarını boşaltır, ardından dev:stack çalıştırır.
+ * API (3101) ve POS Vite (5173) portlarını boşaltır, ardından dev:stack çalıştırır.
  * Kullanım (repo kökü): node scripts/restart-dev.mjs  veya  npm run restart:dev
  */
 import { spawnSync } from 'node:child_process';
@@ -12,7 +12,7 @@ const require = createRequire(import.meta.url);
 const killPort = require('kill-port');
 
 async function main() {
-    for (const p of [3001, 5173]) {
+    for (const p of [3101, 5173, 4003]) {
         try {
             await killPort(p);
             console.log(`[restart-dev] Port ${p} serbest bırakıldı.`);

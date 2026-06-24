@@ -126,7 +126,7 @@ export function getBillingModuleIconOptions(t: (key: string) => string): { value
 export function BillingModuleIconPreview({ name, className }: { name: string; className?: string }) {
     if (!name || !BILLING_MODULE_ICON_MAP[name]) {
         return (
-            <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-[10px] text-slate-500 ${className ?? ''}`}>
+            <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white/5 text-[10px] text-slate-500 ${className ?? ''}`}>
                 —
             </span>
         );

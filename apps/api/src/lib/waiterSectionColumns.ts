@@ -10,7 +10,17 @@ export async function ensureUsersWaiterSectionColumns(connection: {
     );
     await connection.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS waiter_section_id INTEGER NULL`);
     await connection.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS kitchen_station VARCHAR(20) DEFAULT 'all'`);
+    await connection.query(
+        `ALTER TABLE users ADD COLUMN IF NOT EXISTS waiter_on_break BOOLEAN NOT NULL DEFAULT FALSE`
+    );
 }
+
+export type PickWaiterOpts = {
+    /** Bu garson id'leri otomatik atamaya dahil edilmez */
+    excludeUserIds?: number[];
+    /** true ise moladaki garsonlar da aday olur (varsayılan: false) */
+    includeOnBreak?: boolean;
+};
 
 type Conn = { query: (sql: string, params?: unknown[]) => Promise<unknown> };
 
@@ -21,17 +31,32 @@ const activeWaiterSql = `(
 
 /**
  * Masanın bölgesine göre uygun garsonları listeler, aktif oturum sayısı en az olanı döner.
+ * Moladaki garsonlar varsayılan olarak hariç tutulur.
  */
 export async function pickLeastLoadedWaiterForSection(
     connection: Conn,
-    tableSectionId: number | null
+    tableSectionId: number | null,
+    opts?: PickWaiterOpts
 ): Promise<number | null> {
+    const excludeUserIds = Array.from(
+        new Set((opts?.excludeUserIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n)))
+    );
+    const skipBreak = opts?.includeOnBreak !== true;
     const loadSub = `(SELECT COUNT(*)::int FROM table_sessions ts WHERE ts.waiter_id = u.id AND ts.status = 'active')`;
 
-    const run = async (sectionMode: 'match_table' | 'all_salon_only' | 'any'): Promise<number | null> => {
+    const run = async (
+        sectionMode: 'dedicated_only' | 'match_table' | 'all_salon_only' | 'any'
+    ): Promise<number | null> => {
         const params: unknown[] = [];
         let extra = '';
-        if (sectionMode === 'match_table' && tableSectionId != null && Number.isFinite(Number(tableSectionId))) {
+        if (
+            sectionMode === 'dedicated_only' &&
+            tableSectionId != null &&
+            Number.isFinite(Number(tableSectionId))
+        ) {
+            extra = 'AND u.waiter_all_sections = FALSE AND u.waiter_section_id = ?';
+            params.push(Number(tableSectionId));
+        } else if (sectionMode === 'match_table' && tableSectionId != null && Number.isFinite(Number(tableSectionId))) {
             extra = `AND (
                 COALESCE(u.waiter_all_sections, TRUE) = TRUE
                 OR (u.waiter_all_sections = FALSE AND u.waiter_section_id = ?)
@@ -41,6 +66,14 @@ export async function pickLeastLoadedWaiterForSection(
             extra = 'AND COALESCE(u.waiter_all_sections, TRUE) = TRUE';
         } else {
             extra = '';
+        }
+
+        if (skipBreak) {
+            extra += ' AND COALESCE(u.waiter_on_break, FALSE) = FALSE';
+        }
+        if (excludeUserIds.length > 0) {
+            extra += ` AND u.id NOT IN (${excludeUserIds.map(() => '?').join(',')})`;
+            params.push(...excludeUserIds);
         }
 
         const [rows]: any = await connection.query(
@@ -58,6 +91,8 @@ export async function pickLeastLoadedWaiterForSection(
     };
 
     if (tableSectionId != null && Number.isFinite(Number(tableSectionId))) {
+        const dedicated = await run('dedicated_only');
+        if (dedicated != null) return dedicated;
         const a = await run('match_table');
         if (a != null) return a;
     }

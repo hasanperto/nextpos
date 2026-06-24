@@ -5,7 +5,15 @@ import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import pool, { createTenant, listTenants, queryPublic, invalidateTenantCache, updateTenantMasterPassword, TenantError, withTenant } from '../lib/db.js';
 import { prisma } from '../lib/prisma.js';
-import { migrateBillingTables, seedTenantBilling, calculateQuote, type QuoteBreakdown } from '../services/billing.service.js';
+import {
+    migrateBillingTables,
+    seedTenantBilling,
+    calculateQuote,
+    formatResellerCommissionDescription,
+    resellerCommissionSplitEuros,
+    type QuoteBreakdown,
+    type ResellerCommissionSplit,
+} from '../services/billing.service.js';
 import { provisionQrWebSubdomain } from '../services/qrWebProvisioning.service.js';
 import { GatewayService, isVirtualPosTestMode } from '../services/gateway.service.js';
 import { creditResellerTopupAfterCardPayment } from '../services/reseller-topup-credit.service.js';
@@ -50,7 +58,15 @@ let _tBillingFieldsOk = false;
 async function ensureTenantBillingFields(): Promise<void> {
     if (_tBillingFieldsOk) return;
     try {
-        for (const col of ['tax_office VARCHAR(100)', 'tax_number VARCHAR(30)', 'authorized_person VARCHAR(150)', 'company_title VARCHAR(255)']) {
+        const cols = [
+            'tax_office VARCHAR(100)',
+            'tax_number VARCHAR(30)',
+            'authorized_person VARCHAR(150)',
+            'company_title VARCHAR(255)',
+            'created_by VARCHAR(100)',
+            'created_by_role VARCHAR(20)',
+        ];
+        for (const col of cols) {
             const name = col.split(' ')[0];
             try { await queryPublic(`ALTER TABLE \`public\`.tenants ADD COLUMN IF NOT EXISTS ${name} ${col.split(' ').slice(1).join(' ')}`); } catch {}
         }
@@ -64,7 +80,7 @@ async function ensureTenantBillingFields(): Promise<void> {
 
 const createTenantSchema = z.object({
     name: z.string().min(2, 'Restaurant adı en az 2 karakter'),
-    schema_name: z.string().regex(/^tenant_[a-z0-9_]+$/, 'Schema adı "tenant_xxx" formatında olmalı'),
+    schema_name: z.string().regex(/^(tenant|schema)_[a-z0-9_]+$/, 'Schema adı "tenant_" veya "schema_" ile başlamalıdır'),
     contact_email: z.string().email().optional(),
     contact_phone: z.string().optional(),
     authorized_person: z.string().optional(),
@@ -81,10 +97,13 @@ const createTenantSchema = z.object({
     module_codes: z.array(z.string()).optional(),
     extra_device_qty: z.number().min(1).optional(),
     extra_printer_qty: z.number().min(1).optional(),
+    max_users: z.number().min(1).optional(),
+    max_branches: z.number().min(1).optional(),
     /** Bayi doğrudan satış: havale=askıda bekleyen ödeme; kart=sanal POS taslağı; bakiye=net tahsilat */
-    payment_method: z.enum(['bank_transfer', 'admin_card', 'wallet_balance']).optional(),
+    payment_method: z.enum(['bank_transfer', 'admin_card', 'wallet_balance', 'cash']).optional(),
     /** Havale: ödeme hatırlatması gönder (e-posta altyapısı hazır olduğunda) */
     send_payment_notification: z.boolean().optional(),
+    reseller_id: z.number().int().positive().optional(),
 });
 
 function resellerCommissionFromQuote(
@@ -159,6 +178,8 @@ const updateResellerProfileSchema = z.object({
     district: z.string().max(100).optional().or(z.literal('')),
     postal_code: z.string().max(20).optional().or(z.literal('')),
     country: z.string().max(80).optional().or(z.literal('')),
+    bank_iban: z.string().max(100).optional().or(z.literal('')),
+    bank_account_name: z.string().max(150).optional().or(z.literal('')),
     two_factor_enabled: z.boolean().optional(),
     two_factor_method: z.enum(['none', 'email', 'authenticator']).optional(),
 });
@@ -301,6 +322,10 @@ export const createTenantHandler = async (req: Request, res: Response) => {
         const sendPaymentNotification = !!data.send_payment_notification;
         delete data.send_payment_notification;
 
+        if (req.user?.role === 'reseller' && !data.license_usage_type) {
+            data.license_usage_type = 'prepaid';
+        }
+
         const planCode = data.subscription_plan || 'basic';
         try {
             const [planRows]: any = await queryPublic(
@@ -309,8 +334,8 @@ export const createTenantHandler = async (req: Request, res: Response) => {
             );
             const pr = planRows?.[0];
             if (pr) {
-                data.max_users = Number(pr.max_users) || 10;
-                data.max_branches = Number(pr.max_branches) || 1;
+                data.max_users = data.max_users ?? (Number(pr.max_users) || 10);
+                data.max_branches = data.max_branches ?? (Number(pr.max_branches) || 1);
             } else {
                 data.max_users = data.max_users ?? 10;
                 data.max_branches = data.max_branches ?? 1;
@@ -324,6 +349,10 @@ export const createTenantHandler = async (req: Request, res: Response) => {
         let directSaleQuote: QuoteBreakdown | null = null;
         let directSaleCommission = 0;
         let directSaleBillingCycle: 'monthly' | 'yearly' = 'monthly';
+
+        if (req.user?.role === 'super_admin' && data.reseller_id != null) {
+            resellerIdForPost = Number(data.reseller_id);
+        }
 
         // Bayi ise otomatik kendi ID'sini ata
         if (req.user?.role === 'reseller') {
@@ -349,7 +378,7 @@ export const createTenantHandler = async (req: Request, res: Response) => {
                 }
                 await queryPublic('UPDATE `public`.saas_admins SET available_licenses = available_licenses - 1 WHERE id = ?', [resellerId]);
                 data.status = 'active';
-                // Prepaid: komisyon hesapla ve payment_history + cüzdan güncelle
+                // Prepaid: komisyon hesapla — kayıt tenant oluşturulduktan sonra yazılır (BUG-1 FIX)
                 try {
                     await migrateBillingTables();
                     const planCodePre = data.subscription_plan || 'basic';
@@ -364,21 +393,11 @@ export const createTenantHandler = async (req: Request, res: Response) => {
                     });
                     const prepaidCommission = resellerCommissionFromQuote(quotePre, billingCyclePre, s);
                     if (prepaidCommission > 0) {
-                        await queryPublic(`UPDATE "public"."saas_admins" SET wallet_balance = COALESCE(wallet_balance, 0) + $1 WHERE id = $2`, [prepaidCommission, resellerId]);
-                        await queryPublic(
-                            `INSERT INTO "public"."payment_history"
-                                (tenant_id, saas_admin_id, amount, currency, payment_type, payment_method, status, description, paid_at)
-                             VALUES ($1, $2, $3, 'EUR', 'reseller_income', 'license', 'paid', $4, NOW())`,
-                            [
-                                'PLACEHOLDER_TENANT_ID',
-                                resellerId,
-                                prepaidCommission,
-                                `Lisans Havuzu komisyonu (${billingCyclePre}) — ${data.name}`,
-                            ]
-                        );
-                        // tenant.id henüz yok, sonra güncelle
+                        // Cüzdan ve payment_history tenant oluşturulduktan sonra yazılır
                         data._pendingCommission = prepaidCommission;
                         data._pendingCommissionBillingCycle = billingCyclePre;
+                        (data as { _pendingCommissionSplit?: ResellerCommissionSplit })._pendingCommissionSplit =
+                            resellerCommissionSplitEuros(quotePre, billingCyclePre, s);
                     }
                 } catch (qe) {
                     console.warn('⚠️ Prepaid komisyon hesaplanamadı:', qe);
@@ -424,12 +443,14 @@ export const createTenantHandler = async (req: Request, res: Response) => {
 
                     if (data.payment_method === 'bank_transfer') {
                         data.status = 'suspended';
+                        const commissionSplit = resellerCommissionSplitEuros(quote, billingCycle, s);
                         data.settings = {
                             pending_bank_transfer: true,
                             send_payment_notification: sendPaymentNotification,
                             first_invoice_total: firstInvoiceTotal,
                             /** Havale onayında reseller_income yazmak için */
                             reseller_commission_amount: totalResellerCommission,
+                            reseller_commission_breakdown: commissionSplit,
                         };
                     } else if (data.payment_method === 'wallet_balance') {
                         const wb = Number(reseller?.wallet_balance ?? 0);
@@ -450,22 +471,42 @@ export const createTenantHandler = async (req: Request, res: Response) => {
             }
         }
 
+        // BUG-1 FIX: Kimin oluşturduğunu kaydet
+        data.created_by = String(req.user?.username || req.user?.userId || 'system');
+        data.created_by_role = String(req.user?.role || 'unknown');
+
         const tenant = await createTenant(data);
         await autoProvisionQrWebIfSelected(tenant.id, data.module_codes);
 
-        // Prepaid: tenant oluştuktan sonra komisyon kaydını gerçek tenant_id ile ekle
+        // BUG-1 FIX: Prepaid — tenant oluştuktan sonra gerçek tenant_id ile komisyon kaydı ve cüzdan güncelle
         if (req.user?.role === 'reseller' && data.license_usage_type === 'prepaid' && resellerIdForPost != null) {
             const pendingComm = data._pendingCommission as number | undefined;
             const pendingCycle = data._pendingCommissionBillingCycle as string | undefined;
-            if (pendingComm && pendingComm > 0) {
+            if (pendingComm != null && Number(pendingComm) > 0) {
                 try {
+                    // Cüzdan güncelle
                     await queryPublic(
-                        `UPDATE "public"."payment_history" SET tenant_id = $1 WHERE tenant_id = 'PLACEHOLDER_TENANT_ID' AND payment_type = 'reseller_income'`,
-                        [tenant.id]
+                        `UPDATE "public"."saas_admins" SET wallet_balance = COALESCE(wallet_balance, 0) + $1 WHERE id = $2`,
+                        [pendingComm, resellerIdForPost]
                     );
-                    // seedTenantBilling çağrısı aşağıda
+                    // Payment history kaydı (gerçek tenant_id ile)
+                    await queryPublic(
+                        `INSERT INTO "public"."payment_history"
+                            (tenant_id, saas_admin_id, amount, currency, payment_type, payment_method, status, description, paid_at)
+                         VALUES ($1, $2, $3, 'EUR', 'reseller_income', 'license', 'paid', $4, NOW())`,
+                        [
+                            tenant.id,
+                            resellerIdForPost,
+                            pendingComm,
+                            formatResellerCommissionDescription(
+                                data.name,
+                                (data as { _pendingCommissionSplit?: ResellerCommissionSplit })._pendingCommissionSplit!,
+                                '· Lisans havuzu'
+                            ),
+                        ]
+                    );
                 } catch (e) {
-                    console.warn('Prepaid komisyon tenant_id güncelleme hatası:', e);
+                    console.warn('Prepaid komisyon kaydı oluşturulamadı:', e);
                 }
             }
         }
@@ -496,6 +537,11 @@ export const createTenantHandler = async (req: Request, res: Response) => {
             if (!quote || totalResellerCommission <= 0) {
                 console.warn('Doğrudan satış ödeme kaydı atlandı: teklif/komisyon yok');
             } else {
+                const [settingsDs]: any = await queryPublic('SELECT * FROM `public`.system_settings LIMIT 1');
+                const rateRow = settingsDs?.[0] || {
+                    reseller_setup_rate: 75,
+                    reseller_monthly_rate: 50,
+                };
                 try {
                     if (data.payment_method === 'wallet_balance') {
                         const invGen = () => {
@@ -504,6 +550,7 @@ export const createTenantHandler = async (req: Request, res: Response) => {
                         };
                         const walletNetDelta = totalResellerCommission - quote.firstInvoiceTotal;
                         const payLabel = `cüzdan (net ${walletNetDelta >= 0 ? '+' : ''}${walletNetDelta.toFixed(2)} €)`;
+                        const commSplit = resellerCommissionSplitEuros(quote, billingCycle, rateRow);
                         // Bayi komisyonu
                         await queryPublic(
                             `INSERT INTO "public"."payment_history" (tenant_id, saas_admin_id, amount, currency, payment_type, payment_method, status, description, invoice_number, paid_at)
@@ -513,7 +560,7 @@ export const createTenantHandler = async (req: Request, res: Response) => {
                                 resellerIdForPost,
                                 totalResellerCommission,
                                 'wallet_balance',
-                                `Komisyon (${billingCycle}) — ${data.name} · ödeme: ${payLabel}${modNote}`,
+                                formatResellerCommissionDescription(data.name, commSplit, `· ödeme: ${payLabel}${modNote}`),
                                 `COMM-${invGen()}`,
                             ]
                         );
@@ -545,6 +592,45 @@ export const createTenantHandler = async (req: Request, res: Response) => {
                                 `[notify] Havale ödemesi bekleniyor: ${data.name} · ${data.contact_email} · ${quote.firstInvoiceTotal.toFixed(2)} €`
                             );
                         }
+                    } else if (data.payment_method === 'cash') {
+                        // BUG-2 FIX: Cash ödeme dalı — komisyon + fatura kaydı oluştur
+                        const invGen = () => {
+                            const n = new Date();
+                            return `INV-${n.getFullYear()}${String(n.getMonth() + 1).padStart(2, '0')}-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+                        };
+                        // Komisyon → bayinin cüzdanına yaz
+                        await queryPublic(
+                            `UPDATE \`public\`.saas_admins SET wallet_balance = COALESCE(wallet_balance, 0) + ? WHERE id = ?`,
+                            [totalResellerCommission, resellerIdForPost]
+                        );
+                        // Bayi komisyon kaydı
+                        await queryPublic(
+                            `INSERT INTO "public"."payment_history" (tenant_id, saas_admin_id, amount, currency, payment_type, payment_method, status, description, invoice_number, paid_at)
+                             VALUES ($1, $2, $3, 'EUR', 'reseller_income', 'cash', 'paid', $4, $5, NOW())`,
+                            [
+                                tenant.id,
+                                resellerIdForPost,
+                                totalResellerCommission,
+                                formatResellerCommissionDescription(
+                                    data.name,
+                                    resellerCommissionSplitEuros(quote, billingCycle, rateRow),
+                                    `· ödeme: nakit${modNote}`
+                                ),
+                                `COMM-${invGen()}`,
+                            ]
+                        );
+                        // İlk dönem fatura kaydı
+                        await queryPublic(
+                            `INSERT INTO "public"."payment_history" (tenant_id, saas_admin_id, amount, currency, payment_type, payment_method, status, description, invoice_number, paid_at)
+                             VALUES ($1, $2, $3, 'EUR', 'subscription', 'cash', 'paid', $4, $5, NOW())`,
+                            [
+                                tenant.id,
+                                resellerIdForPost,
+                                quote.firstInvoiceTotal,
+                                `İlk dönem — ${data.name}${modNote}`,
+                                invGen(),
+                            ]
+                        );
                     }
                 } catch (e) {
                     console.warn('Doğrudan satış ödeme kaydı oluşturulamadı (tenant oluşturuldu):', e);
@@ -552,10 +638,72 @@ export const createTenantHandler = async (req: Request, res: Response) => {
             }
         }
 
+        // BUG-5 FIX: Admin oluştururken de kurulum + ilk dönem fatura kaydı yaz
+        if (req.user?.role === 'super_admin') {
+            try {
+                await migrateBillingTables();
+                const adminBillingCycle = data.payment_interval === 'yearly' ? 'yearly' : 'monthly';
+                const adminQuote = await calculateQuote({
+                    planCode: data.subscription_plan || 'basic',
+                    moduleCodes: data.module_codes || [],
+                    extraDeviceQty: data.extra_device_qty,
+                    extraPrinterQty: data.extra_printer_qty,
+                    billingCycle: adminBillingCycle,
+                });
+                const invGenAdmin = () => {
+                    const n = new Date();
+                    return `INV-${n.getFullYear()}${String(n.getMonth() + 1).padStart(2, '0')}-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+                };
+                const adminModNote = (data.module_codes?.length ?? 0) > 0
+                    ? ` + modüller: ${(data.module_codes || []).join(', ')}` : '';
+                const createdByAdmin = String(req.user?.username || 'super_admin');
+                // Kurulum ücreti kaydı
+                if (adminQuote.setupFee + adminQuote.modulesSetup > 0) {
+                    await queryPublic(
+                        `INSERT INTO \`public\`.payment_history
+                         (tenant_id, amount, currency, payment_type, payment_method, status, description, invoice_number, paid_at, created_by)
+                         VALUES (?, ?, 'EUR', 'setup', 'admin_card', 'paid', ?, ?, NOW(), ?)`,
+                        [
+                            tenant.id,
+                            adminQuote.setupFee + adminQuote.modulesSetup,
+                            `Kurulum ücreti — ${data.name}${adminModNote}`,
+                            invGenAdmin(),
+                            createdByAdmin,
+                        ]
+                    );
+                }
+                // İlk dönem abonelik kaydı
+                await queryPublic(
+                    `INSERT INTO \`public\`.payment_history
+                     (tenant_id, amount, currency, payment_type, payment_method, status, description, invoice_number, paid_at, created_by)
+                     VALUES (?, ?, 'EUR', 'subscription', 'admin_card', 'paid', ?, ?, NOW(), ?)`,
+                    [
+                        tenant.id,
+                        adminQuote.firstInvoiceTotal,
+                        `İlk dönem (admin) — ${data.name}${adminModNote}`,
+                        invGenAdmin(),
+                        createdByAdmin,
+                    ]
+                );
+            } catch (adminBillingErr) {
+                console.warn('⚠️ Admin fatura kaydı oluşturulamadı (tenant açıldı):', adminBillingErr);
+            }
+        }
+
         const suspendedNote =
             data.status === 'suspended' && data.settings && (data.settings as any).pending_bank_transfer
                 ? ' Restoran havale onayı / ödeme tamamlanana kadar askıda.'
                 : '';
+        const io = req.app.get('io');
+        if (io) {
+            io.to('room:saas_admin').emit('saas:live_feed', {
+                type: 'tenant_created',
+                tenant_id: tenant.id,
+                tenant_name: data.name,
+                created_by: data.created_by,
+                at: Date.now(),
+            });
+        }
         res.status(201).json({
             message: `Restoran "${data.name}" oluşturuldu.${suspendedNote}`,
             tenant,
@@ -620,6 +768,8 @@ export const completeTenantCardDraftHandler = async (req: Request, res: Response
 
         const data: any = createTenantSchema.parse(raw);
         data.reseller_id = rid;
+        data.created_by = String(req.user?.username || req.user?.userId || 'system');
+        data.created_by_role = 'reseller';
         delete data.send_payment_notification;
 
         const planCode = data.subscription_plan || 'basic';
@@ -686,19 +836,23 @@ export const completeTenantCardDraftHandler = async (req: Request, res: Response
         // Bayi komisyonu
         await queryPublic(
             `INSERT INTO \`public\`.payment_history (tenant_id, saas_admin_id, amount, currency, payment_type, payment_method, status, description, invoice_number, paid_at)
-             VALUES (?, ?, ?, 'EUR', 'reseller_income', 'admin_card', 'paid', ?, $5, NOW())`,
+             VALUES (?, ?, ?, 'EUR', 'reseller_income', 'admin_card', 'paid', ?, ?, NOW())`,
             [
                 tenant.id,
                 rid,
                 totalResellerCommission,
-                `Komisyon (${billingCycle}) — ${data.name} · ödeme: sanal POS (kart)${modNote}`,
+                formatResellerCommissionDescription(
+                    data.name,
+                    resellerCommissionSplitEuros(quote, billingCycle, s),
+                    `· ödeme: sanal POS (kart)${modNote}`
+                ),
                 `COMM-${invGen()}`,
             ]
         );
         // Tenant ilk dönem faturası
         await queryPublic(
             `INSERT INTO \`public\`.payment_history (tenant_id, saas_admin_id, amount, currency, payment_type, payment_method, status, description, invoice_number, paid_at)
-             VALUES (?, ?, ?, 'EUR', 'subscription', 'admin_card', 'paid', ?, $5, NOW())`,
+             VALUES (?, ?, ?, 'EUR', 'subscription', 'admin_card', 'paid', ?, ?, NOW())`,
             [
                 tenant.id,
                 rid,
@@ -753,9 +907,12 @@ export const getTenantsHandler = async (req: Request, res: Response) => {
                 };
             })
         );
-    } catch (error) {
+    } catch (error: any) {
         console.error('❌ Tenant listeleme hatası:', error);
-        res.status(500).json({ error: 'Tenant listesi alınamadı' });
+        res.status(500).json({ 
+            error: 'Tenant listesi alınamadı',
+            detail: process.env.NODE_ENV === 'development' ? (error?.message || String(error)) : undefined
+        });
     }
 };
 
@@ -1051,6 +1208,103 @@ export const updateTenantHandler = async (req: Request, res: Response) => {
     }
 };
 
+/**
+ * Süper admin: tenant kaydını kalıcı şema silmeden pasif (inactive) yapar.
+ * POS girişleri ve faturalama görünürlüğü için güvenli "soft delete".
+ */
+export const deleteTenantHandler = async (req: Request, res: Response) => {
+    try {
+        if (req.user?.role !== 'super_admin') {
+            return res.status(403).json({ error: 'Yalnızca süper yönetici pasifleştirebilir' });
+        }
+        const tenantId = String(req.params.id);
+        const [exists]: any = await queryPublic('SELECT id FROM `public`.tenants WHERE id = ? LIMIT 1', [tenantId]);
+        if (!exists?.length) {
+            return res.status(404).json({ error: 'Tenant bulunamadı' });
+        }
+        await queryPublic(
+            `UPDATE \`public\`.tenants SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [tenantId],
+        );
+        try {
+            await queryPublic(
+                `UPDATE \`public\`.tenant_billing
+                 SET payment_current = false,
+                     suspended_at = COALESCE(suspended_at, CURRENT_TIMESTAMP),
+                     suspension_reason = COALESCE(suspension_reason, 'saas_admin_inactive')
+                 WHERE trim(tenant_id::text) = ?`,
+                [tenantId],
+            );
+        } catch (e) {
+            console.warn('tenant_billing pasifleştirme (yoksa atlanır):', (e as Error)?.message);
+        }
+        invalidateTenantCache(tenantId);
+        res.json({ message: 'Restoran kaydı pasif (inactive) yapıldı', id: tenantId });
+    } catch (error: any) {
+        console.error('❌ Tenant pasifleştirme hatası:', error);
+        res.status(500).json({ error: 'Tenant pasifleştirilemedi' });
+    }
+};
+
+export const retryTenantDnsHandler = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        
+        // 1. Fetch the tenant
+        const tenant = await prisma.tenant.findUnique({
+            where: { id }
+        });
+        if (!tenant) {
+            return res.status(404).json({ error: 'Kiracı bulunamadı.' });
+        }
+
+        // 2. Trigger provisioning
+        const provision = await provisionQrWebSubdomain(id);
+        
+        if (!provision.ok) {
+            const reason = provision.skipped || provision.deployment?.error || 'qr_web_provision_failed';
+            await prisma.tenant.update({
+                where: { id },
+                data: {
+                    settings: {
+                        ...(tenant.settings as any || {}),
+                        qr_web_provisioning_error: reason,
+                        qr_web_provisioning_failed_at: new Date().toISOString(),
+                    } as any
+                }
+            });
+            return res.status(400).json({ 
+                error: `DNS Provisioning başarısız: ${reason}`,
+                code: 'PROVISION_FAILED',
+                reason 
+            });
+        }
+
+        // 3. Clear errors and activate tenant
+        const currentSettings = (tenant.settings as any) || {};
+        delete currentSettings.qr_web_provisioning_error;
+        delete currentSettings.qr_web_provisioning_failed_at;
+
+        await prisma.tenant.update({
+            where: { id },
+            data: {
+                status: 'active',
+                settings: currentSettings
+            }
+        });
+
+        invalidateTenantCache(id);
+
+        return res.json({ 
+            success: true, 
+            message: 'DNS ve alt alan adı başarıyla kuruldu, kiracı aktif hale getirildi.' 
+        });
+    } catch (error: any) {
+        console.error('retryTenantDnsHandler error:', error);
+        return res.status(500).json({ error: 'DNS yapılandırması yeniden denenirken sunucu hatası oluştu.' });
+    }
+};
+
 // --- SaaS Dashboard Stats ---
 export const getSaaSStatsHandler = async (req: Request, res: Response) => {
     try {
@@ -1135,6 +1389,88 @@ export const getSaaSStatsHandler = async (req: Request, res: Response) => {
     }
 };
 
+export const getDashboardOverviewHandler = async (req: Request, res: Response) => {
+    try {
+        if (req.user?.role !== 'super_admin') {
+            return res.status(403).json({ error: 'Yetkisiz' });
+        }
+
+        const [pendingRows]: any = await queryPublic(`
+            SELECT COUNT(*)::int as count, COALESCE(SUM(amount), 0) as total
+            FROM \`public\`.payment_history
+            WHERE status IN ('pending', 'overdue')
+        `);
+        const [walletPendingRows]: any = await queryPublic(`
+            SELECT COUNT(*)::int as count, COALESCE(SUM(amount), 0) as total
+            FROM \`public\`.payment_history
+            WHERE status = 'pending' AND payment_type = 'wallet_deposit'
+        `);
+        const [resellerTopupRows]: any = await queryPublic(`
+            SELECT COUNT(*)::int as count, COALESCE(SUM(amount), 0) as total
+            FROM \`public\`.reseller_wallet_topup_requests
+            WHERE status = 'pending'
+        `);
+        const [paidMonthRows]: any = await queryPublic(`
+            SELECT COUNT(*)::int as count, COALESCE(SUM(amount), 0) as total
+            FROM \`public\`.payment_history
+            WHERE status = 'paid'
+              AND COALESCE(paid_at, created_at) >= date_trunc('month', CURRENT_TIMESTAMP)
+        `);
+        const [tenantWalletRows]: any = await queryPublic(`
+            SELECT COALESCE(SUM(wallet_balance), 0) as total, COUNT(*)::int as count
+            FROM \`public\`.tenants
+            WHERE COALESCE(wallet_balance, 0) <> 0
+        `);
+        const [recentRows]: any = await queryPublic(`
+            SELECT ph.id, ph.amount, ph.payment_type, ph.payment_method, ph.status,
+                   ph.created_at, ph.tenant_id::text as tenant_id,
+                   t.name as tenant_name, sa.full_name as reseller_name
+            FROM \`public\`.payment_history ph
+            LEFT JOIN \`public\`.tenants t ON trim(ph.tenant_id::text) = trim(t.id::text)
+            LEFT JOIN \`public\`.saas_admins sa ON ph.saas_admin_id = sa.id
+            ORDER BY ph.created_at DESC
+            LIMIT 10
+        `);
+
+        res.json({
+            pendingPayments: {
+                count: Number(pendingRows?.[0]?.count ?? 0),
+                total: Number(pendingRows?.[0]?.total ?? 0),
+            },
+            walletDepositsPending: {
+                count: Number(walletPendingRows?.[0]?.count ?? 0),
+                total: Number(walletPendingRows?.[0]?.total ?? 0),
+            },
+            resellerTopupsPending: {
+                count: Number(resellerTopupRows?.[0]?.count ?? 0),
+                total: Number(resellerTopupRows?.[0]?.total ?? 0),
+            },
+            paidThisMonth: {
+                count: Number(paidMonthRows?.[0]?.count ?? 0),
+                total: Number(paidMonthRows?.[0]?.total ?? 0),
+            },
+            tenantWallets: {
+                count: Number(tenantWalletRows?.[0]?.count ?? 0),
+                total: Number(tenantWalletRows?.[0]?.total ?? 0),
+            },
+            recentPayments: (recentRows || []).map((r: Record<string, unknown>) => ({
+                id: r.id,
+                amount: Number(r.amount ?? 0),
+                payment_type: r.payment_type,
+                payment_method: r.payment_method,
+                status: r.status,
+                created_at: r.created_at,
+                tenant_name: r.tenant_name,
+                reseller_name: r.reseller_name,
+                tenant_id: r.tenant_id,
+            })),
+        });
+    } catch (error) {
+        console.error('getDashboardOverview error:', error);
+        res.status(500).json({ error: 'Kontrol paneli verisi alınamadı' });
+    }
+};
+
 // --- System Backups ---
 export const getSystemBackupsHandler = async (_req: Request, res: Response) => {
     try {
@@ -1166,9 +1502,15 @@ export const getSupportTicketsHandler = async (req: Request, res: Response) => {
         const userId = req.user?.userId;
 
         let query = `
-            SELECT t.*, ten.name as tenant_name
+            SELECT t.*, ten.name as tenant_name,
+                   COALESCE(sa.username, sa2.username) as reseller_username, 
+                   COALESCE(sa.company_name, sa2.company_name) as reseller_company_name,
+                   COALESCE(sa.email, sa2.email) as reseller_email,
+                   COALESCE(sa.mobile_phone, sa2.mobile_phone) as reseller_phone
             FROM \`public\`.support_tickets t
             LEFT JOIN \`public\`.tenants ten ON trim(t.tenant_id::text) = trim(ten.id::text)
+            LEFT JOIN \`public\`.saas_admins sa ON ten.reseller_id = sa.id
+            LEFT JOIN \`public\`.saas_admins sa2 ON t.created_by_reseller_id = sa2.id
             WHERE 1=1
         `;
         const params: any[] = [];
@@ -1583,6 +1925,8 @@ export const getResellerProfileHandler = async (req: Request, res: Response) => 
                 district,
                 postal_code,
                 country,
+                bank_iban,
+                bank_account_name,
                 COALESCE(two_factor_enabled, FALSE) as two_factor_enabled,
                 COALESCE(two_factor_method, 'none') as two_factor_method,
                 two_factor_backup_codes,
@@ -1631,6 +1975,8 @@ export const updateResellerProfileHandler = async (req: Request, res: Response) 
             district: 'district',
             postal_code: 'postal_code',
             country: 'country',
+            bank_iban: 'bank_iban',
+            bank_account_name: 'bank_account_name',
             two_factor_enabled: 'two_factor_enabled',
             two_factor_method: 'two_factor_method',
         };

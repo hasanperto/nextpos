@@ -1,0 +1,361 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans)}
+.root{display:grid;grid-template-columns:200px 1fr;min-height:540px;gap:0;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden}
+.sidebar{background:var(--color-background-secondary);border-right:0.5px solid var(--color-border-tertiary);padding:12px 8px;display:flex;flex-direction:column;gap:4px}
+.sidebar-title{font-size:11px;color:var(--color-text-tertiary);padding:4px 8px 8px;letter-spacing:.05em;text-transform:uppercase}
+.panel-btn{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--border-radius-md);cursor:pointer;border:none;background:transparent;width:100%;text-align:left;transition:background .15s}
+.panel-btn:hover{background:var(--color-background-primary)}
+.panel-btn.active{background:var(--color-background-primary);border:0.5px solid var(--color-border-secondary)}
+.panel-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.panel-name{font-size:12px;font-weight:500;color:var(--color-text-primary);line-height:1.2}
+.panel-url{font-size:10px;color:var(--color-text-tertiary);font-family:var(--font-mono)}
+.main{display:grid;grid-template-rows:auto 1fr;overflow:hidden}
+.header{padding:16px 20px 12px;border-bottom:0.5px solid var(--color-border-tertiary);background:var(--color-background-primary)}
+.header-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px}
+.panel-title{font-size:16px;font-weight:500;color:var(--color-text-primary)}
+.panel-path{font-size:12px;color:var(--color-text-tertiary);font-family:var(--font-mono);margin-top:2px}
+.roles{display:flex;flex-wrap:wrap;gap:4px}
+.role-badge{font-size:10px;padding:2px 7px;border-radius:20px;border:0.5px solid;font-family:var(--font-mono)}
+.content{display:grid;grid-template-columns:1fr 1fr;gap:0;overflow:auto}
+.col{padding:16px 20px;border-right:0.5px solid var(--color-border-tertiary)}
+.col:last-child{border-right:none}
+.col-title{font-size:11px;font-weight:500;color:var(--color-text-tertiary);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}
+.feature-item{display:flex;gap:8px;margin-bottom:8px;align-items:flex-start}
+.feature-dot{width:6px;height:6px;border-radius:50%;margin-top:5px;flex-shrink:0}
+.feature-text{font-size:12px;color:var(--color-text-secondary);line-height:1.5}
+.feature-text strong{color:var(--color-text-primary);font-weight:500}
+.rel-item{display:flex;gap:8px;margin-bottom:10px;align-items:flex-start}
+.rel-arrow{font-size:10px;color:var(--color-text-tertiary);margin-top:3px;flex-shrink:0;font-family:var(--font-mono)}
+.rel-text{font-size:12px;color:var(--color-text-secondary);line-height:1.5}
+.rel-text b{color:var(--color-text-primary);font-weight:500}
+.imp-item{display:flex;gap:8px;margin-bottom:8px;align-items:flex-start}
+.imp-prio{font-size:10px;padding:1px 6px;border-radius:20px;flex-shrink:0;margin-top:2px;font-weight:500}
+.imp-text{font-size:12px;color:var(--color-text-secondary);line-height:1.5}
+.p-red{background:var(--color-background-danger);color:var(--color-text-danger);border:0.5px solid var(--color-border-danger)}
+.p-amber{background:var(--color-background-warning);color:var(--color-text-warning);border:0.5px solid var(--color-border-warning)}
+.p-green{background:var(--color-background-success);color:var(--color-text-success);border:0.5px solid var(--color-border-success)}
+.r-blue{background:var(--color-background-info);color:var(--color-text-info);border-color:var(--color-border-info)}
+.r-gray{background:var(--color-background-secondary);color:var(--color-text-secondary);border-color:var(--color-border-secondary)}
+.r-green{background:var(--color-background-success);color:var(--color-text-success);border-color:var(--color-border-success)}
+.r-amber{background:var(--color-background-warning);color:var(--color-text-warning);border-color:var(--color-border-warning)}
+.r-red{background:var(--color-background-danger);color:var(--color-text-danger);border-color:var(--color-border-danger)}
+.ws-badge{font-size:9px;padding:1px 5px;border-radius:10px;background:var(--color-background-warning);color:var(--color-text-warning);border:0.5px solid var(--color-border-warning);font-family:var(--font-mono);margin-left:4px}
+.section-sep{height:0.5px;background:var(--color-border-tertiary);margin:12px 0}
+</style>
+
+<h2 class="sr-only">NextPOS Panel Haritası — tüm panellerin özellikleri, ilişkileri ve iyileştirme önerileri</h2>
+
+<div class="root">
+<div class="sidebar">
+  <div class="sidebar-title">Paneller</div>
+</div>
+<div class="main">
+  <div class="header">
+    <div class="header-top">
+      <div>
+        <div class="panel-title" id="h-title">—</div>
+        <div class="panel-path" id="h-path"></div>
+      </div>
+      <div class="roles" id="h-roles"></div>
+    </div>
+  </div>
+  <div class="content">
+    <div class="col" id="col-features">
+      <div class="col-title">Özellikler</div>
+    </div>
+    <div class="col" style="display:grid;grid-template-rows:auto auto;gap:0">
+      <div style="padding:0 0 12px" id="col-rel">
+        <div class="col-title">Panel İlişkileri</div>
+      </div>
+      <div style="border-top:0.5px solid var(--color-border-tertiary);padding:12px 0 0" id="col-imp">
+        <div class="col-title">İyileştirme Önerileri</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+const panels=[
+{id:'cashier',name:'Kasiyer POS',url:'/cashier',icon:'💰',color:'#1B6B3A',
+roles:[{l:'cashier',c:'r-blue'},{l:'admin',c:'r-gray'}],
+features:[
+{c:'#1B6B3A',t:'<strong>Masa Grid / Kat Planı</strong> — renk kodlu anlık durum, bölüm sekmeleri'},
+{c:'#1B6B3A',t:'<strong>Sipariş oluşturma</strong> — kategori→ürün→varyant→modifikasyon→not'},
+{c:'#1B6B3A',t:'<strong>Adisyon paneli</strong> — sepet, toplam, KDV, indirim, aksiyon butonları'},
+{c:'#1B6B3A',t:'<strong>Ödeme ekranı</strong> — nakit/kart/online/puan, hesap bölme'},
+{c:'#1B6B3A',t:'<strong>ESC/POS yazıcı</strong> — fiş/adisyon/mutfak fişi, dil desteği'},
+{c:'#1B6B3A',t:'<strong>Müşteri arama</strong> — telefon/QR/ad ile, puan bakiyesi'},
+{c:'#1B6B3A',t:'<strong>Offline mod</strong> — IndexedDB kuyruk, bağlantı gelince sync'},
+{c:'#1B6B3A',t:'<strong>Masa işlemleri</strong> — taşıma, birleştirme, iptal'},
+{c:'#1B6B3A',t:'<strong>Online/WhatsApp sipariş</strong> — harici sipariş yönetimi'},
+{c:'#1B6B3A',t:'<strong>PIN geçiş</strong> — personel değişimi, 6 haneli hızlı giriş'},
+],
+rels:[
+{a:'→ KDS',t:'Yeni sipariş → <b>kitchen:new_ticket</b> socket'},
+{a:'← Garson',t:'<b>order:ready</b> bildirimi alır'},
+{a:'← Kiosk',t:'Kiosk siparişi adisyona düşer'},
+{a:'← QR Menü',t:'<b>qr:order_request</b> garson onayı pop-up'},
+{a:'← Stok',t:'<b>stock:low</b> anlık uyarı'},
+{a:'↔ Admin',t:'Z/X raporu, kasa kapanışı'},
+],
+imps:[
+{p:'🔴',pc:'p-red',t:'Masa üzerinde "kim bakıyor" overlay — <b>table:focused/blurred</b> socket bağlanmamış'},
+{p:'🔴',pc:'p-red',t:'Offline banner + sync sayacı — internet kesilince görünür bildirim yok'},
+{p:'🟠',pc:'p-amber',t:'Loyalty ödeme entegrasyonu — <b>apply-loyalty</b> endpoint bağlantısı eksik'},
+{p:'🟠',pc:'p-amber',t:'Split bill UI — kalem seçimi ve kısmi ödeme akışı tamamlanmamış'},
+{p:'🟢',pc:'p-green',t:'Toast bildirimleri merkezi bileşene taşınmalı'},
+]},
+
+{id:'kitchen',name:'Mutfak KDS',url:'/kitchen/:station',icon:'👨‍🍳',color:'#9B3922',
+roles:[{l:'kitchen',c:'r-red'},{l:'admin',c:'r-gray'}],
+features:[
+{c:'#9B3922',t:'<strong>Kanban görünüm</strong> — Bekleyen | Hazırlanıyor | Hazır (3 sütun)'},
+{c:'#9B3922',t:'<strong>Süre sayacı</strong> — <5dk beyaz · 5-15dk sarı · >15dk kırmızı yanıp söner'},
+{c:'#9B3922',t:'<strong>İstasyon filtresi</strong> — all / hot / cold / bar ayrı görünüm'},
+{c:'#9B3922',t:'<strong>FIFO sıralama</strong> — aynı önceliktekiler en eski önce'},
+{c:'#9B3922',t:'<strong>Acil önceliklendirme</strong> — kırmızı badge, listenin en üstü'},
+{c:'#9B3922',t:'<strong>Kalem bazlı hazır</strong> — her ürün tek tek işaretlenebilir'},
+{c:'#9B3922',t:'<strong>Ses bildirimi</strong> — yeni bilet gelince çalar'},
+{c:'#9B3922',t:'<strong>Bump butonu</strong> — Hazır → garson anlık bildirim'},
+{c:'#9B3922',t:'<strong>Bump bar</strong> — USB HID fiziksel donanım desteği'},
+{c:'#9B3922',t:'<strong>Tam ekran kiosk</strong> — su geçirmez ekran optimize'},
+],
+rels:[
+{a:'← Kasiyer',t:'<b>kitchen:new_ticket</b> socket — yeni bilet'},
+{a:'→ Garson',t:'<b>kitchen:ready</b> → "<b>order:ready</b>" bildirim'},
+{a:'→ Kasiyer',t:'<b>order:ready</b> — adisyon güncelleme'},
+{a:'↔ Socket',t:'<b>kitchen:{branchId}:{station}</b> room izolasyonu'},
+],
+imps:[
+{p:'🔴',pc:'p-red',t:'cashier rolü KDS\'e erişiyor — guard kaldırılmalı (güvenlik açığı)'},
+{p:'🟠',pc:'p-amber',t:'Drag-drop durum güncelleme PATCH endpoint\'e bağlı değil, sadece UI state'},
+{p:'🟠',pc:'p-amber',t:'Süre sayacı CSS animasyonu (kırmızı yanıp sönme) eksik'},
+{p:'🟠',pc:'p-amber',t:'İstasyon URL parametresi API sorgusuna doğru geçilmiyor'},
+{p:'🟠',pc:'p-amber',t:'Kalem bazlı checkbox → PATCH /tickets/:id/items bağlantısı eksik'},
+]},
+
+{id:'waiter',name:'Garson',url:'/waiter',icon:'🛎️',color:'#4A5568',
+roles:[{l:'waiter',c:'r-blue'},{l:'admin',c:'r-gray'}],
+features:[
+{c:'#4A5568',t:'<strong>Görsel kat planı</strong> — masa durumu renkleri, anlık güncelleme'},
+{c:'#4A5568',t:'<strong>Servis çağrıları</strong> — garson çağır, hesap iste, su overlay'},
+{c:'#4A5568',t:'<strong>Masa başı sipariş</strong> — ürün ara, boyut/mod seç, mutfağa gönder'},
+{c:'#4A5568',t:'<strong>QR sipariş onayı</strong> — onay/ret pop-up, KDS kuyruğuna ekle'},
+{c:'#4A5568',t:'<strong>Mutfak teslim alma</strong> — POST /orders/:id/pickup akışı'},
+{c:'#4A5568',t:'<strong>Müşteri tanıma</strong> — QR okutma veya telefon/ad arama'},
+{c:'#4A5568',t:'<strong>Günlük istatistik</strong> — servis adedi, ortalama süre'},
+{c:'#4A5568',t:'<strong>Dil tercihi</strong> — garsonun kendi tablet diline göre DE/TR/EN'},
+],
+rels:[
+{a:'← KDS',t:'<b>order:ready</b> — "teslim al" bildirim'},
+{a:'← QR Menü',t:'<b>qr:order_request</b> socket — onay pop-up'},
+{a:'← Müşteri',t:'<b>customer:service_call</b> — servis overlay'},
+{a:'→ Kasiyer',t:'Oturum/sipariş durum güncellemeleri'},
+{a:'↔ Socket',t:'join:waiter room — tüm masa olayları'},
+],
+imps:[
+{p:'🟠',pc:'p-amber',t:'Servis çağrısı overlay — socket olayı gelince masa kartına yansımıyor'},
+{p:'🟠',pc:'p-amber',t:'QR onay pop-up — qr:order_request socket handler eksik'},
+{p:'🟠',pc:'p-amber',t:'Masa başı sipariş modal — varyant/mod seçimi UX tamamlanmamış'},
+{p:'🟢',pc:'p-green',t:'PUT → PATCH düzeltmesi: /orders/:id/status ve /service-calls/:id/status'},
+]},
+
+{id:'courier',name:'Kurye',url:'/courier',icon:'🛵',color:'#2B6CB0',
+roles:[{l:'courier',c:'r-blue'},{l:'admin',c:'r-gray'}],
+features:[
+{c:'#2B6CB0',t:'<strong>Teslimat listesi</strong> — atanan siparişler, öncelik sıralı'},
+{c:'#2B6CB0',t:'<strong>Adres gruplama</strong> — posta kodu / adres parçasına göre rota'},
+{c:'#2B6CB0',t:'<strong>Navigasyon</strong> — Google Maps/Waze/Apple deep link'},
+{c:'#2B6CB0',t:'<strong>Durum geçişleri</strong> — ready→shipped→delivered/failed'},
+{c:'#2B6CB0',t:'<strong>Kapıda ödeme</strong> — nakit/kart/QR + bahşiş hesaplama'},
+{c:'#2B6CB0',t:'<strong>Konum paylaşımı</strong> — GPS anlık → kasiyer haritada görür'},
+{c:'#2B6CB0',t:'<strong>Toplu teslimat</strong> — aynı adrese birden fazla sipariş'},
+{c:'#2B6CB0',t:'<strong>Günlük özet</strong> — teslimat adedi, ortalama süre, kapıda toplam'},
+],
+rels:[
+{a:'← Admin',t:'<b>delivery:assigned</b> socket — atama bildirimi'},
+{a:'→ Admin',t:'GPS konum → <b>delivery:location</b> → harita'},
+{a:'↔ Socket',t:'courier:{userId} bireysel room'},
+{a:'+ Poll',t:'30 sn yedek polling (socket yedek)'},
+],
+imps:[
+{p:'🟢',pc:'p-green',t:'Endpoint standardizasyon: POST/:endpoint → PATCH /orders/:id/status + enum'},
+{p:'🟢',pc:'p-green',t:'Durum geçiş validasyonu — yalnızca geçerli geçişlere izin ver'},
+{p:'🟢',pc:'p-green',t:'Ödeme modalı iyileştirmesi — bahşiş hesaplaması UX netleştirmesi'},
+]},
+
+{id:'handover',name:'Teslim Merkezi',url:'/handover',icon:'📦',color:'#744210',
+roles:[{l:'admin',c:'r-gray'},{l:'cashier',c:'r-blue'}],
+features:[
+{c:'#744210',t:'<strong>Hazır sipariş listesi</strong> — anlık sayı ve liste, socket canlı'},
+{c:'#744210',t:'<strong>Hazırlanıyor sayısı</strong> — mutfak yük göstergesi'},
+{c:'#744210',t:'<strong>KPI uyarısı</strong> — 20+ dakika bekleyen hazır siparişler'},
+{c:'#744210',t:'<strong>Hızlı servis aksiyonları</strong> — teslim et, onayla'},
+{c:'#744210',t:'<strong>15 sn polling yedek</strong> — socket kesilince fallback'},
+],
+rels:[
+{a:'← KDS',t:'<b>order:ready</b> socket — bilet hazır'},
+{a:'← API',t:'GET /orders?status=ready/preparing'},
+{a:'→ Garson',t:'Teslim bildirimleri'},
+{a:'→ Kasiyer',t:'Adisyon güncelleme'},
+],
+imps:[
+{p:'🔴',pc:'p-red',t:'ROL AÇIĞI: "/handover" herkese açık bırakılmış — Auth (tüm roller). Sadece admin/cashier olmalı'},
+{p:'🟠',pc:'p-amber',t:'Socket bağlantısı yoktu — order:ready ve order:status_changed eklenmeli'},
+{p:'🟢',pc:'p-green',t:'Polling tek kaynak → socket-first + 15sn fallback mimarisine geçiş'},
+]},
+
+{id:'kiosk',name:'Kiosk (Masa Tableti)',url:'/kiosk/:tableId',icon:'📱',color:'#553C9A',
+roles:[{l:'device_token',c:'r-amber'}],
+features:[
+{c:'#553C9A',t:'<strong>Self-order</strong> — müşteri kendi siparişini verir, PIN gerekmez'},
+{c:'#553C9A',t:'<strong>Cihaz token</strong> — masa bazlı uzun ömürlü, revoke edilebilir'},
+{c:'#553C9A',t:'<strong>Menü görüntüleme</strong> — QR menü ile aynı veri, GET /menu/public'},
+{c:'#553C9A',t:'<strong>Auto-approve</strong> — garson onayı gerektirmez (ayarla değiştirilebilir)'},
+{c:'#553C9A',t:'<strong>Sipariş takibi</strong> — "Hazır" bildirimi animasyonu'},
+{c:'#553C9A',t:'<strong>Idle reset</strong> — 90 sn hareketsizlik → başlangıç ekranı'},
+{c:'#553C9A',t:'<strong>Ödeme seçeneği</strong> — kasada öde veya terminal entegrasyonu'},
+{c:'#553C9A',t:'<strong>Dil seçimi</strong> — başlangıç dili admin ayarından'},
+],
+rels:[
+{a:'→ KDS',t:'Sipariş → kitchen_ticket otomatik'},
+{a:'→ Kasiyer',t:'Adisyona düşer, normal checkout'},
+{a:'← Menü',t:'sync:menu_revision → otomatik yenile'},
+{a:'← Admin',t:'Token revoke → kilit ekranı'},
+],
+imps:[
+{p:'🟠',pc:'p-amber',t:'Token verify — sayfa açılınca GET /devices/:token/verify çağrılmıyor'},
+{p:'🟠',pc:'p-amber',t:'Revoke → kilit — sync:tables_changed socket olayı işlenmiyor'},
+{p:'🟠',pc:'p-amber',t:'Idle timer — 90sn hareketsizlikte başlangıç ekranına dönmüyor'},
+{p:'🟠',pc:'p-amber',t:'"Siparişiniz hazır!" animasyonlu ekran eksik'},
+{p:'🟢',pc:'p-green',t:'Kiosk ayarları sekmesi Admin panelinde tamamlanmalı'},
+]},
+
+{id:'admin',name:'Admin Paneli',url:'/admin/*',icon:'⚙️',color:'#2D3748',
+roles:[{l:'admin',c:'r-gray'},{l:'manager',c:'r-blue'},{l:'cashier*',c:'r-green'}],
+features:[
+{c:'#2D3748',t:'<strong>Dashboard</strong> — ciro, masa, mutfak, kurye, top ürün, şube durumu'},
+{c:'#2D3748',t:'<strong>Menü yönetimi</strong> — ürün/kategori/varyant/mod CRUD, toplu fiyat'},
+{c:'#2D3748',t:'<strong>Çeviri editörü</strong> — DE/TR/EN yan yana form, anlık kayıt'},
+{c:'#2D3748',t:'<strong>Salon & masalar</strong> — sürükle-bırak kat planı, QR üretim'},
+{c:'#2D3748',t:'<strong>Personel & vardiya</strong> — CRUD, PIN, istasyon atama'},
+{c:'#2D3748',t:'<strong>CRM & kampanya</strong> — müşteri segmentasyon, puan, CSV export'},
+{c:'#2D3748',t:'<strong>Raporlama</strong> — Z/X raporu, PDF/Excel export, saatlik heatmap'},
+{c:'#2D3748',t:'<strong>Stok & reçete</strong> — BOM, otomatik düşüm, tedarikçi'},
+{c:'#2D3748',t:'<strong>Muhasebe</strong> — storno, kayıt düzenleme (tutar değişmez)'},
+{c:'#2D3748',t:'<strong>Rezervasyon</strong> — masa rezerv, kasiyer socket uyarısı'},
+{c:'#2D3748',t:'<strong>Yazıcı & kiosk</strong> — cihaz listesi, token yönetimi, test baskı'},
+{c:'#2D3748',t:'<strong>Ayarlar</strong> — entitlements, API/webhook, fiş tasarımı'},
+],
+rels:[
+{a:'→ Tüm panel',t:'Menü sync:menu_revision → tüm cihazlar cache yenile'},
+{a:'→ Kasiyer',t:'Rezervasyon socket → reservation:created'},
+{a:'→ KDS',t:'Yeni ürün/stok güncellemeleri anlık'},
+{a:'→ Kiosk',t:'Token revoke → kilit ekranı'},
+],
+imps:[
+{p:'🔴',pc:'p-red',t:'DELETE /accounting/:id UI\'da hâlâ görünür — kaldırılmalı, sadece storno'},
+{p:'🔴',pc:'p-red',t:'Demo seed → production\'da 403 döndürmeli, UI\'da çift onay zorunlu'},
+{p:'🟠',pc:'p-amber',t:'Rezervasyon → masa reserved socket emit eksik (reservation:created)'},
+{p:'🟠',pc:'p-amber',t:'Kiosk ayarları sekmesi — cihaz listesi, idle timeout, token revoke UI eksik'},
+{p:'🟠',pc:'p-amber',t:'Yazıcı test sonucu UI\'a yansımıyor — success/error feedback eksik'},
+{p:'🟠',pc:'p-amber',t:'Entitlement kilidi → "Yükselt" CTA yerine boş sayfa gösteriliyor'},
+{p:'🟢',pc:'p-green',t:'Çeviri editörü — PUT /translations/:ns/:lang çağrısı eksik'},
+{p:'🟢',pc:'p-green',t:'Stok: is_ingredient:true ürünler ayrıca işaretlenmeli'},
+]},
+
+{id:'saas',name:'SaaS Admin',url:'/saas-admin/*',icon:'🌐',color:'#1A365D',
+roles:[{l:'super_admin',c:'r-red'},{l:'reseller*',c:'r-amber'}],
+features:[
+{c:'#1A365D',t:'<strong>Platform dashboard</strong> — MRR, aktif tenant, büyüme, live feed'},
+{c:'#1A365D',t:'<strong>Tenant yönetimi</strong> — oluştur/pasif/sil, plan değiştir, şifre reset'},
+{c:'#1A365D',t:'<strong>Impersonation (destek)</strong> — 15dk token, audit log, banner'},
+{c:'#1A365D',t:'<strong>Bayi sistemi</strong> — CRUD, cüzdan, komisyon, top-up onayı'},
+{c:'#1A365D',t:'<strong>Plan & kampanya</strong> — fiyat/limit/özellik yönetimi, kupon üretim'},
+{c:'#1A365D',t:'<strong>Finans & fatura</strong> — özet, işlemler, bekleyen, yenileme takvimi'},
+{c:'#1A365D',t:'<strong>Sistem ayarları</strong> — global config, payment gateway, yedekleme'},
+{c:'#1A365D',t:'<strong>Güvenlik & audit</strong> — başarısız giriş, aktif oturum, log export'},
+{c:'#1A365D',t:'<strong>2FA zorunlu</strong> — TOTP veya e-posta OTP, recovery code'},
+],
+rels:[
+{a:'→ Tüm tenant',t:'announcement socket → tüm şubeler'},
+{a:'→ Bayi',t:'top-up onayı → saas:topup_request_new socket'},
+{a:'← Bayi',t:'Cüzdan yükleme talebi → Dashboard bildirimi'},
+{a:'Async',t:'Tenant oluşturma 202 + taskId + GET /tasks/:id/status'},
+],
+imps:[
+{p:'🔴',pc:'p-red',t:'Tenant create async — 202+taskId dönüyor, frontend handle etmiyor (yükleme/ilerleme yok)'},
+{p:'🔴',pc:'p-red',t:'DNS provisioning hata — qr_domain_status:pending_dns UI\'da gösterilmiyor'},
+{p:'🟠',pc:'p-amber',t:'Impersonation banner — "Destek Modu Aktif" köşe banner eksik'},
+{p:'🟠',pc:'p-amber',t:'Impersonation yıkıcı işlem engeli — delete/seed frontend\'de de bloklanmalı'},
+{p:'🟠',pc:'p-amber',t:'Live feed socket — saas:live_feed dashboard\'a bağlı değil'},
+{p:'🟢',pc:'p-green',t:'reseller rol filtresi sadece frontend\'de — backend 403 kontrolü zorunlu'},
+]},
+
+{id:'reseller',name:'Bayi Paneli',url:'/saas-admin (reseller)',icon:'🏢',color:'#744210',
+roles:[{l:'reseller',c:'r-amber'}],
+features:[
+{c:'#744210',t:'<strong>Kendi dashboard\'u</strong> — sadece kendi tenant istatistikleri'},
+{c:'#744210',t:'<strong>Tenant yönetimi</strong> — kendi restoranları, aktif/pasif, yeni oluştur'},
+{c:'#744210',t:'<strong>Cüzdan & komisyon</strong> — bakiye görüntüleme, top-up talebi'},
+{c:'#744210',t:'<strong>Komisyon raporu</strong> — aylık özet, PDF export'},
+{c:'#744210',t:'<strong>Destek talepleri</strong> — bilet açma, mesajlaşma, durum takibi'},
+{c:'#744210',t:'<strong>2FA</strong> — TOTP + recovery code zorunlu'},
+{c:'#744210',t:'<strong>SaaS Admin UI paylaşımı</strong> — aynı SaaSAdmin.tsx, rol kısıtlı'},
+],
+rels:[
+{a:'→ SaaS Admin',t:'Top-up talebi → Dashboard bildirimi'},
+{a:'← SaaS Admin',t:'Onay/ret → cüzdan güncelleme + bildirim'},
+{a:'403',t:'Diğer bayiler, global ayarlar, tüm tenant listesi erişilemez'},
+],
+imps:[
+{p:'🟠',pc:'p-amber',t:'Top-up talebi formu yok — POST /resellers/me/wallet/topup-request UI eksik'},
+{p:'🟠',pc:'p-amber',t:'Talep durum takibi — GET /topup-requests listesi gösterilmiyor'},
+{p:'🟢',pc:'p-green',t:'Komisyon PDF export butonu bağlı değil'},
+{p:'🟢',pc:'p-green',t:'2FA kurulum akışı — setup/devre dışı UI tamamlanmalı'},
+]},
+];
+
+function renderPanel(p){
+document.getElementById('h-title').textContent=p.name;
+document.getElementById('h-path').textContent=p.url;
+document.getElementById('h-roles').innerHTML=p.roles.map(r=>`<span class="role-badge ${r.c}">${r.l}</span>`).join('');
+
+const cf=document.getElementById('col-features');
+cf.innerHTML='<div class="col-title">Özellikler</div>';
+p.features.forEach(f=>{
+cf.innerHTML+=`<div class="feature-item"><div class="feature-dot" style="background:${f.c}"></div><div class="feature-text">${f.t}</div></div>`;
+});
+
+const cr=document.getElementById('col-rel');
+cr.innerHTML='<div class="col-title">Panel İlişkileri</div>';
+p.rels.forEach(r=>{
+cr.innerHTML+=`<div class="rel-item"><div class="rel-arrow">${r.a}</div><div class="rel-text">${r.t}</div></div>`;
+});
+
+const ci=document.getElementById('col-imp');
+ci.innerHTML='<div class="col-title">İyileştirme Önerileri</div>';
+p.imps.forEach(i=>{
+ci.innerHTML+=`<div class="imp-item"><span class="imp-prio ${i.pc}">${i.p}</span><div class="imp-text">${i.t}</div></div>`;
+});
+}
+
+const sidebar=document.querySelector('.sidebar');
+panels.forEach((p,idx)=>{
+const btn=document.createElement('button');
+btn.className='panel-btn'+(idx===0?' active':'');
+btn.dataset.id=p.id;
+btn.innerHTML=`<div class="panel-icon" style="background:${p.color}22;color:${p.color}">${p.icon}</div><div><div class="panel-name">${p.name}</div><div class="panel-url">${p.url.split('/')[1]||p.url}</div></div>`;
+btn.onclick=()=>{
+document.querySelectorAll('.panel-btn').forEach(b=>b.classList.remove('active'));
+btn.classList.add('active');
+renderPanel(p);
+};
+sidebar.appendChild(btn);
+});
+
+renderPanel(panels[0]);
+</script>

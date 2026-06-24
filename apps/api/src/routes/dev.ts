@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { withTenant } from '../lib/db.js';
+import { ensureUsersDeviceIdColumn } from '../lib/userDeviceColumns.js';
 
 const router = Router();
 
@@ -22,6 +23,7 @@ router.post('/reset-devices', async (req, res) => {
     try {
         const { tenantId } = resetDevicesSchema.parse(req.body);
         const affected = await withTenant(tenantId, async (conn) => {
+            await ensureUsersDeviceIdColumn(conn);
             const [r]: any = await conn.query(`UPDATE users SET device_id = NULL WHERE device_id IS NOT NULL`);
             return Number(r?.affectedRows ?? 0);
         });
@@ -33,6 +35,26 @@ router.post('/reset-devices', async (req, res) => {
         console.error('dev/reset-devices error:', e);
         return res.status(500).json({ error: 'Reset başarısız' });
     }
+});
+
+router.post('/clear-calls', async (req, res) => {
+    if (process.env.NODE_ENV !== 'development') {
+        return res.status(404).json({ error: 'Not found' });
+    }
+
+    const ip = String(req.ip || '');
+    const isLocal = ip.includes('127.0.0.1') || ip === '::1';
+    if (!isLocal) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const io = req.app.get('io');
+    if (io) {
+        const tenantId = req.body.tenantId || 'a1111111-1111-4111-8111-111111111111';
+        io.to(`tenant:${tenantId}`).emit('CLEAR_CALL_HISTORY_SIGNAL');
+        return res.json({ ok: true, message: 'Clear call history signal sent.' });
+    }
+    return res.status(500).json({ error: 'Socket server not available' });
 });
 
 export default router;

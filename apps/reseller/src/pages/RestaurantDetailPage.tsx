@@ -3,7 +3,7 @@ import {
     FiShoppingBag, FiDollarSign, FiUsers, FiClock,
     FiArrowLeft, FiEdit3, FiCopy, FiRefreshCw,
     FiTerminal, FiShield, FiMail, FiPhone, FiUser,
-    FiMapPin, FiLock, FiSave, FiAlertTriangle,
+    FiMapPin, FiLock, FiSave, FiAlertTriangle, FiLogIn,
 } from 'react-icons/fi';
 import { useResellerStore } from '../store/useResellerStore.ts';
 import { messages, type Lang } from '../i18n/messages.ts';
@@ -15,8 +15,12 @@ function genPassword(): string {
 }
 
 export function RestaurantDetailPage({ tenantId, onBack }: { tenantId: string; onBack: () => void }) {
-    const { lang, tenants, fetchTenants, updateTenant, token } = useResellerStore();
-    const t = (k: string) => messages[lang][k] || k;
+    const lang = useResellerStore(s => s.lang);
+    const tenants = useResellerStore(s => s.tenants);
+    const fetchTenants = useResellerStore(s => s.fetchTenants);
+    const updateTenant = useResellerStore(s => s.updateTenant);
+    const token = useResellerStore(s => s.token);
+    const t = (k: string) => messages[lang]?.[k] || messages['de']?.[k] || messages['en']?.[k] || messages['tr']?.[k] || k;
 
     useEffect(() => { fetchTenants(); }, [fetchTenants]);
 
@@ -66,6 +70,37 @@ export function RestaurantDetailPage({ tenantId, onBack }: { tenantId: string; o
             </div>
         );
     }
+
+    const impersonateTenant = async () => {
+        if (!token || !tenant) return;
+        const toastId = toast.loading('Gölge giriş bağlantısı kuruluyor...');
+        try {
+            const res = await fetch('/api/v1/auth/impersonate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ tenantId: tenant.id }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                toast.error(data.error || 'Gölge giriş kodu oluşturulamadı.', { id: toastId });
+                return;
+            }
+            toast.success(`${tenant.name} paneline yönlendiriliyorsunuz...`, { id: toastId });
+            const q = new URLSearchParams({ impersonate_code: data.code });
+            const posUrl = import.meta.env.VITE_POS_URL || 
+                (window.location.origin.includes('localhost:4001') ? 'http://localhost:5173' : 
+                 window.location.origin.includes('127.0.0.1:4001') ? 'http://127.0.0.1:5173' : 
+                 window.location.origin.includes('reseller.') ? window.location.origin.replace('reseller.', 'pos.') : 
+                 window.location.origin);
+            window.open(`${posUrl}/login?${q.toString()}`, '_blank', 'noopener,noreferrer');
+        } catch (err) {
+            console.error('Impersonation error:', err);
+            toast.error('Bağlantı kurulurken teknik bir hata oluştu.', { id: toastId });
+        }
+    };
 
     const canManage = String(tenant.status || '').toLowerCase() === 'active';
 
@@ -141,6 +176,16 @@ export function RestaurantDetailPage({ tenantId, onBack }: { tenantId: string; o
                                 <FiTerminal size={12} className="text-slate-600 shrink-0" />
                                 <span className="text-[10px] text-slate-500 font-mono tracking-tight">{tenant.schema_name}</span>
                             </div>
+                            {canManage && (
+                                <button
+                                    type="button"
+                                    onClick={impersonateTenant}
+                                    className="mt-3 inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-cyan-600/20 active:scale-[0.96] transition-all"
+                                >
+                                    <FiLogIn size={14} />
+                                    Gölge Giriş Yap
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -579,7 +624,10 @@ function TenantAddonsSection({
 }
 
 function QrDomainSection({ tenantId, canManage }: { tenantId: string; canManage: boolean }) {
-    const { fetchQrDomains, addQrDomain, deleteQrDomain, updateQrDomain } = useResellerStore();
+    const fetchQrDomains = useResellerStore(s => s.fetchQrDomains);
+    const addQrDomain = useResellerStore(s => s.addQrDomain);
+    const deleteQrDomain = useResellerStore(s => s.deleteQrDomain);
+    const updateQrDomain = useResellerStore(s => s.updateQrDomain);
     const [domains, setDomains] = useState<any[]>([]);
     const [newDomain, setNewDomain] = useState('');
     const [loading, setLoading] = useState(false);

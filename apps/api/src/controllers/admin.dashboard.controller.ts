@@ -129,6 +129,47 @@ export const getDashboardHandler = async (req: Request, res: Response) => {
                 branchParams
             );
 
+            const [recentRows]: any = await conn.query(
+                `SELECT o.id, o.order_type, o.status, o.payment_status,
+                        o.created_at, o.updated_at, o.table_id, t.name AS table_name
+                 FROM orders o
+                 LEFT JOIN tables t ON o.table_id = t.id
+                 WHERE o.deleted_at IS NULL
+                   AND COALESCE(o.updated_at, o.created_at) >= CURRENT_TIMESTAMP - interval '24 hours'
+                   ${branchClauseO}
+                 ORDER BY COALESCE(o.updated_at, o.created_at) DESC
+                 LIMIT 12`,
+                branchParams
+            );
+
+            const recentActivity = (Array.isArray(recentRows) ? recentRows : []).map((r: any) => {
+                const status = String(r.status || '');
+                const paymentStatus = String(r.payment_status || '');
+                const orderType = String(r.order_type || '');
+                let kind: 'order' | 'kitchen' | 'payment' | 'cancelled' = 'order';
+
+                if (status === 'cancelled') {
+                    kind = 'cancelled';
+                } else if (status === 'ready' || status === 'served') {
+                    kind = 'kitchen';
+                } else if (
+                    paymentStatus === 'paid' &&
+                    (status === 'completed' || orderType === 'delivery' || orderType === 'takeaway')
+                ) {
+                    kind = 'payment';
+                }
+
+                const atRaw = r.updated_at || r.created_at;
+                return {
+                    kind,
+                    orderId: Number(r.id),
+                    at: atRaw ? new Date(atRaw).toISOString() : new Date().toISOString(),
+                    tableId: r.table_id != null ? Number(r.table_id) : null,
+                    tableLabel: r.table_name ? String(r.table_name) : (r.table_id != null ? String(r.table_id) : null),
+                    staffName: null,
+                };
+            });
+
             return {
                 hourly,
                 heatmap: hourly,
@@ -147,6 +188,7 @@ export const getDashboardHandler = async (req: Request, res: Response) => {
                 },
                 ordersToday: Number(ordersToday?.[0]?.cnt ?? 0),
                 revenueToday: Number(revToday?.[0]?.rev ?? 0),
+                recentActivity,
             };
         });
 

@@ -4,9 +4,10 @@ import {
     FiRefreshCcw, FiShoppingBag, FiGrid, FiAlertCircle, 
     FiTruck, FiCoffee, FiActivity, FiMonitor, FiSmartphone, 
     FiShield, FiTrendingUp, FiClock, FiCheckCircle, FiFastForward, FiSettings,
-    FiGlobe, FiX
+    FiGlobe, FiX, FiNavigation, FiMessageSquare
 } from 'react-icons/fi';
 
+import { getSocketOrigin } from '../lib/socketOrigin';
 import { useAuthStore } from '../store/useAuthStore';
 import { usePosStore } from '../store/usePosStore';
 import { usePosLocale } from '../contexts/PosLocaleContext';
@@ -24,6 +25,14 @@ type DashboardPayload = {
     tables: { total: number; occupied: number };
     ordersToday: number;
     revenueToday: number;
+    recentActivity?: Array<{
+        kind: 'order' | 'kitchen' | 'payment' | 'cancelled';
+        orderId: number;
+        at: string;
+        tableId?: number | null;
+        tableLabel?: string | null;
+        staffName?: string | null;
+    }>;
 };
 
 type WebSimItem = {
@@ -54,15 +63,21 @@ export const AdminDashboard: React.FC = () => {
     const getAuthHeaders = useAuthStore(s => s.getAuthHeaders);
     const logout = useAuthStore(s => s.logout);
     const tenantName = useAuthStore(s => s.tenantName);
+    const tenantId = useAuthStore(s => s.tenantId);
+    const token = useAuthStore(s => s.token);
     
     const settings = usePosStore(s => s.settings);
     const fetchSettings = usePosStore(s => s.fetchSettings);
+    const fetchProducts = usePosStore(s => s.fetchProducts);
+    const products = usePosStore(s => s.products);
     
     const currency = settings?.currency || '€';
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState<DashboardPayload | null>(null);
     const [err, setErr] = useState<string | null>(null);
+    const [openTicketsCount, setOpenTicketsCount] = useState(0);
+    const [hasNewReply, setHasNewReply] = useState(false);
     const [showWebSimForm, setShowWebSimForm] = useState(false);
     const [showWaBot, setShowWaBot] = useState(false);
     const [waPhone, setWaPhone] = useState('+491620001122');
@@ -82,8 +97,8 @@ export const AdminDashboard: React.FC = () => {
         ]
     });
 
-    const load = useCallback(async () => {
-        setLoading(true);
+    const load = useCallback(async (opts?: { silent?: boolean }) => {
+        if (!opts?.silent) setLoading(true);
         setErr(null);
         const headers = getAuthHeaders();
         try {
@@ -98,37 +113,124 @@ export const AdminDashboard: React.FC = () => {
             }
             const j = (await res.json()) as DashboardPayload;
             setData(j);
+
+            // Fetch support tickets status for command center card
+            try {
+                const ticketsRes = await fetch('/api/v1/admin/support/tickets', { headers });
+                if (ticketsRes.ok) {
+                    const ticketsData = await ticketsRes.json();
+                    const activeTickets = (ticketsData || []).filter(
+                        (t: any) => t.status === 'open' || t.status === 'in_progress' || t.status === 'waiting'
+                    );
+                    setOpenTicketsCount(activeTickets.length);
+                    const hasReply = (ticketsData || []).some((t: any) => t.status === 'in_progress');
+                    setHasNewReply(hasReply);
+                }
+            } catch (e) {
+                console.error('[ERROR] Dashboard load tickets:', e);
+            }
         } catch (e) {
             console.error(e);
             setErr(t('auth.error.serverError'));
         } finally {
-            setLoading(false);
+            if (!opts?.silent) setLoading(false);
         }
     }, [getAuthHeaders, logout, t]);
 
     useEffect(() => {
         void load();
         void fetchSettings();
+        void fetchProducts();
         const interval = setInterval(() => { void load(); }, 60000);
         return () => clearInterval(interval);
-    }, [load, fetchSettings]);
+    }, [load, fetchSettings, fetchProducts]);
+
+    useEffect(() => {
+        if (!token || !tenantId) return;
+        let socket: import('socket.io-client').Socket | null = null;
+        let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+        const scheduleReload = () => {
+            if (reloadTimer) clearTimeout(reloadTimer);
+            reloadTimer = setTimeout(() => void load({ silent: true }), 800);
+        };
+
+        void import('socket.io-client').then(({ io }) => {
+            socket = io(getSocketOrigin(), {
+                path: '/socket.io',
+                transports: ['polling', 'websocket'],
+                auth: { token },
+                query: { tenantId },
+            });
+            socket.on('connect', () => {
+                socket?.emit('join:tenant', tenantId);
+            });
+            socket.on('order:new', scheduleReload);
+            socket.on('order:status_changed', scheduleReload);
+            socket.on('order:status_update', scheduleReload);
+            socket.on('kitchen:item_ready', scheduleReload);
+            socket.on('payment:received', scheduleReload);
+        });
+
+        return () => {
+            if (reloadTimer) clearTimeout(reloadTimer);
+            socket?.disconnect();
+        };
+    }, [token, tenantId, load]);
+
+    const passiveProducts = useMemo(() => {
+        return (products || []).filter((p) => p.isActive === false);
+    }, [products]);
 
     const hm = useMemo(() => maxHourly(data?.hourly || []), [data]);
 
-    const tpl = (t: any, key: string, vars: Record<string, any>) => {
-        let str = t(key);
-        Object.entries(vars).forEach(([k, v]) => {
-            str = str.replace(new RegExp(`{${k}}`, 'g'), v).replace(new RegExp(`{{${k}}}`, 'g'), v);
-        });
+    const tpl = (tFn: (k: string) => string, key: string, vars: Record<string, string | number>) => {
+        let str = tFn(key);
+        for (const [k, v] of Object.entries(vars)) {
+            const val = String(v);
+            str = str.replaceAll(`{{${k}}}`, val).replaceAll(`{${k}}`, val);
+        }
         return str;
     };
 
-    const liveFeed = [
-        { id: 1, type: 'order', msg: tpl(t, 'dash.msgOrderReceived', { table: '4' }), time: t('dash.justNow'), icon: <FiShoppingBag className="text-emerald-500" /> },
-        { id: 2, type: 'alert', msg: tpl(t, 'dash.msgItemCancelled', { name: 'Ali' }), time: tpl(t, 'dash.minsAgo', { n: '2' }), icon: <FiShield className="text-rose-500" /> },
-        { id: 3, type: 'kitchen', msg: tpl(t, 'dash.msgKitchenReady', { table: '12' }), time: tpl(t, 'dash.minsAgo', { n: '5' }), icon: <FiCoffee className="text-amber-500" /> },
-        { id: 4, type: 'payment', msg: tpl(t, 'dash.msgPaymentReceived', { id: '1024' }), time: tpl(t, 'dash.minsAgo', { n: '8' }), icon: <FiCheckCircle className="text-blue-500" /> },
-    ];
+    const formatFeedTime = (iso?: string) => {
+        if (!iso) return t('dash.justNow');
+        const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+        if (!Number.isFinite(mins) || mins < 1) return t('dash.justNow');
+        if (mins < 60) return tpl(t, 'dash.minsAgo', { n: mins });
+        const hours = Math.floor(mins / 60);
+        return tpl(t, 'dash.hoursAgo', { n: hours });
+    };
+
+    const liveFeed = useMemo(() => {
+        const rows = data?.recentActivity ?? [];
+        if (rows.length === 0) return [];
+
+        return rows.map((row) => {
+            const tableLabel = row.tableLabel || String(row.tableId ?? '—');
+            let msg = '';
+            let icon = <FiShoppingBag className="text-emerald-500" />;
+
+            if (row.kind === 'payment') {
+                msg = tpl(t, 'dash.msgPaymentReceived', { id: String(row.orderId ?? '—') });
+                icon = <FiCheckCircle className="text-blue-500" />;
+            } else if (row.kind === 'kitchen') {
+                msg = tpl(t, 'dash.msgKitchenReady', { table: tableLabel });
+                icon = <FiCoffee className="text-amber-500" />;
+            } else if (row.kind === 'cancelled') {
+                msg = tpl(t, 'dash.msgItemCancelled', { name: row.staffName || t('dash.labels.staff') });
+                icon = <FiShield className="text-rose-500" />;
+            } else {
+                msg = tpl(t, 'dash.msgOrderReceived', { table: tableLabel });
+            }
+
+            return {
+                id: `${row.kind}-${row.orderId}-${row.at}`,
+                msg,
+                time: formatFeedTime(row.at),
+                icon,
+            };
+        });
+    }, [data?.recentActivity, t]);
 
     return (
         <div className="flex h-full flex-col overflow-hidden bg-[#020617] text-black font-sans">
@@ -162,6 +264,33 @@ export const AdminDashboard: React.FC = () => {
                 {err && (
                     <div className="mb-6 flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-5 py-4 text-sm font-bold text-red-600 shadow-sm backdrop-blur-sm">
                         <FiAlertCircle size={20} className="animate-pulse" /> {err}
+                    </div>
+                )}
+
+                {passiveProducts.length > 0 && (
+                    <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-xl border border-amber-500/30 bg-amber-500/5 px-6 py-4 text-sm font-bold text-amber-500 shadow-sm backdrop-blur-sm">
+                        <div className="flex items-start md:items-center gap-3">
+                            <FiAlertCircle size={22} className="animate-bounce shrink-0 mt-0.5 md:mt-0" />
+                            <div>
+                                <span className="font-extrabold block md:inline">{t('dash.passiveProductsAlert')}</span>
+                                <span className="text-slate-400 font-medium text-xs block md:inline md:ml-2">
+                                    {t('dash.passiveProductsDesc')}
+                                </span>
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                    {passiveProducts.map((p) => (
+                                        <span key={p.id} className="px-2 py-0.5 text-xs font-bold rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                                            {p.displayName || p.name}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => navigate('/admin/menu')}
+                            className="shrink-0 px-4 py-2 text-xs font-black uppercase tracking-wider bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl transition-all shadow-md active:scale-95 self-start md:self-auto"
+                        >
+                            {t('dash.manageMenuBtn')}
+                        </button>
                     </div>
                 )}
 
@@ -204,13 +333,57 @@ export const AdminDashboard: React.FC = () => {
                                 <p className="text-xs text-emerald-200/70 font-medium">{t('dash.links.waiterPanelSub')}</p>
                             </button>
 
-                            <button onClick={() => navigate('/admin/couriers')} className="relative overflow-hidden group rounded-2xl bg-gradient-to-br from-blue-600 to-blue-800 p-5 text-left shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all border border-blue-500/50">
+                            <button onClick={() => navigate('/kiosk')} className="relative overflow-hidden group rounded-2xl bg-gradient-to-br from-violet-600 to-violet-800 p-5 text-left shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all border border-violet-500/50">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 group-hover:rotate-12 transition-transform duration-500">
-                                    <FiTruck size={80} className="text-white" />
+                                    <FiSmartphone size={80} className="text-white" />
                                 </div>
-                                <FiTruck size={24} className="text-blue-200 mb-3" />
-                                <h3 className="text-lg font-black text-white">{t('dash.links.courierTracking')}</h3>
-                                <p className="text-xs text-blue-200/70 font-medium">{t('dash.links.courierTrackingSub')}</p>
+                                <FiSmartphone size={24} className="text-violet-200 mb-3" />
+                                <h3 className="text-lg font-black text-white">{t('dash.links.tableQrMenu')}</h3>
+                                <p className="text-xs text-violet-200/70 font-medium">{t('dash.links.tableQrMenuSub')}</p>
+                            </button>
+
+                            <button onClick={() => window.open('http://localhost:4003', '_blank')} className="relative overflow-hidden group rounded-2xl bg-gradient-to-br from-fuchsia-600 to-fuchsia-800 p-5 text-left shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all border border-fuchsia-500/50">
+                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 group-hover:rotate-12 transition-transform duration-500">
+                                    <FiGlobe size={80} className="text-white" />
+                                </div>
+                                <FiGlobe size={24} className="text-fuchsia-200 mb-3" />
+                                <h3 className="text-lg font-black text-white">{t('dash.links.webQrMenu')}</h3>
+                                <p className="text-xs text-fuchsia-200/70 font-medium">{t('dash.links.webQrMenuSub')}</p>
+                            </button>
+
+                            <button onClick={() => navigate('/courier')} className="relative overflow-hidden group rounded-2xl bg-gradient-to-br from-rose-600 to-rose-800 p-5 text-left shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all border border-rose-500/50">
+                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 group-hover:rotate-12 transition-transform duration-500">
+                                    <FiNavigation size={80} className="text-white" />
+                                </div>
+                                <FiNavigation size={24} className="text-rose-200 mb-3" />
+                                <h3 className="text-lg font-black text-white">{t('dash.links.courierPanel')}</h3>
+                                <p className="text-xs text-rose-200/70 font-medium">{t('dash.links.courierPanelSub')}</p>
+                            </button>
+
+                            <button 
+                                onClick={() => navigate('/admin/support')} 
+                                className={`relative overflow-hidden group rounded-2xl p-5 text-left shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all border ${
+                                    hasNewReply 
+                                        ? 'bg-gradient-to-br from-indigo-700 via-purple-700 to-pink-700 border-indigo-400 animate-ticket-glow' 
+                                        : 'bg-gradient-to-br from-[#0c1526] to-[#0f172a] border-white/5 hover:border-white/10'
+                                }`}
+                            >
+                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 group-hover:rotate-12 transition-transform duration-500">
+                                    <FiMessageSquare size={80} className="text-white" />
+                                </div>
+                                <FiMessageSquare size={24} className={`${hasNewReply ? 'text-pink-300' : 'text-slate-400'} mb-3`} />
+                                <h3 className="text-lg font-black text-white">
+                                    {t('admin.shell.nav_support') || 'Destek Talepleri'}
+                                </h3>
+                                <p className="text-xs text-slate-400 font-medium mt-1 flex flex-col gap-1">
+                                    <span>Açık Destek Talebi: <strong className="text-white">{openTicketsCount}</strong></span>
+                                    {hasNewReply && (
+                                        <span className="text-pink-300 font-black animate-pulse flex items-center gap-1 mt-0.5">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-pink-400 animate-ping" />
+                                            ● YENİ CEVAP GELDİ!
+                                        </span>
+                                    )}
+                                </p>
                             </button>
 
                             <button onClick={() => navigate('/admin/settings')} className="relative overflow-hidden group rounded-2xl bg-gradient-to-br from-slate-700 to-slate-800 p-5 text-left shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all border border-slate-600/50">
@@ -277,7 +450,7 @@ export const AdminDashboard: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="mt-2 grid gap-4 grid-cols-2">
+                        <div className="mt-2 grid gap-4 grid-cols-1 md:grid-cols-2">
                             <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-sm relative">
                                 <h3 className="mb-5 flex items-center gap-2 font-black text-slate-100 uppercase tracking-wide text-sm">
                                     <span className="w-8 h-8 rounded-lg bg-orange-500/20 text-orange-400 flex items-center justify-center"><FiCoffee size={16}/></span> 
@@ -327,7 +500,7 @@ export const AdminDashboard: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-sm flex flex-col justify-between">
                                 <h3 className="mb-4 font-black text-slate-100 flex items-center gap-2 text-sm uppercase tracking-wide">
                                     <FiActivity className="text-sky-500" /> {t('dash.titles.revenueFlow')}
@@ -395,7 +568,7 @@ export const AdminDashboard: React.FC = () => {
                             <h3 className="mb-4 font-black text-indigo-800 dark:text-indigo-300 flex items-center gap-2 text-sm uppercase tracking-wide">
                                 <FiActivity className="text-indigo-500 animate-pulse" /> {t('dash.titles.testTools')}
                             </h3>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                                 <button
                                     onClick={async () => {
                                         const headers = getAuthHeaders();
@@ -420,15 +593,32 @@ export const AdminDashboard: React.FC = () => {
                                             const res = await fetch('/api/v1/admin/simulate', {
                                                 method: 'POST',
                                                 headers: { ...headers, 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ type: 'call' })
+                                                body: JSON.stringify({ type: 'call_registered' })
                                             });
                                             if (res.ok) toast.success(t('dash.success.callSimulated'));
                                         } catch (e) { toast.error(t('common.errorOccurred')); }
                                     }}
-                                    className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500 hover:text-white border border-emerald-500/20 py-4 rounded-xl font-bold uppercase transition-all shadow-sm flex flex-col items-center gap-2"
+                                    className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500 hover:text-white border border-emerald-500/20 py-4 rounded-xl font-bold uppercase transition-all shadow-sm flex flex-col items-center gap-2 text-center px-1"
                                 >
                                     <FiActivity size={20} />
-                                    <span className="text-[10px]">{t('dash.labels.incomingCall')}</span>
+                                    <span className="text-[10px] tracking-tight">{t('dash.labels.incomingCallRegistered')}</span>
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        const headers = getAuthHeaders();
+                                        try {
+                                            const res = await fetch('/api/v1/admin/simulate', {
+                                                method: 'POST',
+                                                headers: { ...headers, 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ type: 'call_new' })
+                                            });
+                                            if (res.ok) toast.success(t('dash.success.callSimulated'));
+                                        } catch (e) { toast.error(t('common.errorOccurred')); }
+                                    }}
+                                    className="bg-teal-500/10 text-teal-600 hover:bg-teal-500 hover:text-white border border-teal-500/20 py-4 rounded-xl font-bold uppercase transition-all shadow-sm flex flex-col items-center gap-2 text-center px-1"
+                                >
+                                    <FiActivity size={20} />
+                                    <span className="text-[10px] tracking-tight">{t('dash.labels.incomingCallNew')}</span>
                                 </button>
                                 <button
                                     onClick={async () => {
@@ -715,7 +905,12 @@ export const AdminDashboard: React.FC = () => {
                             <div className="flex-1 overflow-y-auto pr-2 space-y-4 relative no-scrollbar">
                                 <div className="absolute left-2.5 top-2 bottom-0 w-px bg-white/5 z-0" />
                                 
-                                {liveFeed.map((item) => (
+                                {liveFeed.length === 0 ? (
+                                    <div className="relative z-10 py-8 text-center text-xs font-medium text-slate-500">
+                                        {t('dash.liveFeedEmpty')}
+                                    </div>
+                                ) : (
+                                liveFeed.map((item) => (
                                     <div key={item.id} className="relative z-10 flex gap-4 items-start group">
                                         <div className="w-6 h-6 rounded-full bg-[#020617] border border-white/10 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-110 group-hover:border-blue-500/50 transition-all">
                                             {item.icon}
@@ -725,7 +920,8 @@ export const AdminDashboard: React.FC = () => {
                                             <p className="text-[10px] font-medium text-slate-500 mt-1">{item.time}</p>
                                         </div>
                                     </div>
-                                ))}
+                                ))
+                                )}
                                 <div className="relative z-10 flex gap-4 items-start pt-4 opacity-30">
                                     <div className="w-6 h-6 shrink-0 mt-0.5" />
                                     <p className="text-[10px] font-bold text-slate-500">{t('dash.labels.olderLogs')}</p>

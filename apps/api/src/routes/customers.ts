@@ -16,6 +16,8 @@ import {
     importCustomersHandler,
     sendCampaignHandler,
     getCustomerReportHandler,
+    getCustomerCouponsHandler,
+    deleteCustomerHandler,
     bulkActionHandler,
     identifyCustomerHandler
 } from '../controllers/customers.controller.js';
@@ -35,6 +37,8 @@ customersRouter.post('/campaign', sendCampaignHandler);
 customersRouter.post('/bulk-action', bulkActionHandler);
 customersRouter.get('/:id', getCustomerByIdHandler);
 customersRouter.get('/:id/report', getCustomerReportHandler);
+customersRouter.get('/:id/coupons', getCustomerCouponsHandler);
 customersRouter.patch('/:id', updateCustomerHandler);
+customersRouter.delete('/:id', deleteCustomerHandler);
 
 export default customersRouter;

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { GiCookingPot } from 'react-icons/gi';
 import { useAuthStore } from '../store/useAuthStore';
 import { usePosLocale } from '../contexts/PosLocaleContext';
+import { getSocketOrigin } from '../lib/socketOrigin';
 
 interface QueueItem {
     id: number;
@@ -40,7 +41,7 @@ const QueueDisplay: React.FC = () => {
 
     useEffect(() => {
         if (!tenantId) return;
-        const socket = io(window.location.origin, {
+        const socket = io(getSocketOrigin(), {
             path: '/socket.io',
             transports: ['websocket'],
             auth: token ? { token } : {},

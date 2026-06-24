@@ -81,7 +81,11 @@ export const ProductGrid: React.FC<ProductGridProps> = ({ searchTerm = '' }) => 
                                 exit={{ opacity: 0, scale: 0.95 }}
                                 transition={{ duration: 0.25, delay: idx * 0.015 }}
                                 key={p.id}
-                                className="flex flex-col bg-[#111827] border border-white/[0.06] rounded-2xl overflow-hidden cursor-pointer group hover:border-emerald-500/40 hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200"
+                                className={`flex flex-col bg-[#111827] border border-white/[0.06] rounded-2xl overflow-hidden group transition-all duration-200 ${
+                                    p.isActive === false
+                                        ? 'opacity-40 grayscale pointer-events-none cursor-not-allowed border-red-500/20'
+                                        : 'cursor-pointer hover:border-emerald-500/40 hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)]'
+                                }`}
                             >
                                 {/* Product Image */}
                                 <div 
@@ -96,12 +100,20 @@ export const ProductGrid: React.FC<ProductGridProps> = ({ searchTerm = '' }) => 
                                     />
                                     <div className="absolute inset-0 bg-gradient-to-t from-[#111827] via-transparent to-transparent opacity-90" />
                                     
-                                    {/* Quick Add Overlay */}
-                                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/30">
-                                        <div className="w-12 h-12 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-xl transform scale-75 group-hover:scale-100 transition-transform duration-300">
-                                            <FiPlus size={24} />
+                                    {p.isActive === false && (
+                                        <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded bg-red-600/95 border border-red-500 text-white text-[9px] font-black uppercase tracking-wider z-10 shadow-md">
+                                            PASİF
                                         </div>
-                                    </div>
+                                    )}
+
+                                    {/* Quick Add Overlay */}
+                                    {p.isActive !== false && (
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/30">
+                                            <div className="w-12 h-12 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-xl transform scale-75 group-hover:scale-100 transition-transform duration-300">
+                                                <FiPlus size={24} />
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Product Info */}

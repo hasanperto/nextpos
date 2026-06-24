@@ -25,7 +25,7 @@ export const getMyStatsHandler = async (req: Request, res: Response) => {
                     COUNT(id) as total_orders,
                     COALESCE(SUM(total_amount), 0) as total_revenue
                  FROM orders
-                 WHERE (waiter_id = ? OR cashier_id = ? OR picked_up_by = ?)
+                 WHERE (waiter_id = ? OR cashier_id = ? OR picked_up_by::text = ?::text)
                    AND created_at::date = CURRENT_DATE
                    AND status NOT IN ('cancelled')`,
                 [userId, userId, userId]
@@ -47,12 +47,29 @@ export const getMyStatsHandler = async (req: Request, res: Response) => {
                 [userId]
             );
 
+            let waiterOnBreak = false;
+            if (req.user?.role === 'waiter') {
+                try {
+                    await conn.query(
+                        `ALTER TABLE users ADD COLUMN IF NOT EXISTS waiter_on_break BOOLEAN NOT NULL DEFAULT FALSE`
+                    );
+                } catch {
+                    /* ignore */
+                }
+                const [wb]: any = await conn.query(
+                    `SELECT COALESCE(waiter_on_break, FALSE) AS b FROM users WHERE id = ?`,
+                    [userId]
+                );
+                waiterOnBreak = Boolean(wb?.[0]?.b);
+            }
+
             return {
                 today: sales?.[0] || { total_orders: 0, total_revenue: 0 },
                 lastShift: lastShift?.[0] || null,
                 tipsToday: tips?.[0]?.total_tips || 0,
                 userName: (req.user as any).name ?? req.user?.username ?? 'Kullanıcı',
-                role: req.user?.role ?? 'unknown'
+                role: req.user?.role ?? 'unknown',
+                waiterOnBreak,
             };
         });
 
@@ -76,18 +93,41 @@ export const getDetailedPersonnelStatsHandler = async (req: Request, res: Respon
 
         const data = await withTenant(tenantId, async (conn: any) => {
             console.log('  [1] Fetching users performance...');
+            const fromD = /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : new Date().toISOString().slice(0, 10);
+            const toD = /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : fromD;
+
             // 1. Tüm kullanıcıların genel performans metrikleri
             const [users]: any = await conn.query(
                 `SELECT 
                     u.id, u.name, u.role, u.status,
                     (SELECT COUNT(*) FROM orders o WHERE o.waiter_id = u.id AND o.status = 'completed') as served_as_waiter,
                     (SELECT COUNT(*) FROM orders o WHERE o.cashier_id = u.id AND o.status = 'completed') as handled_as_cashier,
-                    (SELECT COUNT(*) FROM orders o WHERE o.picked_up_by = u.id AND o.status = 'completed') as picked_ups,
+                    (SELECT COUNT(*) FROM orders o WHERE o.picked_up_by::text = u.id::text AND o.status = 'completed') as picked_ups,
                     (SELECT COALESCE(SUM(total_amount), 0) FROM orders o WHERE (o.waiter_id = u.id OR o.cashier_id = u.id) AND o.status = 'completed') as total_revenue_generated,
-                    (SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(s.clock_out, CURRENT_TIMESTAMP) - s.clock_in))/60), 0) FROM staff_shifts s WHERE s.user_id = u.id) as total_work_mins
+                    (SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(s.clock_out, CURRENT_TIMESTAMP) - s.clock_in))/60), 0) FROM staff_shifts s WHERE s.user_id = u.id) as total_work_mins,
+                    (SELECT COALESCE(SUM(p.tip_amount), 0) FROM payments p WHERE p.cashier_id = u.id AND p.status = 'completed' AND p.created_at::date BETWEEN ?::date AND ?::date) as total_tips,
+                    (SELECT AVG(EXTRACT(EPOCH FROM (sc.responded_at - sc.created_at)))
+                     FROM service_calls sc
+                     WHERE sc.responded_by = u.id
+                       AND sc.call_type = 'call_waiter'
+                       AND sc.table_id IS NOT NULL
+                       AND sc.responded_at IS NOT NULL
+                       AND sc.created_at::date BETWEEN ?::date AND ?::date
+                    ) as avg_table_call_response_sec
                  FROM users u
                  WHERE u.status = 'active'
-                 ORDER BY u.role, u.name`
+                 ORDER BY u.role, u.name`,
+                [fromD, toD, fromD, toD]
+            );
+
+            const [avgGlob]: any = await conn.query(
+                `SELECT AVG(EXTRACT(EPOCH FROM (responded_at - created_at))) AS secs
+                 FROM service_calls
+                 WHERE call_type = 'call_waiter'
+                   AND table_id IS NOT NULL
+                   AND responded_at IS NOT NULL
+                   AND created_at::date BETWEEN ?::date AND ?::date`,
+                [fromD, toD]
             );
 
             console.log(`  [2] Done. Users count: ${users.length}. Fetching shifts...`);
@@ -109,7 +149,8 @@ export const getDetailedPersonnelStatsHandler = async (req: Request, res: Respon
 
             return {
                 personnel: users,
-                recentShifts: shifts
+                recentShifts: shifts,
+                avgTableCallResponseSec: avgGlob?.[0]?.secs != null ? Number(avgGlob[0].secs) : null,
             };
         });
 

@@ -16,10 +16,11 @@ export interface StaffStatsData {
     tipsToday: number;
     userName: string;
     role: string;
+    waiterOnBreak?: boolean;
 }
 
 export const useStaffStats = () => {
-    const { token, tenantId } = useAuthStore();
+    const { token, getAuthHeaders } = useAuthStore();
     const [data, setData] = useState<StaffStatsData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -28,10 +29,7 @@ export const useStaffStats = () => {
         setLoading(true);
         try {
             const res = await fetch(`/api/v1/users/my-stats`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'x-tenant-id': tenantId || ''
-                }
+                headers: getAuthHeaders()
             });
 
             if (!res.ok) throw new Error('Staff stats fetch failed');

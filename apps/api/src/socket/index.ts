@@ -86,15 +86,29 @@ export function setupSocketHandlers(io: SocketServer) {
         // ═══ PERSONEL ÇEVRİMİÇİ (POS → SaaS izleme) ═══
         socket.on('presence:staff_register', (data: { tenantId: string }) => {
             const jwtUser = socket.data.jwt as JwtPayload | undefined;
-            if (!data?.tenantId || !jwtUser?.tenantId || jwtUser.isSaaSAdmin) return;
-            if (jwtUser.tenantId !== data.tenantId) return;
+            console.log(`📡 [presence:staff_register] İsteği geldi. socketId: ${socket.id}, tenantId: ${data?.tenantId}, jwtTenantId: ${jwtUser?.tenantId}, role: ${jwtUser?.role}, userId: ${jwtUser?.userId}`);
+            if (!data?.tenantId || !jwtUser?.tenantId || jwtUser.isSaaSAdmin) {
+                console.warn(`⚠️ [presence:staff_register] Reddedildi: Gerekli parametreler veya JWT eksik/hatalı.`);
+                return;
+            }
+            if (jwtUser.tenantId !== data.tenantId) {
+                console.warn(`⚠️ [presence:staff_register] Reddedildi: Tenant uyuşmazlığı.`);
+                return;
+            }
             (socket.data as { presenceTenantId?: string }).presenceTenantId = data.tenantId;
             const staff = presenceRegister(data.tenantId, socket.id, {
                 userId: jwtUser.userId,
                 username: jwtUser.username ?? String(jwtUser.userId),
                 role: jwtUser.role,
             });
+            console.log(`✅ [presence:staff_register] Kayıt yapıldı. Toplam aktif personel sayısı: ${staff.length}`);
+            // SaaS Observers
             io.to(`tenant:${data.tenantId}:saas_presence_observers`).emit('presence:staff_update', {
+                tenantId: data.tenantId,
+                staff,
+            });
+            // Genel Tenant Odası (POS Admin Panel takibi için)
+            io.to(`tenant:${data.tenantId}`).emit('presence:staff_update', {
                 tenantId: data.tenantId,
                 staff,
             });
@@ -224,6 +238,23 @@ export function setupSocketHandlers(io: SocketServer) {
             });
         });
 
+        socket.on('table:viewing', (data) => {
+            const t = data.tenantId;
+            socket.to(`tenant:${t}`).emit('table:viewing', {
+                tableId: data.tableId,
+                waiterName: data.waiterName,
+                waiterId: data.waiterId
+            });
+        });
+
+        socket.on('table:stopped_viewing', (data) => {
+            const t = data.tenantId;
+            socket.to(`tenant:${t}`).emit('table:stopped_viewing', {
+                tableId: data.tableId,
+                waiterId: data.waiterId
+            });
+        });
+
         socket.on('customer:service_call', (data) => {
             const t = data.tenantId;
             io.to(`tenant:${t}`).emit('customer:service_call', data);
@@ -236,10 +267,34 @@ export function setupSocketHandlers(io: SocketServer) {
         // ═══ TESLİMAT OLAYLARI ═══
         socket.on('courier:location_update', (data: { tenantId: string; location: { lat: number; lng: number } }) => {
             const jwtUser = socket.data.jwt as JwtPayload | undefined;
-            if (!data?.tenantId || !jwtUser?.tenantId || jwtUser.role !== 'courier') return;
-            if (jwtUser.tenantId !== data.tenantId) return;
+            console.log(`📡 [courier:location_update] Konum güncelleme isteği geldi. socketId: ${socket.id}, tenantId: ${data?.tenantId}, role: ${jwtUser?.role}, userId: ${jwtUser?.userId}, location:`, data?.location);
+            if (!data?.tenantId || !jwtUser?.tenantId) {
+                console.warn(`⚠️ [courier:location_update] Reddedildi: Parametreler veya JWT eksik.`);
+                return;
+            }
+            if (jwtUser.role !== 'courier' && jwtUser.role !== 'admin' && jwtUser.role !== 'cashier') {
+                console.warn(`⚠️ [courier:location_update] Reddedildi: Yetkisiz rol (${jwtUser.role}).`);
+                return;
+            }
+            if (jwtUser.tenantId !== data.tenantId) {
+                console.warn(`⚠️ [courier:location_update] Reddedildi: Tenant uyuşmazlığı.`);
+                return;
+            }
+ 
+            // Kurye dışı rollerden (örn: test eden admin) gelen konumlar için de presence kaydı yoksa oluştur
+            const snapshot = presenceSnapshot(data.tenantId);
+            const exists = snapshot.some(s => s.socketId === socket.id);
+            if (!exists) {
+                console.log(`📡 [courier:location_update] Otomatik presence kaydı oluşturuluyor...`);
+                presenceRegister(data.tenantId, socket.id, {
+                    userId: jwtUser.userId,
+                    username: jwtUser.username ?? String(jwtUser.userId),
+                    role: jwtUser.role,
+                });
+            }
 
             const staff = presenceUpdateLocation(data.tenantId, socket.id, data.location);
+            console.log(`✅ [courier:location_update] Konum varlığa kaydedildi. Staff sayısı: ${staff.length}`);
             
             // SaaS observer'lara veya admin'lere canlı konum güncellenmiş listeyi gönder
             io.to(`tenant:${data.tenantId}:saas_presence_observers`).emit('presence:staff_update', {
@@ -266,12 +321,48 @@ export function setupSocketHandlers(io: SocketServer) {
             io.to(`tenant:${data.tenantId}`).emit('delivery:status_changed', data);
         });
 
+        // ═══ SOHBET & ANLIK TAKİP OLAYLARI ═══
+        socket.on('courier:chat_message', (data: { tenantId: string; orderId: any; sender: string; text: string; time: string }) => {
+            const jwtUser = socket.data.jwt as JwtPayload | undefined;
+            if (!data?.tenantId || !jwtUser?.tenantId) return;
+            if (jwtUser.tenantId !== data.tenantId) return;
+
+            // Tenant odasındaki tüm alıcılara mesajı dağıt
+            io.to(`tenant:${data.tenantId}`).emit('courier:chat_message', {
+                orderId: data.orderId,
+                sender: data.sender,
+                text: data.text,
+                time: data.time
+            });
+            console.log(`💬 Chat Msg: Order #${data.orderId} [${data.sender}]: ${data.text}`);
+        });
+
+        socket.on('courier:drive_progress', (data: { tenantId: string; orderId: any; progress: number; isDriveStarted: boolean }) => {
+            const jwtUser = socket.data.jwt as JwtPayload | undefined;
+            if (!data?.tenantId || !jwtUser?.tenantId) return;
+            if (jwtUser.tenantId !== data.tenantId) return;
+
+            // Tenant odasındaki tüm alıcılara kurye sürüş/ilerleme verisini dağıt
+            io.to(`tenant:${data.tenantId}`).emit('courier:drive_progress', {
+                orderId: data.orderId,
+                progress: data.progress,
+                isDriveStarted: data.isDriveStarted
+            });
+        });
+
+
         // ═══ BAĞLANTI KOPMA ═══
         socket.on('disconnect', () => {
             const tid = (socket.data as { presenceTenantId?: string }).presenceTenantId;
             if (tid) {
                 const staff = presenceUnregister(tid, socket.id);
+                // SaaS Observers
                 io.to(`tenant:${tid}:saas_presence_observers`).emit('presence:staff_update', {
+                    tenantId: tid,
+                    staff,
+                });
+                // Genel Tenant Odası (POS Admin Panel takibi için)
+                io.to(`tenant:${tid}`).emit('presence:staff_update', {
                     tenantId: tid,
                     staff,
                 });

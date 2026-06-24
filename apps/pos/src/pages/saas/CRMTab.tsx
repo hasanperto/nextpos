@@ -58,7 +58,7 @@ export const CRMTab: React.FC = () => {
         call: 'bg-blue-500/10 text-blue-400', 
         email: 'bg-emerald-500/10 text-emerald-400', 
         meeting: 'bg-amber-500/10 text-amber-400', 
-        internal: 'bg-slate-500/10 text-slate-400', 
+        internal: 'bg-slate-500/10 text-slate-500 dark:text-slate-400', 
         complaint: 'bg-rose-500/10 text-rose-400', 
         feedback: 'bg-purple-500/10 text-purple-400' 
     };
@@ -134,14 +134,14 @@ export const CRMTab: React.FC = () => {
                                     type="text" 
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-1.5 text-[10px] text-white outline-none focus:border-purple-500/50 transition-all w-32"
+                                    className="bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 py-1.5 text-[10px] text-slate-800 dark:text-white outline-none focus:border-purple-500/50 transition-all w-32"
                                     placeholder={t('crm.searchPh')}
                                 />
                             </div>
                             <button 
                                 type="button" 
                                 onClick={() => setShowNoteModal(true)} 
-                                className="text-[10px] bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-xl font-black flex items-center gap-2 shadow-lg shadow-purple-900/20 active:scale-95 transition-all uppercase tracking-widest"
+                                className="text-[10px] bg-purple-600 hover:bg-purple-500 text-slate-800 dark:text-white px-4 py-2 rounded-xl font-black flex items-center gap-2 shadow-lg shadow-purple-900/20 active:scale-95 transition-all uppercase tracking-widest"
                             >
                                 <FiPlus size={12} /> {t('crm.newNoteShort')}
                             </button>
@@ -156,28 +156,28 @@ export const CRMTab: React.FC = () => {
                                         key={noteRow.id}
                                         layout
                                         variants={itemVariants}
-                                        className="p-5 bg-slate-900/40 backdrop-blur-xl rounded-[32px] hover:border-purple-500/30 transition-all border border-white/5 group relative overflow-hidden"
+                                        className="p-5 bg-white dark:bg-slate-900 shadow-sm rounded-2xl hover:border-purple-500/30 transition-all border border-slate-200 dark:border-slate-800 group relative overflow-hidden"
                                     >
                                         <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity rotate-12">
                                             {noteIcons[noteRow.note_type] || <FiMessageCircle size={100} />}
                                         </div>
                                         <div className="flex items-start gap-4">
-                                            <div className={`p-3 rounded-2xl ${noteColors[noteRow.note_type] || 'bg-slate-500/10 text-slate-400'} border border-white/5 group-hover:scale-110 transition-transform`}>
+                                            <div className={`p-3 rounded-2xl ${noteColors[noteRow.note_type] || 'bg-slate-500/10 text-slate-500 dark:text-slate-400'} border border-slate-200 dark:border-slate-800 group-hover:scale-110 transition-transform`}>
                                                 {noteIcons[noteRow.note_type] || <FiMessageCircle size={18} />}
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex justify-between items-start mb-1">
-                                                    <span className="font-black text-white text-sm tracking-tight truncate pr-4">{noteRow.subject || noteRow.note_type.toUpperCase()}</span>
+                                                    <span className="font-black text-slate-800 dark:text-white text-sm tracking-tight truncate pr-4">{noteRow.subject || noteRow.note_type.toUpperCase()}</span>
                                                     <span className="text-[10px] text-slate-500 font-bold whitespace-nowrap">{new Date(noteRow.created_at).toLocaleDateString()}</span>
                                                 </div>
                                                 <div className="text-[10px] font-black text-purple-400 uppercase tracking-widest flex items-center gap-1">
                                                     <FiLayers size={10} /> {noteRow.tenant_name}
                                                 </div>
-                                                <p className="text-[11px] text-slate-400 mt-3 leading-relaxed line-clamp-3 group-hover:line-clamp-none transition-all">{noteRow.content}</p>
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-3 leading-relaxed line-clamp-3 group-hover:line-clamp-none transition-all">{noteRow.content}</p>
                                                 
-                                                <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <div className="flex items-center gap-2">
-                                                        <div className="w-6 h-6 rounded-lg bg-white/5 flex items-center justify-center text-slate-500 cursor-help hover:text-white transition-colors">
+                                                        <div className="w-6 h-6 rounded-lg bg-white/5 flex items-center justify-center text-slate-500 cursor-help hover:text-slate-800 dark:text-white transition-colors">
                                                             <FiEdit3 size={12} />
                                                         </div>
                                                         <div className="w-6 h-6 rounded-lg bg-red-500/5 flex items-center justify-center text-slate-500 hover:text-red-400 cursor-pointer transition-colors">
@@ -203,7 +203,7 @@ export const CRMTab: React.FC = () => {
                         <button 
                             type="button" 
                             onClick={() => setShowContractModal(true)} 
-                            className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl font-black flex items-center gap-2 shadow-lg shadow-emerald-900/20 active:scale-95 transition-all uppercase tracking-widest"
+                            className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-slate-800 dark:text-white px-4 py-2 rounded-xl font-black flex items-center gap-2 shadow-lg shadow-emerald-900/20 active:scale-95 transition-all uppercase tracking-widest"
                         >
                             <FiPlus size={12} /> {t('crm.newContractShort')}
                         </button>
@@ -217,7 +217,7 @@ export const CRMTab: React.FC = () => {
                                         key={c.id}
                                         layout
                                         variants={itemVariants}
-                                        className="p-6 bg-slate-900/40 backdrop-blur-xl rounded-[32px] hover:border-emerald-500/30 transition-all border border-white/5 group relative overflow-hidden"
+                                        className="p-6 bg-white dark:bg-slate-900 shadow-sm rounded-2xl hover:border-emerald-500/30 transition-all border border-slate-200 dark:border-slate-800 group relative overflow-hidden"
                                     >
                                         <div className="flex justify-between items-start relative z-10">
                                             <div className="flex gap-4">
@@ -225,32 +225,32 @@ export const CRMTab: React.FC = () => {
                                                     <FiFileText size={20} />
                                                 </div>
                                                 <div>
-                                                    <div className="font-black text-white text-sm tracking-tight">{c.tenant_name}</div>
+                                                    <div className="font-black text-slate-800 dark:text-white text-sm tracking-tight">{c.tenant_name}</div>
                                                     <div className="text-[10px] font-black text-emerald-400/80 uppercase tracking-widest mt-1 bg-emerald-400/5 px-2 py-0.5 rounded-lg border border-emerald-400/10 inline-block font-mono">#{c.id.toString().padStart(4, '0')}</div>
                                                 </div>
                                             </div>
                                             <div className="text-right">
-                                                <div className="text-lg font-black text-white italic">{currency}{Number(c.monthly_amount || 0).toLocaleString()}<span className="text-[10px] text-slate-500 not-italic">/mo</span></div>
+                                                <div className="text-lg font-black text-slate-800 dark:text-white italic">{currency}{Number(c.monthly_amount || 0).toLocaleString()}<span className="text-[10px] text-slate-500 not-italic">/mo</span></div>
                                                 <span className={`text-[8px] font-black uppercase px-2 py-1 rounded-lg border ${c.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
                                                     {c.status}
                                                 </span>
                                             </div>
                                         </div>
                                         
-                                        <div className="grid grid-cols-2 gap-4 mt-8 pt-4 border-t border-white/5">
+                                        <div className="grid grid-cols-2 gap-4 mt-8 pt-4 border-t border-slate-200 dark:border-slate-800">
                                             <div className="space-y-1">
                                                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block">{t('crm.startDate')}</span>
-                                                <span className="text-xs font-bold text-slate-300 font-mono">{c.start_date}</span>
+                                                <span className="text-xs font-bold text-slate-600 dark:text-slate-500 dark:text-slate-400 font-mono">{c.start_date}</span>
                                             </div>
                                             <div className="space-y-1 text-right">
                                                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block">{t('crm.endDate')}</span>
-                                                <span className={c.end_date ? "text-xs font-bold text-slate-300 font-mono" : "text-xs font-bold text-amber-400 italic"}>{c.end_date || 'Lifetime'}</span>
+                                                <span className={c.end_date ? "text-xs font-bold text-slate-600 dark:text-slate-500 dark:text-slate-400 font-mono" : "text-xs font-bold text-amber-400 italic"}>{c.end_date || 'Lifetime'}</span>
                                             </div>
                                         </div>
                                         
-                                        <div className="mt-4 flex bg-white/5 rounded-2xl p-1 gap-1 border border-white/5 opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
-                                            <button type="button" className="flex-1 py-1 text-[9px] font-black uppercase text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all tracking-widest">Digital PDF</button>
-                                            <button type="button" className="flex-1 py-1 text-[9px] font-black uppercase text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all tracking-widest">SLA Audit</button>
+                                        <div className="mt-4 flex bg-white/5 rounded-2xl p-1 gap-1 border border-slate-200 dark:border-slate-800 opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
+                                            <button type="button" className="flex-1 py-1 text-[9px] font-black uppercase text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white hover:bg-white/10 rounded-xl transition-all tracking-widest">Digital PDF</button>
+                                            <button type="button" className="flex-1 py-1 text-[9px] font-black uppercase text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-white hover:bg-white/10 rounded-xl transition-all tracking-widest">SLA Audit</button>
                                         </div>
                                     </motion.div>
                                 ))
@@ -272,15 +272,15 @@ export const CRMTab: React.FC = () => {
                         <InputGroup label={t('crm.subject')} value={note.subject} onChange={v => setNote({ ...note, subject: v })} placeholder="e.g., Performance Review Q1" />
                     </div>
                     <div>
-                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 block">Interaction Context</label>
+                        <label className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3 block">Interaction Context</label>
                         <textarea 
                             value={note.content} 
                             onChange={e => setNote({ ...note, content: e.target.value })} 
-                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white outline-none h-32 focus:border-purple-500/50 transition-all text-sm leading-relaxed" 
+                            className="w-full bg-white/5 border border-slate-200 dark:border-slate-800 rounded-2xl px-5 py-4 text-slate-800 dark:text-white outline-none h-32 focus:border-purple-500/50 transition-all text-sm leading-relaxed" 
                             placeholder="Detail what was discussed or decided..."
                         />
                     </div>
-                    <button type="submit" className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 py-4 rounded-2xl text-white font-black shadow-xl shadow-purple-900/40 active:scale-95 transition-all text-xs tracking-[0.2em] uppercase">Save Interaction</button>
+                    <button type="submit" className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 py-4 rounded-2xl text-slate-800 dark:text-white font-black shadow-xl shadow-purple-900/40 active:scale-95 transition-all text-xs tracking-[0.2em] uppercase">Save Interaction</button>
                 </form>
             </Modal>
 
@@ -295,11 +295,11 @@ export const CRMTab: React.FC = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <InputGroup label={t('crm.monthlyAmount')} type="number" value={contract.monthly_amount} onChange={v => setContract({ ...contract, monthly_amount: Number(v) })} />
                         <div className="space-y-2">
-                            <label className="text-xs font-black text-slate-400 uppercase tracking-widest block">Contract Status</label>
-                            <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-emerald-400 font-bold text-xs">DRAFT / PENDING SIGNATURE</div>
+                            <label className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest block">Contract Status</label>
+                            <div className="bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 text-emerald-400 font-bold text-xs">DRAFT / PENDING SIGNATURE</div>
                         </div>
                     </div>
-                    <button type="submit" className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 py-4 rounded-2xl text-white font-black shadow-xl shadow-emerald-900/40 active:scale-95 transition-all text-xs tracking-[0.2em] uppercase">Initialize Contract</button>
+                    <button type="submit" className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 py-4 rounded-2xl text-slate-800 dark:text-white font-black shadow-xl shadow-emerald-900/40 active:scale-95 transition-all text-xs tracking-[0.2em] uppercase">Initialize Contract</button>
                 </form>
             </Modal>
         </motion.div>

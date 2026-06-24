@@ -101,12 +101,12 @@ export const SettingsTab: React.FC = () => {
         >
             <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-4 sm:px-0">
                 <motion.div className="flex items-center gap-6" variants={itemVariants}>
-                    <div className="p-5 bg-gradient-to-br from-indigo-600 via-blue-600 to-cyan-600 rounded-[32px] shadow-2xl shadow-blue-500/20 text-white border border-white/20 relative group">
+                    <div className="p-5 bg-gradient-to-br from-indigo-600 via-blue-600 to-cyan-600 rounded-2xl shadow-sm shadow-blue-500/20 text-slate-800 dark:text-white border border-white/20 relative group">
                         <FiSettings size={32} className="drop-shadow-lg group-hover:rotate-90 transition-transform duration-700" />
-                        <div className="absolute inset-0 bg-white/20 rounded-[32px] animate-pulse opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="absolute inset-0 bg-white/20 rounded-2xl animate-pulse opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
                     <div>
-                        <h2 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">{t('settings.title')}</h2>
+                        <h2 className="text-4xl font-black text-slate-800 dark:text-white tracking-tighter uppercase leading-none">{t('settings.title')}</h2>
                         <div className="flex items-center gap-3 mt-3">
                             <span className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-[9px] font-black text-emerald-400 uppercase tracking-widest">
                                 <FiCheckCircle size={10} /> {t('settings.activeNode')}
@@ -129,11 +129,11 @@ export const SettingsTab: React.FC = () => {
             </header>
 
             <motion.div variants={itemVariants} className="px-4 sm:px-0">
-                <div className="rounded-2xl border border-indigo-500/25 bg-indigo-500/[0.07] px-5 py-4 text-xs text-slate-300 leading-relaxed">
+                <div className="rounded-2xl border border-indigo-500/25 bg-indigo-500/[0.07] px-5 py-4 text-xs text-slate-600 dark:text-slate-500 dark:text-slate-400 leading-relaxed">
                     <p className="text-[10px] font-black uppercase tracking-widest text-indigo-300 mb-1">
                         {t('settings.saasPanelAccess')}
                     </p>
-                    <p className="font-mono text-[11px] text-slate-400">{t('settings.saasPanelAccessBody')}</p>
+                    <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400">{t('settings.saasPanelAccessBody')}</p>
                 </div>
             </motion.div>
 
@@ -147,13 +147,13 @@ export const SettingsTab: React.FC = () => {
                                 <InputGroup label={t('settings.currency')} value={localSettings.currency || 'EUR'} onChange={v => setLocalSettings({...localSettings, currency: v})} />
                                 <InputGroup label={t('settings.annualDisc')} type="number" value={localSettings.annual_discount_rate || 15} onChange={v => setLocalSettings({...localSettings, annual_discount_rate: Number(v)})} />
                                 
-                                <div className="md:col-span-2 p-6 bg-gradient-to-br from-white/[0.03] to-transparent rounded-[32px] border border-white/5 group hover:border-indigo-500/30 transition-all relative overflow-hidden">
+                                <div className="md:col-span-2 p-6 bg-gradient-to-br from-white/[0.03] to-transparent rounded-2xl border border-slate-200 dark:border-slate-800 group hover:border-indigo-500/30 transition-all relative overflow-hidden">
                                     <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity">
                                         <FiBriefcase size={80} />
                                     </div>
                                     <div className="flex items-center gap-3 mb-5 relative z-10">
                                         <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-2xl border border-indigo-500/10 group-hover:scale-110 transition-transform"><FiBriefcase size={16} /></div>
-                                        <span className="text-[11px] font-black text-slate-300 uppercase tracking-[0.2em]">{t('settings.resellerGlobal')}</span>
+                                        <span className="text-[11px] font-black text-slate-600 dark:text-slate-500 dark:text-slate-400 uppercase tracking-[0.2em]">{t('settings.resellerGlobal')}</span>
                                     </div>
                                     <InputGroup label={t('settings.trialDays')} type="number" value={localSettings.trial_days || 14} onChange={v => setLocalSettings({...localSettings, trial_days: Number(v)})} />
                                     <SelectGroup
@@ -228,14 +228,14 @@ export const SettingsTab: React.FC = () => {
                                 <div className="h-px bg-white/5 w-full" />
 
                                 {localSettings.active_gateway === 'iyzico' && (
-                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-white/[0.02] border border-white/5 rounded-[32px]">
+                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-white/[0.02] border border-slate-200 dark:border-slate-800 rounded-2xl">
                                         <InputGroup label={t('settings.gateway.iyzicoApiKey')} value={localSettings.iyzico_api_key} onChange={v => setLocalSettings({...localSettings, iyzico_api_key: v})} />
                                         <InputGroup label={t('settings.gateway.iyzicoSecretKey')} type="password" value={localSettings.iyzico_secret_key} onChange={v => setLocalSettings({...localSettings, iyzico_secret_key: v})} />
                                     </motion.div>
                                 )}
 
                                 {localSettings.active_gateway === 'paytr' && (
-                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 p-6 bg-white/[0.02] border border-white/5 rounded-[32px]">
+                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 p-6 bg-white/[0.02] border border-slate-200 dark:border-slate-800 rounded-2xl">
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                             <InputGroup label={t('settings.gateway.paytrMerchantId')} value={localSettings.paytr_merchant_id} onChange={v => setLocalSettings({...localSettings, paytr_merchant_id: v})} />
                                             <InputGroup label={t('settings.gateway.paytrMerchantKey')} value={localSettings.paytr_merchant_key} onChange={v => setLocalSettings({...localSettings, paytr_merchant_key: v})} />
@@ -245,7 +245,7 @@ export const SettingsTab: React.FC = () => {
                                 )}
 
                                 {localSettings.active_gateway === 'stripe' && (
-                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-white/[0.02] border border-white/5 rounded-[32px]">
+                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-white/[0.02] border border-slate-200 dark:border-slate-800 rounded-2xl">
                                         <InputGroup label={t('settings.gateway.stripePublicKey')} value={localSettings.stripe_public_key} onChange={v => setLocalSettings({...localSettings, stripe_public_key: v})} />
                                         <InputGroup label={t('settings.gateway.stripeSecretKey')} type="password" value={localSettings.stripe_secret_key} onChange={v => setLocalSettings({...localSettings, stripe_secret_key: v})} />
                                     </motion.div>
@@ -255,7 +255,7 @@ export const SettingsTab: React.FC = () => {
                                     <p className="text-[10px] font-black text-cyan-300 uppercase tracking-widest mb-1">
                                         {t('settings.gateway.resellerStripeTopup')}
                                     </p>
-                                    <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
                                         {t('settings.gateway.resellerStripeTopupHint')}
                                     </p>
                                 </div>
@@ -271,7 +271,7 @@ export const SettingsTab: React.FC = () => {
                                     (row: { bank_name: string; account_holder: string; iban: string; currency?: string; note?: string }, idx: number) => (
                                         <div
                                             key={idx}
-                                            className="grid grid-cols-1 md:grid-cols-12 gap-3 p-4 rounded-2xl border border-white/10 bg-white/[0.02]"
+                                            className="grid grid-cols-1 md:grid-cols-12 gap-3 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/[0.02]"
                                         >
                                             <div className="md:col-span-3">
                                                 <InputGroup
@@ -439,10 +439,10 @@ export const SettingsTab: React.FC = () => {
                                         <InputGroup label={t('settings.resellerAddonPct')} type="number" value={localSettings.reseller_addon_rate || 15} onChange={v => setLocalSettings({...localSettings, reseller_addon_rate: Number(v)})} />
                                         <p className="text-[10px] text-amber-400/70 font-black uppercase tracking-tight leading-relaxed px-1 font-mono italic">{t('settings.addonHint')}</p>
                                     </div>
-                                    <div className="p-6 bg-gradient-to-br from-white/[0.02] to-transparent rounded-[32px] border border-white/5 flex flex-col items-center justify-center group hover:border-amber-500/20 transition-all">
+                                    <div className="p-6 bg-gradient-to-br from-white/[0.02] to-transparent rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center group hover:border-amber-500/20 transition-all">
                                         <div className="p-3 bg-amber-500/10 text-amber-400 rounded-2xl mb-3 group-hover:scale-110 transition-transform"><FiZap size={20} /></div>
-                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Performance Load</span>
-                                        <span className="text-xl font-black text-white italic">0.12ms <span className="text-[10px] text-emerald-400 not-italic uppercase tracking-widest font-bold">Optimal</span></span>
+                                        <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-[0.2em] mb-1">Performance Load</span>
+                                        <span className="text-xl font-black text-slate-800 dark:text-white italic">0.12ms <span className="text-[10px] text-emerald-400 not-italic uppercase tracking-widest font-bold">Optimal</span></span>
                                     </div>
                                 </div>
                             </SectionCard>
@@ -455,7 +455,7 @@ export const SettingsTab: React.FC = () => {
                     <motion.div variants={itemVariants}>
                         <SectionCard title={t('settings.legalTitle')} icon={<FiShield className="text-rose-400" />}>
                             <div className="space-y-6">
-                                <div className="p-8 bg-gradient-to-br from-rose-500/[0.08] to-transparent rounded-[40px] border border-rose-500/10 space-y-8 relative overflow-hidden group">
+                                <div className="p-8 bg-gradient-to-br from-rose-500/[0.08] to-transparent rounded-2xl border border-rose-500/10 space-y-8 relative overflow-hidden group">
                                     <div className="absolute -top-10 -right-10 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity rotate-12">
                                         <FiShield size={200} />
                                     </div>
@@ -502,11 +502,11 @@ export const SettingsTab: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="p-6 bg-white/[0.03] rounded-[32px] border border-white/5 flex gap-5 group hover:border-amber-500/20 transition-all">
+                                <div className="p-6 bg-white/[0.03] rounded-2xl border border-slate-200 dark:border-slate-800 flex gap-5 group hover:border-amber-500/20 transition-all">
                                     <div className="p-3.5 bg-amber-500/10 text-amber-500 rounded-2xl h-fit border border-amber-500/10 group-hover:scale-110 transition-transform"><FiAlertCircle size={24} /></div>
                                     <div>
                                         <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest block mb-1">Global Compliance Hint</span>
-                                        <p className="text-[11px] text-slate-400 font-bold leading-relaxed">{t('settings.legalHint')}</p>
+                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold leading-relaxed">{t('settings.legalHint')}</p>
                                     </div>
                                 </div>
                             </div>
@@ -514,11 +514,11 @@ export const SettingsTab: React.FC = () => {
                     </motion.div>
 
                     <motion.div variants={itemVariants} className="sticky bottom-8 h-fit">
-                        <div className="absolute -inset-1 bg-gradient-to-r from-blue-600/30 to-indigo-600/30 blur-2xl rounded-[40px] opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="absolute -inset-1 bg-gradient-to-r from-blue-600/30 to-indigo-600/30 blur-2xl rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
                         <button 
                             type="submit" 
                             disabled={isLoading}
-                            className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white py-6 rounded-[32px] font-black shadow-2xl shadow-blue-900/40 flex items-center justify-center gap-4 active:scale-95 active:shadow-inner transition-all text-sm tracking-[0.2em] uppercase disabled:opacity-50 group border border-white/10 relative overflow-hidden"
+                            className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-slate-800 dark:text-white py-6 rounded-2xl font-black shadow-sm shadow-blue-900/40 flex items-center justify-center gap-4 active:scale-95 active:shadow-inner transition-all text-sm tracking-[0.2em] uppercase disabled:opacity-50 group border border-slate-200 dark:border-slate-800 relative overflow-hidden"
                         >
                             <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
                             <FiSave size={24} className="group-hover:scale-110 group-hover:-rotate-12 transition-transform relative z-10" />
@@ -574,12 +574,12 @@ const ChangePasswordRow: React.FC<{ role: string; label: string; defaultPw: stri
     };
 
     return (
-        <div className="bg-white/[0.03] rounded-2xl border border-white/5 p-4">
+        <div className="bg-white/[0.03] rounded-2xl border border-slate-200 dark:border-slate-800 p-4">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <div className="p-2 bg-sky-500/10 text-sky-400 rounded-xl"><FiKey size={14} /></div>
                     <div>
-                        <span className="text-xs font-bold text-slate-300">{label}</span>
+                        <span className="text-xs font-bold text-slate-600 dark:text-slate-500 dark:text-slate-400">{label}</span>
                         <span className="text-[10px] text-slate-600 font-mono ml-2">{role}</span>
                         <p className="text-[10px] text-slate-600">Varsayılan: <span className="font-mono">{defaultPw}</span></p>
                     </div>
@@ -591,11 +591,11 @@ const ChangePasswordRow: React.FC<{ role: string; label: string; defaultPw: stri
                 ) : (
                     <form onSubmit={handleSave} className="flex items-center gap-2">
                         <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="Yeni şifre" minLength={6}
-                            className="w-28 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/30" />
+                            className="w-28 bg-white/5 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-800 dark:text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/30" />
                         <button disabled={busy} type="submit" className="px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-[10px] font-black uppercase text-emerald-400 hover:bg-emerald-500/30 disabled:opacity-40">
                             {busy ? '...' : 'Kaydet'}
                         </button>
-                        <button type="button" onClick={() => { setShowForm(false); setNewPw(''); setMsg(null); }} className="px-2 py-1.5 text-[10px] text-slate-500 hover:text-slate-300">
+                        <button type="button" onClick={() => { setShowForm(false); setNewPw(''); setMsg(null); }} className="px-2 py-1.5 text-[10px] text-slate-500 hover:text-slate-600 dark:text-slate-500 dark:text-slate-400">
                             İptal
                         </button>
                     </form>

@@ -103,14 +103,25 @@ export const kioskBootstrapHandler = async (req: Request, res: Response) => {
         }
         const requiredSecret = kioskCfg?.pairingSecret?.trim();
         if (requiredSecret && pairingSecret !== requiredSecret) {
-            return res.status(403).json({ error: 'Eşleştirme kodu hatalı veya eksik' });
+            return res.status(403).json({ error: 'Kurum Kiosk Şifresi hatalı veya eksik' });
         }
 
         try {
             await migrateBillingTables();
             const { total: maxDev } = await getEffectiveMaxDevices(tenantId);
+            
+            // Count distinct user device_ids from users table
+            const userDeviceCount = await withTenant(tenantId, async (connection) => {
+                const [rows]: any = await connection.query(
+                    `SELECT COUNT(DISTINCT device_id) as c FROM users WHERE device_id IS NOT NULL AND TRIM(device_id) <> ''`
+                );
+                return Number(rows?.[0]?.c ?? 0);
+            });
+
             const linked = Array.isArray(kioskCfg?.linkedDevices) ? kioskCfg.linkedDevices.length : 0;
-            if (linked >= maxDev) {
+            const totalDevices = userDeviceCount + linked;
+
+            if (totalDevices >= maxDev) {
                 return res.status(403).json({
                     error: `Kayıtlı cihaz kotası doldu (en fazla ${maxDev}). Plan yükseltmesi veya «Ek Cihaz» modülü gerekir.`,
                 });
@@ -226,6 +237,19 @@ export const kioskSessionHandler = async (req: Request, res: Response) => {
             const idx = linked.findIndex((x) => String(x.deviceCode).toLowerCase() === dcNorm);
             if (idx < 0) return { ok: false as const, reason: 'UNKNOWN_DEVICE' };
 
+            const { total: maxDev } = await getEffectiveMaxDevices(tenantId);
+            const [userDevRows]: any = await connection.query(
+                `SELECT COUNT(DISTINCT device_id) as c FROM users WHERE device_id IS NOT NULL AND TRIM(device_id) <> ''`
+            );
+            const userDeviceCount = Number(userDevRows?.[0]?.c ?? 0);
+            const totalDevices = userDeviceCount + linked.length;
+            if (totalDevices > maxDev) {
+                const allowedKiosks = Math.max(0, maxDev - userDeviceCount);
+                if (idx >= allowedKiosks) {
+                    return { ok: false as const, reason: 'DEVICE_QUOTA_EXCEEDED' };
+                }
+            }
+
             const entry = linked[idx];
             const [trows]: any = await connection.query(
                 `SELECT t.id, t.name, t.qr_code, s.name AS section_name
@@ -267,8 +291,11 @@ export const kioskSessionHandler = async (req: Request, res: Response) => {
             const msg =
                 result.reason === 'TABLE_GONE'
                     ? 'Masa artık geçerli değil; cihazı yeniden eşleyin.'
+                    : result.reason === 'DEVICE_QUOTA_EXCEEDED'
+                    ? 'Cihaz kotası doldu. Lütfen cihaz paketini yükseltin veya «Ek Cihaz» modülü ekleyin.'
                     : 'Cihaz kaydı bulunamadı veya iptal edildi.';
-            return res.status(404).json({ error: msg, code: result.reason });
+            const status = result.reason === 'DEVICE_QUOTA_EXCEEDED' ? 403 : 404;
+            return res.status(status).json({ error: msg, code: result.reason });
         }
 
         return res.json({
@@ -321,5 +348,51 @@ export const kioskVerifyAdminPinHandler = async (req: Request, res: Response) =>
     } catch (e) {
         console.error('kioskVerifyAdminPinHandler', e);
         res.status(500).json({ error: 'Doğrulama yapılamadı' });
+    }
+};
+
+export const kioskListTablesHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = String(req.query?.tenantId ?? '').trim();
+        if (!tenantId) {
+            return res.status(400).json({ error: 'Kurum ID (tenantId) gereklidir' });
+        }
+
+        const tenant = await prisma.tenant.findFirst({
+            where: { id: tenantId, status: 'active' },
+        });
+        if (!tenant) {
+            return res.status(404).json({ error: 'Kurum bulunamadı veya aktif değil' });
+        }
+
+        // Fetch tables and linked devices settings
+        const data = await withTenant(tenantId, async (connection) => {
+            const [tables]: any = await connection.query(
+                `SELECT t.id, t.name, t.qr_code, s.name AS section_name
+                 FROM tables t
+                 LEFT JOIN sections s ON s.id = t.section_id
+                 ORDER BY s.name ASC, t.name ASC`
+            );
+            const [branches]: any = await connection.query(
+                'SELECT settings FROM branches ORDER BY id ASC LIMIT 1'
+            );
+            const raw = branches?.[0]?.settings;
+            const settings = parseSettings(raw) as BranchSettings;
+            return {
+                tables: Array.isArray(tables) ? tables : [],
+                linkedDevices: Array.isArray(settings?.integrations?.kiosk?.linkedDevices)
+                    ? settings.integrations.kiosk.linkedDevices
+                    : []
+            };
+        });
+
+        // Filter out tables that are already registered/linked
+        const linkedTableIds = new Set(data.linkedDevices.map(d => Number(d.tableId)));
+        const unregisteredTables = data.tables.filter((t: any) => !linkedTableIds.has(Number(t.id)));
+
+        return res.json(unregisteredTables);
+    } catch (e) {
+        console.error('kioskListTablesHandler', e);
+        res.status(500).json({ error: 'Masalar yüklenemedi' });
     }
 };

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { withTenant, withTenantTransaction } from '../lib/db.js';
 import { reverseOrderRecipeDeduction } from '../services/stock-inventory.service.js';
+import { reverseLoyaltyPoints } from '../lib/loyalty.js';
 import {
     ensureUsersWaiterSectionColumns,
     pickLeastLoadedWaiterForSection,
@@ -12,6 +13,13 @@ export const getTablesHandler = async (req: Request, res: Response) => {
         const { sectionId } = req.query;
 
         const tables = await withTenant(tenantId, async (connection) => {
+            // self-healing
+            try {
+                await connection.query(`ALTER TABLE tables ADD COLUMN IF NOT EXISTS active_staff_id INTEGER NULL`);
+            } catch (err) {
+                // Silently continue
+            }
+
             let query = `
                 SELECT t.*,
                        s.name as section_name,
@@ -21,17 +29,19 @@ export const getTablesHandler = async (req: Request, res: Response) => {
                        ts.guest_count,
                        ts.waiter_id,
                        ts.opened_at as session_opened_at,
-                       u.name as waiter_name,
+                       COALESCE(NULLIF(TRIM(u.name), ''), u.username) as waiter_name,
                        u.role as waiter_role,
                        c.name as customer_name,
-                       (SELECT COALESCE(SUM(o.total_amount), 0) 
-                        FROM orders o 
-                        WHERE o.session_id = ts.id AND o.status != 'cancelled') as total_amount
+                       COALESCE(NULLIF(TRIM(asu.name), ''), asu.username) as active_staff_name,
+                       (SELECT COALESCE(SUM(o.total_amount - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.order_id = o.id AND p.status = 'completed'), 0)), 0) 
+                     FROM orders o 
+                     WHERE o.session_id = ts.id AND o.status != 'cancelled') as total_amount
                 FROM tables t
                 LEFT JOIN sections s ON t.section_id = s.id
                 LEFT JOIN table_sessions ts ON t.current_session_id = ts.id AND ts.status = 'active'
                 LEFT JOIN users u ON ts.waiter_id = u.id
                 LEFT JOIN customers c ON ts.customer_id = c.id
+                LEFT JOIN users asu ON t.active_staff_id = asu.id
             `;
             const params: any[] = [];
 
@@ -76,6 +86,11 @@ export const getTableStatusHandler = async (req: Request, res: Response) => {
         const tableId = Number(req.params.id);
 
         const table = await withTenant(tenantId, async (connection) => {
+            // self-healing
+            try {
+                await connection.query(`ALTER TABLE tables ADD COLUMN IF NOT EXISTS active_staff_id INTEGER NULL`);
+            } catch (err) {}
+
             const [rows]: any = await connection.query(
                 `SELECT t.*,
                         s.name as section_name,
@@ -84,8 +99,9 @@ export const getTableStatusHandler = async (req: Request, res: Response) => {
                         ts.guest_count,
                         ts.waiter_id,
                         ts.opened_at,
-                        u.name as waiter_name,
+                        COALESCE(NULLIF(TRIM(u.name), ''), u.username) as waiter_name,
                         c.name as customer_name,
+                        COALESCE(NULLIF(TRIM(asu.name), ''), asu.username) as active_staff_name,
                         (SELECT COALESCE(json_agg(
                             json_build_object(
                                 'id', o.id,
@@ -118,6 +134,7 @@ export const getTableStatusHandler = async (req: Request, res: Response) => {
                  LEFT JOIN table_sessions ts ON t.current_session_id = ts.id AND ts.status = 'active'
                  LEFT JOIN users u ON ts.waiter_id = u.id
                  LEFT JOIN customers c ON ts.customer_id = c.id
+                 LEFT JOIN users asu ON t.active_staff_id = asu.id
                  WHERE t.id = ?`,
                 [tableId]
             );
@@ -147,6 +164,11 @@ export const openTableHandler = async (req: Request, res: Response) => {
             // 🛡️ Self-healing: Ensure client_session_id exists (Phase 10 migration)
             try {
                 await connection.query(`ALTER TABLE table_sessions ADD COLUMN IF NOT EXISTS client_session_id VARCHAR(100)`);
+            } catch (err) {
+                // Silently continue
+            }
+            try {
+                await connection.query(`ALTER TABLE tables ADD COLUMN IF NOT EXISTS active_staff_id INTEGER NULL`);
             } catch (err) {
                 // Silently continue
             }
@@ -187,8 +209,13 @@ export const openTableHandler = async (req: Request, res: Response) => {
             let resolvedWaiterId =
                 waiterId != null && Number.isFinite(Number(waiterId)) ? Number(waiterId) : null;
 
-            /** Kasiyer masayı açınca bölgeye uygun en az yüklü garson atanır */
+            /**
+             * Kasiyer: her zaman bölüme göre otomatik garson.
+             * Admin: body'de waiterId yoksa aynı otomatik atama (terminalde sık kullanım).
+             */
             if (openerRole === 'cashier') {
+                resolvedWaiterId = await pickLeastLoadedWaiterForSection(connection, tableSectionId);
+            } else if (openerRole === 'admin' && resolvedWaiterId == null) {
                 resolvedWaiterId = await pickLeastLoadedWaiterForSection(connection, tableSectionId);
             }
 
@@ -207,9 +234,11 @@ export const openTableHandler = async (req: Request, res: Response) => {
             );
             const newSessionId = sessionResult.insertId;
 
+            const staffId = req.user?.userId ?? resolvedWaiterId;
+
             await connection.query(
-                `UPDATE tables SET status = 'occupied', current_session_id = ? WHERE id = ?`,
-                [newSessionId, tableId]
+                `UPDATE tables SET status = 'occupied', current_session_id = ?, active_staff_id = ? WHERE id = ?`,
+                [newSessionId, staffId, tableId]
             );
 
             const [newSession]: any = await connection.query('SELECT * FROM table_sessions WHERE id = ?', [
@@ -224,6 +253,7 @@ export const openTableHandler = async (req: Request, res: Response) => {
                 tableId,
                 session: session.row,
             });
+            io.to(`tenant:${tenantId}`).emit('tables:updated');
         }
 
         res.status(session.created ? 201 : 200).json(session.row);
@@ -278,7 +308,7 @@ export const mergeTablesHandler = async (req: Request, res: Response) => {
             if (!sourceSid || !targetSid) throw new Error('Her iki masada da aktif oturum olmalı');
 
             await connection.query('UPDATE orders SET session_id = ? WHERE session_id = ?', [targetSid, sourceSid]);
-            await connection.query('UPDATE table_sessions SET status = \'merged\', closed_at = CURRENT_TIMESTAMP WHERE id = ?', [sourceSid]);
+            await connection.query('UPDATE table_sessions SET status = \'paid\', closed_at = CURRENT_TIMESTAMP WHERE id = ?', [sourceSid]);
             await connection.query('UPDATE tables SET current_session_id = NULL, status = \'available\' WHERE id = ?', [sourceTableId]);
         });
 
@@ -418,12 +448,40 @@ export const cancelTableSessionHandler = async (req: Request, res: Response) => 
 
             if (sessionId) {
                 const [openOrders]: any = await connection.query(
-                    `SELECT id, status FROM orders WHERE session_id = ? AND status NOT IN ('completed', 'cancelled')`,
+                    `SELECT id, status, customer_id, total_amount, loyalty_redeem_points FROM orders WHERE session_id = ? AND status NOT IN ('completed', 'cancelled')`,
                     [sessionId]
                 );
                 const toRev = Array.isArray(openOrders) ? openOrders : [];
                 for (const row of toRev) {
+                    // Reçete iadesi
                     await reverseOrderRecipeDeduction(connection, Number(row.id), null);
+
+                    // Mutfak biletlerini iptal et
+                    await connection.query(
+                        `UPDATE kitchen_tickets SET status = 'cancelled'
+                         WHERE order_id = ? AND status NOT IN ('completed', 'cancelled')`,
+                        [row.id]
+                    );
+
+                    // Teslimatı iptal et
+                    await connection.query(
+                        `UPDATE deliveries SET status = 'cancelled' WHERE order_id = ?`,
+                        [row.id]
+                    );
+
+                    // Kazanılan sadakat puanlarını geri al
+                    if (row.customer_id && Number(row.total_amount) > 0) {
+                        await reverseLoyaltyPoints(connection, row.customer_id, Number(row.total_amount), Number(row.id));
+                    }
+
+                    // Kullanılan (redeem) sadakat puanlarını iade et
+                    const redeemBack = Number(row.loyalty_redeem_points ?? 0);
+                    if (redeemBack > 0 && row.customer_id) {
+                        await connection.query(
+                            `UPDATE customers SET reward_points = reward_points + ? WHERE id = ?`,
+                            [redeemBack, row.customer_id]
+                        );
+                    }
                 }
                 // 1. Session'ı 'cancelled' yap
                 await connection.query('UPDATE table_sessions SET status = \'cancelled\', closed_at = CURRENT_TIMESTAMP WHERE id = ?', [sessionId]);
@@ -443,5 +501,70 @@ export const cancelTableSessionHandler = async (req: Request, res: Response) => 
     } catch (error: any) {
         console.error('❌ Masa iptal hatası:', error);
         res.status(500).json({ error: error.message || 'Masa iptali başarısız' });
+    }
+};
+
+export const claimTableHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const tableId = Number(req.params.id);
+        const staffId = req.user?.userId;
+
+        if (!staffId) {
+            return res.status(401).json({ error: 'Yetkisiz erişim' });
+        }
+
+        await withTenant(tenantId, async (connection) => {
+            // self-healing
+            try {
+                await connection.query(`ALTER TABLE tables ADD COLUMN IF NOT EXISTS active_staff_id INTEGER NULL`);
+            } catch (err) {}
+
+            await connection.query(
+                'UPDATE tables SET active_staff_id = ? WHERE id = ?',
+                [staffId, tableId]
+            );
+        });
+
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`tenant:${tenantId}`).emit('tables:updated');
+            io.to(`tenant:${tenantId}`).emit('table:presence_changed', { tableId });
+        }
+
+        res.json({ success: true, message: 'Masa başarıyla üzerinize alındı' });
+    } catch (error) {
+        console.error('❌ Masa sahiplenme hatası:', error);
+        res.status(500).json({ error: 'Masa sahiplenilemedi' });
+    }
+};
+
+export const releaseTableHandler = async (req: Request, res: Response) => {
+    try {
+        const tenantId = req.tenantId!;
+        const tableId = Number(req.params.id);
+
+        await withTenant(tenantId, async (connection) => {
+            // self-healing
+            try {
+                await connection.query(`ALTER TABLE tables ADD COLUMN IF NOT EXISTS active_staff_id INTEGER NULL`);
+            } catch (err) {}
+
+            await connection.query(
+                'UPDATE tables SET active_staff_id = NULL WHERE id = ?',
+                [tableId]
+            );
+        });
+
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`tenant:${tenantId}`).emit('tables:updated');
+            io.to(`tenant:${tenantId}`).emit('table:presence_changed', { tableId });
+        }
+
+        res.json({ success: true, message: 'Masa kilidi kaldırıldı' });
+    } catch (error) {
+        console.error('❌ Masa serbest bırakma hatası:', error);
+        res.status(500).json({ error: 'Masa serbest bırakılamadı' });
     }
 };

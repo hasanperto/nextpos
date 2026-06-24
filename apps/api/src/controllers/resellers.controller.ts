@@ -2,6 +2,13 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
+import { runResellerCommissionRecalculation } from './saas-advanced.controller.js';
+import {
+    computeResellerPlanPurchaseQuote,
+    createResellerPlanCardCheckout,
+    appendPlanPurchaseRollback,
+    cancelResellerPlanPurchase,
+} from '../services/reseller-plan-card-purchase.service.js';
 
 function mapResellerRow(r: {
     id: number;
@@ -83,6 +90,71 @@ export const getResellers = async (_req: Request, res: Response) => {
     }
 };
 
+/**
+ * GET /resellers/:id/tenants — Bayiye bağlı restoranlar listesi
+ */
+export const getResellerTenants = async (req: Request, res: Response) => {
+    try {
+        const resellerId = Number(req.params.id);
+        if (!Number.isFinite(resellerId)) {
+            return res.status(400).json({ error: 'Geçersiz bayi ID' });
+        }
+        const tenants = await prisma.tenant.findMany({
+            where: { resellerId },
+            orderBy: { createdAt: 'desc' },
+        });
+        const out = tenants.map((t) => ({
+            id: t.id,
+            name: t.name,
+            schema_name: t.schemaName,
+            status: t.status,
+            subscription_plan: t.subscriptionPlan,
+            license_expires_at: t.licenseExpiresAt,
+            contact_email: t.contactEmail,
+            contact_phone: t.contactPhone,
+            max_users: t.maxUsers,
+            max_branches: t.maxBranches,
+            created_at: t.createdAt,
+        }));
+        res.json(out);
+    } catch (error) {
+        console.error('getResellerTenants error:', error);
+        res.status(500).json({ error: 'Bayi restoranları listelenemedi' });
+    }
+};
+
+/**
+ * GET /resellers/:id/payments — Bayi ödeme geçmişi
+ */
+export const getResellerPayments = async (req: Request, res: Response) => {
+    try {
+        const resellerId = Number(req.params.id);
+        if (!Number.isFinite(resellerId)) {
+            return res.status(400).json({ error: 'Geçersiz bayi ID' });
+        }
+        const payments = await prisma.paymentHistory.findMany({
+            where: { saasAdminId: resellerId },
+            orderBy: { createdAt: 'desc' },
+            take: 100,
+        });
+        const out = payments.map((p) => ({
+            id: p.id,
+            amount: Number(p.amount),
+            currency: p.currency,
+            payment_type: p.paymentType,
+            payment_method: p.paymentMethod,
+            status: p.status,
+            description: p.description,
+            paid_at: p.paidAt,
+            created_at: p.createdAt,
+            created_by: p.createdBy,
+        }));
+        res.json(out);
+    } catch (error) {
+        console.error('getResellerPayments error:', error);
+        res.status(500).json({ error: 'Bayi ödeme geçmişi listelenemedi' });
+    }
+};
 const ONBOARDING_PAYMENT_TYPES = new Set(['cash', 'invoice', 'complimentary']);
 
 export const createReseller = async (req: Request, res: Response) => {
@@ -355,6 +427,11 @@ export const updateReseller = async (req: Request, res: Response) => {
                 });
 
                 if (payRaw !== 'complimentary' && finalCost > 0) {
+                    const rollbackMeta = {
+                        previousPlanId: existing.resellerPlanId,
+                        licensesAdded: finalLicenses,
+                        targetPlanId: newPlan.id,
+                    };
                     if (payRaw === 'cash') {
                         await tx.paymentHistory.create({
                             data: {
@@ -365,7 +442,10 @@ export const updateReseller = async (req: Request, res: Response) => {
                                 paymentMethod: 'cash',
                                 status: 'paid',
                                 paidAt: new Date(),
-                                description: `Bayi paket yükseltme (tahsil): ${existing.resellerPlan?.name ?? '—'} → ${newPlan.name}`,
+                                description: appendPlanPurchaseRollback(
+                                    `Bayi paket yükseltme (tahsil): ${existing.resellerPlan?.name ?? '—'} → ${newPlan.name}`,
+                                    rollbackMeta
+                                ),
                                 createdBy,
                             },
                         });
@@ -378,7 +458,10 @@ export const updateReseller = async (req: Request, res: Response) => {
                                 paymentType: 'license_upgrade',
                                 paymentMethod: 'invoice',
                                 status: 'pending',
-                                description: `Bayi paket yükseltme (fatura): ${existing.resellerPlan?.name ?? '—'} → ${newPlan.name}`,
+                                description: appendPlanPurchaseRollback(
+                                    `Bayi paket yükseltme (fatura): ${existing.resellerPlan?.name ?? '—'} → ${newPlan.name}`,
+                                    rollbackMeta
+                                ),
                                 createdBy,
                             },
                         });
@@ -485,17 +568,63 @@ export const getResellerPlans = async (req: Request, res: Response) => {
     }
 };
 
+const RESELLER_PURCHASE_PAYMENT_METHODS = new Set(['wallet_balance', 'bank_transfer', 'admin_card', 'cash']);
+
 export const purchaseResellerPlan = async (req: Request, res: Response) => {
     try {
-        const { planId } = req.body;
+        const { planId, paymentMethod: rawPaymentMethod } = req.body;
         const resellerId = req.user?.userId;
 
         if (!resellerId) return res.status(401).json({ error: 'Giriş gerekli' });
+
+        const paymentMethod = String(rawPaymentMethod ?? '').trim().toLowerCase();
+        if (!RESELLER_PURCHASE_PAYMENT_METHODS.has(paymentMethod)) {
+            return res.status(400).json({ error: 'Geçerli bir ödeme yöntemi seçin.' });
+        }
 
         const rid = Number(resellerId);
         const pid = Number(planId);
         if (!Number.isFinite(pid)) {
             return res.status(400).json({ error: 'Geçerli planId gerekli' });
+        }
+
+        if (paymentMethod === 'admin_card') {
+            const quoted = await computeResellerPlanPurchaseQuote(rid, pid);
+            if (!quoted.ok) {
+                return res.status(quoted.status).json({ error: quoted.error });
+            }
+            const origin = String(req.get('origin') || '').replace(/\/$/, '');
+            const base =
+                origin ||
+                String(process.env.RESELLER_PUBLIC_URL || '')
+                    .trim()
+                    .replace(/\/$/, '') ||
+                'http://localhost:4001';
+            const successUrl = `${base}/?plan_purchase=ok&session_id={CHECKOUT_SESSION_ID}`;
+            const cancelUrl = `${base}/?plan_purchase=cancel`;
+            try {
+                const reseller = await prisma.saasAdmin.findFirst({
+                    where: { id: rid },
+                    select: { email: true },
+                });
+                const { paymentHistoryId, checkoutUrl, gateway } = await createResellerPlanCardCheckout({
+                    quote: quoted.quote,
+                    successUrl,
+                    cancelUrl,
+                    customerEmail: reseller?.email,
+                });
+                return res.json({
+                    requires_card_payment: true,
+                    checkoutUrl,
+                    gateway,
+                    paymentHistoryId,
+                    message:
+                        'Kart ödeme sayfasına yönlendirileceksiniz. Ödeme onaylandıktan sonra paket tanımlanır.',
+                });
+            } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : 'Kart ödemesi başlatılamadı';
+                return res.status(400).json({ error: msg });
+            }
         }
 
         const result = await prisma.$transaction(async (tx) => {
@@ -541,34 +670,66 @@ export const purchaseResellerPlan = async (req: Request, res: Response) => {
             }
 
             const wallet = Number(reseller.walletBalance);
-            if (wallet < finalCost) {
-                return {
-                    error: `Yetersiz bakiye. Bu işlem için €${finalCost.toFixed(2)} gereklidir. Mevcut: €${wallet.toFixed(2)}`,
-                    status: 400,
-                } as const;
+            const previousPlanId = reseller.resellerPlanId;
+            const baseDescription = `${hadPlan ? 'Yükseltme' : 'Satın alma'}: ${plan.name} paketi`;
+            const description = appendPlanPurchaseRollback(baseDescription, {
+                previousPlanId,
+                licensesAdded: finalLicenses,
+                targetPlanId: pid,
+            });
+
+            let nextWallet = wallet;
+            let paymentStatus: 'paid' | 'pending' = 'pending';
+            let paidAt: Date | null = null;
+            let dueDate: Date | null = null;
+
+            if (finalCost <= 0) {
+                paymentStatus = 'paid';
+                paidAt = new Date();
+            } else if (paymentMethod === 'wallet_balance') {
+                if (wallet < finalCost) {
+                    return {
+                        error: `Yetersiz bakiye. Bu işlem için €${finalCost.toFixed(2)} gereklidir. Mevcut: €${wallet.toFixed(2)}`,
+                        status: 400,
+                    } as const;
+                }
+                nextWallet = Math.max(0, wallet - finalCost);
+                paymentStatus = 'paid';
+                paidAt = new Date();
+            } else if (paymentMethod === 'bank_transfer' || paymentMethod === 'cash') {
+                dueDate = new Date();
+                dueDate.setDate(dueDate.getDate() + 14);
             }
 
-            const nextWallet = Math.max(0, wallet - finalCost);
             await tx.saasAdmin.update({
                 where: { id: rid },
                 data: {
                     walletBalance: new Prisma.Decimal(nextWallet),
                     availableLicenses: { increment: finalLicenses },
                     resellerPlanId: pid,
+                    purchasePaymentMethod: paymentMethod,
                 },
             });
 
-            await tx.paymentHistory.create({
-                data: {
-                    saasAdminId: rid,
-                    amount: new Prisma.Decimal(finalCost),
-                    currency: 'EUR',
-                    paymentType: 'license_upgrade',
-                    status: 'paid',
-                    paidAt: new Date(),
-                    description: `${hadPlan ? 'Yükseltme' : 'Satın alma'}: ${plan.name} paketi`,
-                },
-            });
+            let paymentHistoryId: number | null = null;
+
+            if (finalCost > 0) {
+                const paymentRow = await tx.paymentHistory.create({
+                    data: {
+                        saasAdminId: rid,
+                        amount: new Prisma.Decimal(finalCost),
+                        currency: 'EUR',
+                        paymentType: 'license_upgrade',
+                        paymentMethod,
+                        status: paymentStatus,
+                        paidAt,
+                        due_date: dueDate,
+                        description,
+                        createdBy: String(resellerId),
+                    },
+                });
+                paymentHistoryId = paymentRow.id;
+            }
 
             return {
                 ok: true as const,
@@ -576,6 +737,9 @@ export const purchaseResellerPlan = async (req: Request, res: Response) => {
                 hadPlan,
                 finalLicenses,
                 planId: pid,
+                paymentStatus,
+                finalCost,
+                paymentHistoryId,
             };
         });
 
@@ -583,16 +747,42 @@ export const purchaseResellerPlan = async (req: Request, res: Response) => {
             return res.status(result.status).json({ error: result.error });
         }
         if ('ok' in result && result.ok) {
+            const pending = result.paymentStatus === 'pending' && result.finalCost > 0;
             return res.json({
-                message: `${result.planName} paketi başarıyla ${result.hadPlan ? 'yükseltildi' : 'satın alındı'}. Hesabınıza ${result.finalLicenses} yeni lisans eklendi.`,
+                message: pending
+                    ? `${result.planName} paketi ${result.hadPlan ? 'yükseltildi' : 'tanımlandı'}. €${result.finalCost.toFixed(2)} tutarındaki ödeme onay bekliyor; lisanslar hesabınıza eklendi. Ödeme gelmezse iptal edilebilir ve eski pakete dönülür.`
+                    : `${result.planName} paketi başarıyla ${result.hadPlan ? 'yükseltildi' : 'satın alındı'}. Hesabınıza ${result.finalLicenses} yeni lisans eklendi.`,
                 addedLicenses: result.finalLicenses,
                 currentPlanId: result.planId,
+                paymentStatus: result.paymentStatus,
+                paymentHistoryId: result.paymentHistoryId ?? undefined,
             });
         }
         res.status(500).json({ error: 'Satın alma işlemi başarısız oldu' });
     } catch (error) {
         console.error('Purchase error:', error);
         res.status(500).json({ error: 'Satın alma işlemi başarısız oldu' });
+    }
+};
+
+export const cancelResellerPlanPurchaseHandler = async (req: Request, res: Response) => {
+    try {
+        const resellerId = req.user?.userId;
+        if (!resellerId) return res.status(401).json({ error: 'Giriş gerekli' });
+
+        const paymentHistoryId = Number(req.body?.paymentHistoryId ?? req.body?.payment_id);
+        if (!Number.isFinite(paymentHistoryId)) {
+            return res.status(400).json({ error: 'Geçerli paymentHistoryId gerekli' });
+        }
+
+        const result = await cancelResellerPlanPurchase(Number(resellerId), paymentHistoryId);
+        if (!result.ok) {
+            return res.status(result.status).json({ error: result.error });
+        }
+        return res.json({ message: result.message, reverted: result.reverted });
+    } catch (error) {
+        console.error('cancelResellerPlanPurchase error:', error);
+        res.status(500).json({ error: 'İptal işlemi başarısız oldu' });
     }
 };
 
@@ -678,3 +868,144 @@ export const deleteResellerPlan = async (req: Request, res: Response) => {
     }
 };
 
+/**
+ * GET /resellers/finance/settings
+ */
+export const getResellerFinanceSettings = async (req: Request, res: Response) => {
+    try {
+        const adminId = Number(req.user?.userId);
+        const admin = await prisma.saasAdmin.findUnique({ where: { id: adminId } });
+        if (!admin) return res.status(404).json({ error: 'Bayi bulunamadı' });
+        
+        res.json({
+            bankIban: admin.bankIban || '',
+            bankAccountName: admin.bankAccountName || ''
+        });
+    } catch (error) {
+        console.error('getResellerFinanceSettings error:', error);
+        res.status(500).json({ error: 'Finans ayarları alınamadı' });
+    }
+};
+
+/**
+ * PUT /resellers/finance/settings
+ */
+export const updateResellerFinanceSettings = async (req: Request, res: Response) => {
+    try {
+        const adminId = Number(req.user?.userId);
+        const { bankIban, bankAccountName } = req.body;
+        
+        await prisma.saasAdmin.update({
+            where: { id: adminId },
+            data: {
+                bankIban: bankIban ? String(bankIban) : null,
+                bankAccountName: bankAccountName ? String(bankAccountName) : null
+            }
+        });
+        
+        res.json({ success: true });
+    } catch (error) {
+        console.error('updateResellerFinanceSettings error:', error);
+        res.status(500).json({ error: 'Finans ayarları güncellenemedi' });
+    }
+};
+
+/**
+ * POST /resellers/finance/withdraw
+ */
+export const createResellerWithdrawal = async (req: Request, res: Response) => {
+    try {
+        const adminId = Number(req.user?.userId);
+        const { amount, payoutMethod, note } = req.body;
+        
+        const reqAmount = Number(amount);
+        if (!reqAmount || reqAmount <= 0) {
+            return res.status(400).json({ error: 'Geçersiz tutar' });
+        }
+        
+        const admin = await prisma.saasAdmin.findUnique({ where: { id: adminId } });
+        if (!admin) return res.status(404).json({ error: 'Bayi bulunamadı' });
+        
+        if (Number(admin.walletBalance) < reqAmount) {
+            return res.status(400).json({ error: 'Yetersiz bakiye' });
+        }
+        
+        // 1. Create payout request
+        const pr = await prisma.payoutRequest.create({
+            data: {
+                resellerId: adminId,
+                amount: reqAmount,
+                payoutMethod: payoutMethod || 'bank_transfer',
+                bankIban: admin.bankIban,
+                bankAccount: admin.bankAccountName,
+                note: note || null,
+            }
+        });
+        
+        // 2. Deduct from wallet immediately (as pending withdrawal lock)
+        await prisma.saasAdmin.update({
+            where: { id: adminId },
+            data: { walletBalance: { decrement: reqAmount } }
+        });
+        
+        // 3. Log it in payment history as pending deduction
+        await prisma.paymentHistory.create({
+            data: {
+                saasAdminId: adminId,
+                amount: -reqAmount,
+                paymentType: 'withdrawal',
+                status: 'pending',
+                description: `Para Çekme Talebi (#${pr.id})`,
+                createdBy: req.user?.username
+            }
+        });
+        
+        res.json({ success: true, id: pr.id });
+    } catch (error) {
+        console.error('createResellerWithdrawal error:', error);
+        res.status(500).json({ error: 'Çekim talebi oluşturulamadı' });
+    }
+};
+
+/**
+ * GET /resellers/finance/withdrawals
+ */
+export const getResellerWithdrawals = async (req: Request, res: Response) => {
+    try {
+        const adminId = Number(req.user?.userId);
+        const list = await prisma.payoutRequest.findMany({
+            where: { resellerId: adminId },
+            orderBy: { createdAt: 'desc' }
+        });
+        res.json(list);
+    } catch (error) {
+        console.error('getResellerWithdrawals error:', error);
+        res.status(500).json({ error: 'Çekim talepleri listelenemedi' });
+    }
+};
+
+/**
+ * POST /resellers/finance/recalculate
+ * tenant_billing + sistem oranlarıyla reseller_income düzeltme satırları (Finans sekmesi ile uyumlu)
+ */
+export const recalculateCommissions = async (req: Request, res: Response) => {
+    try {
+        const adminId = Number(req.user?.userId);
+        const admin = await prisma.saasAdmin.findUnique({ where: { id: adminId } });
+        if (!admin) return res.status(404).json({ error: 'Bayi bulunamadı' });
+
+        const result = await runResellerCommissionRecalculation(adminId);
+        res.json({
+            success: true,
+            addedTotal: result.adjustmentNet,
+            recordsAdded: result.adjustmentRows,
+            updatedTenants: result.updatedTenants,
+            oldTotalCommission: result.oldTotalCommission,
+            newTotalCommission: result.newTotalCommission,
+            diff: result.diff,
+        });
+    } catch (error) {
+        console.error('recalculateCommissions error:', error);
+        res.status(500).json({ error: 'Komisyon hesaplaması başarısız oldu' });
+    }
+};

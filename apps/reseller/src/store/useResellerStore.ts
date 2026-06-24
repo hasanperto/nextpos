@@ -81,6 +81,8 @@ type FinanceSummary = {
     monthly_earnings: MonthlyEarning[];
     plan_distribution: PlanDist[];
     commission_breakdown: CommissionBreakdown | null;
+    /** Aktif restoranların tenant_billing tekrarlayan tutarı × bayi aylık oranı (tahmini) */
+    estimated_monthly_commission?: number;
 };
 
 interface ResellerState {
@@ -120,7 +122,21 @@ interface ResellerState {
 
     resellerPlans: ResellerPlan[];
     fetchResellerPlans: () => Promise<void>;
-    purchaseResellerPlan: (planId: number) => Promise<{ ok: boolean; error?: string }>;
+    purchaseResellerPlan: (planId: number, paymentMethod: string) => Promise<{
+        ok: boolean;
+        error?: string;
+        message?: string;
+        paymentStatus?: string;
+        paymentHistoryId?: number;
+        requiresCardPayment?: boolean;
+        checkoutUrl?: string;
+    }>;
+    cancelPlanPurchase: (paymentHistoryId: number) => Promise<{
+        ok: boolean;
+        error?: string;
+        message?: string;
+        reverted?: boolean;
+    }>;
 
     financeSummary: FinanceSummary | null;
     fetchFinanceSummary: () => Promise<void>;
@@ -132,7 +148,10 @@ interface ResellerState {
         active: number;
         trialExpiring: number;
         pendingSupport: number;
+        /** Takvim ayında ödenen reseller_income toplamı */
         monthlyCommission: number;
+        /** Aktif restoranların tekrarlayan tutarı × bayi aylık oranı (finance/summary ile aynı) */
+        estimatedMonthlyCommission: number;
         totalTenants: number;
     } | null;
     fetchDashStats: () => Promise<void>;
@@ -152,6 +171,8 @@ interface ResellerState {
         extra_device_qty?: number,
         payment_method?: 'wallet_balance' | 'bank_transfer' | 'admin_card' | 'cash'
     ) => Promise<{ ok: boolean; error?: string; added?: string[]; skipped?: string[]; totals?: { setup: number; monthly: number } }>;
+    fetchCheckoutLinkForTenant: (paymentHistoryId: number) => Promise<string | null>;
+    payTenantInvoiceWithWallet: (paymentHistoryId: number) => Promise<{ ok: boolean; error?: string }>;
 }
 
 function mapUserToAdmin(user: Record<string, unknown>): ResellerAdmin {
@@ -441,6 +462,7 @@ export const useResellerStore = create<ResellerState>((set, get) => ({
                 }
                 await get().fetchTenants();
                 await get().fetchStats();
+                await get().fetchFinanceSummary();
                 return {
                     ok: true,
                     serverMessage: typeof json.message === 'string' ? json.message : undefined,
@@ -464,6 +486,7 @@ export const useResellerStore = create<ResellerState>((set, get) => ({
             if (res.ok) {
                 await get().fetchTenants();
                 await get().fetchStats();
+                await get().fetchFinanceSummary();
                 return { ok: true };
             }
             return {
@@ -488,19 +511,40 @@ export const useResellerStore = create<ResellerState>((set, get) => ({
         }
     },
 
-    purchaseResellerPlan: async (planId: number) => {
+    purchaseResellerPlan: async (planId: number, paymentMethod: string) => {
         const { token } = get();
         if (!token) return { ok: false, error: 'Oturum yok' };
         set({ isLoading: true, error: null });
         try {
             const res = await apiTenants('/resellers/plans/purchase', token, {
                 method: 'POST',
-                body: JSON.stringify({ planId }),
+                body: JSON.stringify({ planId, paymentMethod }),
             });
             if (res.ok) {
+                const data = (await res.json().catch(() => ({}))) as {
+                    message?: string;
+                    paymentStatus?: string;
+                    paymentHistoryId?: number;
+                    requires_card_payment?: boolean;
+                    checkoutUrl?: string;
+                };
+                if (data.requires_card_payment && data.checkoutUrl) {
+                    set({ isLoading: false });
+                    return {
+                        ok: true,
+                        requiresCardPayment: true,
+                        checkoutUrl: data.checkoutUrl,
+                        message: data.message,
+                    };
+                }
                 await get().fetchStats();
                 set({ isLoading: false });
-                return { ok: true };
+                return {
+                    ok: true,
+                    message: data.message,
+                    paymentStatus: data.paymentStatus,
+                    paymentHistoryId: data.paymentHistoryId,
+                };
             }
             const err = await res.json().catch(() => ({}));
             const msg = String((err as { error?: string }).error || 'Satın alınamadı');
@@ -508,6 +552,34 @@ export const useResellerStore = create<ResellerState>((set, get) => ({
             return { ok: false, error: msg };
         } catch {
             set({ isLoading: false });
+            return { ok: false, error: 'Ağ hatası' };
+        }
+    },
+
+    cancelPlanPurchase: async (paymentHistoryId: number) => {
+        const { token } = get();
+        if (!token) return { ok: false, error: 'Oturum yok' };
+        try {
+            const res = await apiTenants('/resellers/plans/purchase/cancel', token, {
+                method: 'POST',
+                body: JSON.stringify({ paymentHistoryId }),
+            });
+            if (res.ok) {
+                const data = (await res.json().catch(() => ({}))) as {
+                    message?: string;
+                    reverted?: boolean;
+                };
+                await get().fetchStats();
+                await get().fetchResellerPlans();
+                return {
+                    ok: true,
+                    message: data.message,
+                    reverted: data.reverted,
+                };
+            }
+            const err = await res.json().catch(() => ({}));
+            return { ok: false, error: String((err as { error?: string }).error || 'İptal edilemedi') };
+        } catch {
             return { ok: false, error: 'Ağ hatası' };
         }
     },
@@ -540,6 +612,7 @@ export const useResellerStore = create<ResellerState>((set, get) => ({
                     monthly_earnings: monthly,
                     plan_distribution: planDistribution,
                     commission_breakdown,
+                    estimated_monthly_commission: Number(d.estimatedMonthlyCommission ?? 0),
                 },
                 admin: admin
                     ? {
@@ -583,9 +656,11 @@ export const useResellerStore = create<ResellerState>((set, get) => ({
             }
             const finRes = await apiTenants('/finance/summary', token);
             let monthly = 0;
+            let estimatedMonthly = 0;
             let totalT = tenants.length;
             if (finRes.ok) {
                 const f = await finRes.json();
+                estimatedMonthly = Number(f.estimatedMonthlyCommission ?? 0);
                 const me = (f.monthlyEarnings || []) as MonthlyEarning[];
                 const now = new Date();
                 const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -603,6 +678,7 @@ export const useResellerStore = create<ResellerState>((set, get) => ({
                     trialExpiring: trialList.length,
                     pendingSupport: pending,
                     monthlyCommission: monthly,
+                    estimatedMonthlyCommission: estimatedMonthly,
                     totalTenants: totalT,
                 },
             });
@@ -613,6 +689,7 @@ export const useResellerStore = create<ResellerState>((set, get) => ({
                     trialExpiring: trialList.length,
                     pendingSupport: 0,
                     monthlyCommission: 0,
+                    estimatedMonthlyCommission: 0,
                     totalTenants: tenants.length,
                 },
             });
@@ -702,6 +779,48 @@ export const useResellerStore = create<ResellerState>((set, get) => ({
                 };
             }
             return { ok: false, error: String(data.error || 'Satın alınamadı') };
+        } catch {
+            return { ok: false, error: 'Ağ hatası' };
+        }
+    },
+    fetchCheckoutLinkForTenant: async (paymentHistoryId: number) => {
+        const { token } = get();
+        if (!token) return null;
+        try {
+            const res = await fetch(`/api/v1/billing/payments/${paymentHistoryId}/checkout-link`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                }
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            return data.paymentUrl;
+        } catch (e: any) {
+            console.error('fetchCheckoutLinkForTenant error:', e);
+            return null;
+        }
+    },
+    payTenantInvoiceWithWallet: async (paymentHistoryId: number) => {
+        const { token } = get();
+        if (!token) return { ok: false, error: 'Oturum yok' };
+        try {
+            const res = await fetch(`/api/v1/billing/payments/${paymentHistoryId}/pay-with-wallet`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                }
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+                await get().fetchStats();
+                await get().fetchFinanceSummary();
+                await get().fetchTenants();
+                return { ok: true };
+            }
+            return { ok: false, error: String(data.error || 'Cüzdanla ödeme başarısız') };
         } catch {
             return { ok: false, error: 'Ağ hatası' };
         }

@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { FiPlus, FiEdit, FiTrash2, FiRefreshCcw, FiLayers, FiTag, FiShoppingBag, FiSearch, FiCopy } from 'react-icons/fi';
+import { FiPlus, FiEdit, FiTrash2, FiRefreshCcw, FiLayers, FiTag, FiShoppingBag, FiSearch, FiCopy, FiDollarSign } from 'react-icons/fi';
 import * as FaIcons from 'react-icons/fa';
 
 import { useAuthStore } from '../store/useAuthStore';
 import { usePosStore } from '../store/usePosStore';
+import { usePosLocale } from '../contexts/PosLocaleContext';
 import { ModernConfirmModal } from '../features/terminal/components/ModernConfirmModal';
+import { Input } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
 
 type AdminProduct = {
     id: number;
@@ -51,6 +54,7 @@ const CategoryIcon = ({ iconName, className }: { iconName?: string; className?: 
 
 
 export const AdminMenu: React.FC = () => {
+    const { t } = usePosLocale();
     const { logout, getAuthHeaders } = useAuthStore();
     const { settings, fetchSettings } = usePosStore();
     const currency = settings?.currency || '€';
@@ -207,6 +211,43 @@ export const AdminMenu: React.FC = () => {
             name_en: tr.en?.name || '',
         });
         setIsModalOpen(true);
+    };
+
+    const toggleProductActive = async (prod: AdminProduct) => {
+        try {
+            const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
+            const newActiveState = !(prod.is_active === 1 || prod.is_active === true);
+            const payload = {
+                category_id: prod.category_id,
+                name: prod.name,
+                description: prod.description || '',
+                base_price: Number(prod.base_price),
+                price_takeaway: Number(prod.price_takeaway || prod.base_price),
+                price_delivery: Number(prod.price_delivery || prod.base_price),
+                image_url: prod.image_url || null,
+                is_active: newActiveState,
+                prep_time_min: Number(prod.prep_time_min ?? 15),
+                allergens: prod.allergens || null,
+                translations: prod.translations || {},
+            };
+
+            const res = await fetch(`/api/v1/menu/admin/products/${prod.id}`, {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify(payload),
+            });
+
+            if (res.ok) {
+                toast.success(newActiveState ? 'Ürün satışa açıldı' : 'Ürün satışa kapatıldı');
+                fetchData();
+            } else {
+                const j = await res.json().catch(() => ({}));
+                toast.error((j as { error?: string }).error || 'İşlem başarısız.');
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Bağlantı hatası.');
+        }
     };
 
     const handleDelete = async (id: number) => {
@@ -478,6 +519,50 @@ export const AdminMenu: React.FC = () => {
         }
     };
 
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        
+        const loadingToast = toast.loading('Görsel sunucuya yükleniyor...');
+        
+        try {
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+                const base64Data = reader.result as string;
+                
+                const res = await fetch('/api/v1/menu/admin/products/upload-image', {
+                    method: 'POST',
+                    headers: {
+                        ...getAuthHeaders(),
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        fileName: file.name,
+                        fileData: base64Data
+                    })
+                });
+                
+                const data = await res.json();
+                toast.dismiss(loadingToast);
+                
+                if (res.ok && data.imageUrl) {
+                    setFormData(prev => ({ ...prev, image_url: data.imageUrl }));
+                    toast.success('Görsel başarıyla yüklendi!');
+                } else {
+                    toast.error(data.error || 'Dosya yükleme hatası.');
+                }
+            };
+            reader.onerror = () => {
+                toast.dismiss(loadingToast);
+                toast.error('Dosya okunamadı.');
+            };
+            reader.readAsDataURL(file);
+        } catch (err) {
+            toast.dismiss(loadingToast);
+            toast.error('Görsel yüklenirken bir sorun oluştu.');
+        }
+    };
+
     const filteredProducts = products.filter((p) => {
         const matchesCategory = selectedCategoryId === 'all' || p.category_id === selectedCategoryId;
         const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -486,59 +571,77 @@ export const AdminMenu: React.FC = () => {
     });
 
     return (
-        <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#F1F5F9] font-sans">
-            <header className="h-20 bg-white shadow-sm flex flex-wrap items-center justify-between gap-4 px-8 z-10">
-                <div className="flex items-center gap-6">
-                    <h2 className="text-2xl font-bold text-slate-800">Menü yönetimi</h2>
+        <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#020617] text-slate-100 font-sans relative">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-[120px] pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-80 h-80 bg-indigo-500/10 rounded-full blur-[150px] pointer-events-none" />
+            <header className="min-h-[5rem] lg:h-20 bg-[#0f172a]/95 border-b border-white/5 backdrop-blur-md flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 px-6 sm:px-8 py-4 lg:py-0 z-10">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4 w-full lg:w-auto">
+                    <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">{t('admin.menu.title')}</h2>
                     {tab === 'products' && (
-                        <div className="relative w-64">
+                        <div className="relative w-full sm:w-64">
                             <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input
                                 type="text"
-                                placeholder="Ürün veya açıklama ara..."
-                                className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-xl text-sm focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+                                placeholder={t('admin.menu.searchPlaceholder')}
+                                className="w-full pl-10 pr-4 py-2 bg-white/5 text-white border border-white/10 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 transition-all font-medium outline-none"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                             />
                         </div>
                     )}
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm">
-                        {(['products', 'categories', 'bulk'] as Tab[]).map((t) => (
-                            <button
-                                key={t}
-                                type="button"
-                                onClick={() => setTab(t)}
-                                className={`rounded-md px-3 py-1.5 font-bold ${
-                                    tab === t ? 'bg-white shadow text-blue-600' : 'text-slate-500'
-                                }`}
-                            >
-                                {t === 'products' ? 'Ürünler' : t === 'categories' ? 'Kategoriler' : 'Toplu fiyat'}
-                            </button>
-                        ))}
+                <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                    <div className="flex rounded-2xl border border-white/5 bg-[#0f172a]/65 p-1 text-xs sm:text-sm backdrop-blur-md relative">
+                        {(['products', 'categories', 'bulk'] as Tab[]).map((tabKey) => {
+                            const isActive = tab === tabKey;
+                            const tabLabel =
+                                tabKey === 'products'
+                                    ? t('admin.menu.tab.products')
+                                    : tabKey === 'categories'
+                                      ? t('admin.menu.tab.categories')
+                                      : t('admin.menu.tab.bulk');
+                            return (
+                                <button
+                                    key={tabKey}
+                                    type="button"
+                                    onClick={() => setTab(tabKey)}
+                                    className={`relative rounded-xl px-3 sm:px-4 py-2 font-extrabold uppercase tracking-wider text-[10px] sm:text-xs transition-all duration-300 select-none cursor-pointer flex items-center justify-center gap-1.5 ${
+                                        isActive
+                                            ? 'bg-blue-600/10 border border-blue-500/35 text-blue-400 shadow-[0_0_20px_rgba(37,99,235,0.08)]'
+                                            : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] border border-transparent'
+                                    }`}
+                                >
+                                    <span>{tabLabel}</span>
+                                    {isActive && (
+                                        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-4 h-[2px] bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.9)] animate-pulse hidden sm:block" />
+                                    )}
+                                </button>
+                            );
+                        })}
                     </div>
-                    <button
-                        onClick={fetchData}
-                        className="p-2 text-slate-400 hover:text-blue-500 transition-colors"
-                        title="Yenile"
-                        aria-label="Yenile"
-                    >
-                        <FiRefreshCcw size={20} className={isLoading ? 'animate-spin' : ''} />
-                    </button>
-                    <button
-                        type="button"
-                        onClick={qrPreview}
-                        className="text-sm font-bold text-violet-600 hover:underline"
-                    >
-                        QR önizleme
-                    </button>
+                    <div className="flex items-center gap-2 ml-auto lg:ml-0">
+                        <button
+                            onClick={fetchData}
+                            className="p-2 text-slate-400 hover:text-blue-500 transition-colors cursor-pointer"
+                            title={t('admin.menu.refresh')}
+                            aria-label={t('admin.menu.refresh')}
+                        >
+                            <FiRefreshCcw size={18} className={isLoading ? 'animate-spin' : ''} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={qrPreview}
+                            className="text-xs sm:text-sm font-bold text-violet-600 hover:underline cursor-pointer"
+                        >
+                            {t('admin.menu.qrPreview')}
+                        </button>
+                    </div>
                     {tab === 'products' && (
                         <button
                             onClick={openNewProductModal}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold shadow-md flex items-center gap-2"
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-5 py-2.5 rounded-xl font-bold shadow-md shadow-blue-500/10 flex items-center justify-center gap-2 cursor-pointer text-xs sm:text-sm shrink-0 w-full sm:w-auto"
                         >
-                            <FiPlus size={18} /> Yeni ürün
+                            <FiPlus size={16} /> {t('admin.menu.newProduct')}
                         </button>
                     )}
                     {tab === 'categories' && (
@@ -548,42 +651,42 @@ export const AdminMenu: React.FC = () => {
                                 setCatForm({ name: '', icon: 'utensils', sort_order: '0', kitchen_station: 'hot' });
                                 setCatModal(true);
                             }}
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2"
+                            className="bg-blue-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 cursor-pointer text-xs sm:text-sm shrink-0 w-full sm:w-auto shadow-md shadow-blue-500/10"
                         >
-                            <FiPlus /> Kategori
+                            <FiPlus size={16} /> {t('admin.menu.newCategoryBtn')}
                         </button>
                     )}
                 </div>
             </header>
 
-            <div className="flex-1 overflow-auto p-8">
+            <div className="flex-1 overflow-auto p-4 sm:p-8">
                 {tab === 'categories' && (
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                        <table className="w-full text-left border-collapse">
+                    <div className="bg-white/[0.02] rounded-xl border border-white/5 backdrop-blur-md overflow-x-auto custom-scrollbar">
+                        <table className="w-full text-left border-collapse min-w-[600px]">
                             <thead>
-                                <tr className="bg-slate-50 border-b text-xs uppercase text-slate-500">
+                                <tr className="bg-white/5 border-b border-white/5 text-xs uppercase text-slate-400">
                                     <th className="p-4">ID</th>
-                                    <th className="p-4">İKON</th>
-                                    <th className="p-4">AD</th>
-                                    <th className="p-4">SIRA</th>
-                                    <th className="p-4">İSTASYON</th>
+                                    <th className="p-4">{t('admin.menu.cat.colIcon')}</th>
+                                    <th className="p-4">{t('admin.menu.cat.colName')}</th>
+                                    <th className="p-4">{t('admin.menu.cat.colSort')}</th>
+                                    <th className="p-4">{t('admin.menu.cat.colStation')}</th>
                                     <th className="p-4" />
 
                                 </tr>
                             </thead>
                             <tbody>
                                 {categories.map((c) => (
-                                    <tr key={c.id} className="border-b border-slate-100">
+                                    <tr key={c.id} className="border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors">
                                         <td className="p-4 font-mono text-sm">#{c.id}</td>
                                         <td className="p-4">
-                                            <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600">
+                                            <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center text-slate-300">
                                                 <CategoryIcon iconName={c.icon} className="text-xl" />
                                             </div>
                                         </td>
                                         <td className="p-4 font-bold">{c.name}</td>
 
                                         <td className="p-4">{c.sort_order ?? 0}</td>
-                                        <td className="p-4 text-xs font-bold uppercase text-slate-600">
+                                        <td className="p-4 text-xs font-bold uppercase text-slate-400">
                                             {c.kitchen_station === 'bar'
                                                 ? 'Bar'
                                                 : c.kitchen_station === 'cold'
@@ -608,14 +711,14 @@ export const AdminMenu: React.FC = () => {
                                                     setCatModal(true);
                                                 }}
                                             >
-                                                Düzenle
+                                                {t('admin.menu.edit')}
                                             </button>
                                             <button
                                                 type="button"
                                                 className="text-red-500"
                                                 onClick={() => deleteCategory(c.id)}
                                             >
-                                                Sil
+                                                {t('admin.menu.delete')}
                                             </button>
                                         </td>
                                     </tr>
@@ -626,18 +729,18 @@ export const AdminMenu: React.FC = () => {
                 )}
 
                 {tab === 'bulk' && (
-                    <div className="max-w-xl rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-                        <h3 className="mb-4 font-bold text-slate-800">Toplu fiyat</h3>
-                        <p className="mb-4 text-sm text-slate-500">
-                            Listeden ürün işaretleyin; yüzde veya sabit {currency} ekleyin.
+                    <div className="max-w-xl rounded-xl border border-white/10 bg-white/[0.02] backdrop-blur-md p-6">
+                        <h3 className="mb-4 font-bold text-white">{t('admin.menu.bulk.title')}</h3>
+                        <p className="mb-4 text-sm text-slate-400">
+                            {t('admin.menu.bulk.subtitle').replace('{{currency}}', currency)}
                         </p>
                         <div className="flex gap-2 mb-4">
                             <select 
                                 onChange={(e) => setBulkCatFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-                                className="text-[11px] font-black uppercase tracking-tight bg-white border border-slate-200 rounded-lg px-3 py-2 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                className="text-[11px] font-black uppercase tracking-tight bg-white/5 text-white border border-white/10 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                                 value={bulkCatFilter}
                             >
-                                <option value="all">Tüm Kategoriler</option>
+                                <option value="all">{t('admin.menu.bulk.allCategories')}</option>
                                 {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                             </select>
                             
@@ -648,9 +751,9 @@ export const AdminMenu: React.FC = () => {
                                         .map(p => p.id);
                                     setBulkSel(Array.from(new Set([...bulkSel, ...visiblePids])));
                                 }}
-                                className="text-[10px] font-black uppercase tracking-tighter bg-blue-50 text-blue-600 px-3 py-1 rounded-lg hover:bg-blue-100 transition-colors border border-blue-200"
+                                className="text-[10px] font-black uppercase tracking-tighter bg-blue-500/10 text-blue-400 px-3 py-1 rounded-lg hover:bg-blue-500/20 transition-colors border border-blue-500/20"
                             >
-                                Listeyi İşaretle
+                                {t('admin.menu.bulk.markVisible')}
                             </button>
                             <button 
                                 onClick={() => {
@@ -659,17 +762,17 @@ export const AdminMenu: React.FC = () => {
                                         .map(p => p.id);
                                     setBulkSel(bulkSel.filter(id => !visiblePids.includes(id)));
                                 }}
-                                className="text-[10px] font-black uppercase tracking-tighter bg-slate-100 text-slate-500 px-3 py-1 rounded-lg hover:bg-slate-200 transition-colors border border-slate-200"
+                                className="text-[10px] font-black uppercase tracking-tighter bg-white/5 text-slate-400 px-3 py-1 rounded-lg hover:bg-white/10 transition-colors border border-white/10"
                             >
-                                İşareti Kaldır
+                                {t('admin.menu.bulk.unmarkVisible')}
                             </button>
                         </div>
 
-                        <div className="mb-4 max-h-64 space-y-1 overflow-auto text-sm border border-slate-100 p-2 rounded-xl bg-slate-50/50 shadow-inner">
+                        <div className="mb-4 max-h-64 space-y-1 overflow-auto text-sm border border-white/10 rounded-xl bg-white/5 p-2">
                             {products
                                 .filter(p => bulkCatFilter === 'all' || p.category_id === bulkCatFilter)
                                 .map((p) => (
-                                <label key={p.id} className="flex cursor-pointer items-center gap-3 hover:bg-white p-2 rounded-lg transition-all group border border-transparent hover:border-slate-200 hover:shadow-sm">
+                                <label key={p.id} className="flex cursor-pointer items-center gap-3 text-slate-300 hover:bg-white/5 p-2 rounded-lg transition-all group border border-transparent hover:border-white/10">
                                     <input
                                         type="checkbox"
                                         checked={bulkSel.includes(p.id)}
@@ -677,21 +780,21 @@ export const AdminMenu: React.FC = () => {
                                             if (e.target.checked) setBulkSel([...bulkSel, p.id]);
                                             else setBulkSel(bulkSel.filter((x) => x !== p.id));
                                         }}
-                                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 transition-all cursor-pointer"
+                                        className="w-4 h-4 rounded border-white/20 text-blue-600 focus:ring-blue-500 transition-all cursor-pointer"
                                     />
                                     <div className="flex flex-col">
-                                        <span className="text-slate-700 group-hover:text-blue-600 font-bold transition-colors">{p.name}</span>
-                                        <span className="text-[10px] text-slate-400 font-medium">Masa: {currency}{p.base_price}</span>
+                                        <span className="text-slate-300 group-hover:text-blue-400 font-bold transition-colors">{p.name}</span>
+                                        <span className="text-[10px] text-slate-400 font-medium">{t('admin.menu.price.dineIn')}: {currency}{p.base_price}</span>
                                     </div>
                                 </label>
                             ))}
                             {products.filter(p => bulkCatFilter === 'all' || p.category_id === bulkCatFilter).length === 0 && (
-                                <div className="py-8 text-center text-slate-400 font-medium text-xs">Bu kategoride ürün bulunamadı.</div>
+                                <div className="py-8 text-center text-slate-400 font-medium text-xs">{t('admin.menu.bulk.noProductsInCategory')}</div>
                             )}
                         </div>
                         <div className="flex flex-col gap-4">
-                            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
-                                <span className="text-sm font-bold text-slate-700">Kullanılacak Fiyatlar</span>
+                            <div className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+                                <span className="text-sm font-bold text-slate-300">{t('admin.menu.bulk.priceTargets')}</span>
                                 <div className="flex gap-4">
                                     <label className="flex items-center gap-2 cursor-pointer">
                                         <input 
@@ -702,9 +805,9 @@ export const AdminMenu: React.FC = () => {
                                                 if (e.target.checked) setBulkTargets([...bulkTargets, 'base']);
                                                 else setBulkTargets(bulkTargets.filter(t => t !== 'base'));
                                             }}
-                                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                            className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
                                         />
-                                        <span className={`text-xs font-bold ${bulkMode === 'percent-of-base' ? 'text-slate-300' : 'text-slate-600'}`}>Masa</span>
+                                        <span className={`text-xs font-bold ${bulkMode === 'percent-of-base' ? 'text-slate-500' : 'text-slate-300'}`}>{t('admin.menu.price.dineIn')}</span>
                                     </label>
                                     <label className="flex items-center gap-2 cursor-pointer">
                                         <input 
@@ -714,9 +817,9 @@ export const AdminMenu: React.FC = () => {
                                                 if (e.target.checked) setBulkTargets([...bulkTargets, 'takeaway']);
                                                 else setBulkTargets(bulkTargets.filter(t => t !== 'takeaway'));
                                             }}
-                                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                            className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
                                         />
-                                        <span className="text-xs font-bold text-slate-600">Gel-Al</span>
+                                        <span className="text-xs font-bold text-slate-300">{t('admin.menu.price.takeaway')}</span>
                                     </label>
                                     <label className="flex items-center gap-2 cursor-pointer">
                                         <input 
@@ -726,16 +829,16 @@ export const AdminMenu: React.FC = () => {
                                                 if (e.target.checked) setBulkTargets([...bulkTargets, 'delivery']);
                                                 else setBulkTargets(bulkTargets.filter(t => t !== 'delivery'));
                                             }}
-                                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                            className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
                                         />
-                                        <span className="text-xs font-bold text-slate-600">Paket</span>
+                                        <span className="text-xs font-bold text-slate-300">{t('admin.menu.price.delivery')}</span>
                                     </label>
                                 </div>
                             </div>
 
                             <div className="flex flex-wrap items-center gap-3">
                                 <select
-                                    className="rounded-lg border border-slate-200 p-2.5 text-sm font-bold bg-slate-50"
+                                    className="rounded-lg border border-white/10 bg-white/5 text-white p-2.5 text-sm font-bold"
                                     value={bulkMode}
                                     onChange={(e) => {
                                         const newMode = e.target.value as any;
@@ -746,14 +849,14 @@ export const AdminMenu: React.FC = () => {
                                         }
                                     }}
                                 >
-                                    <option value="percent">Yüzde (%) Ekle/Çıkar</option>
-                                    <option value="fixed">Sabit ({currency}) Ekle/Çıkar</option>
-                                    <option value="percent-of-base">Masa fiyatına oranla (%)</option>
+                                    <option value="percent">{t('admin.menu.bulk.mode.percent')}</option>
+                                    <option value="fixed">{t('admin.menu.bulk.mode.fixed').replace('{{currency}}', currency)}</option>
+                                    <option value="percent-of-base">{t('admin.menu.bulk.mode.percentOfBase')}</option>
                                 </select>
                                 <input
                                     type="number"
                                     step="0.01"
-                                    className="w-24 rounded-lg border border-slate-200 p-2.5 text-sm font-bold"
+                                    className="w-24 rounded-lg border border-white/10 bg-white/5 text-white p-2.5 text-sm font-bold"
                                     value={bulkVal}
                                     onChange={(e) => setBulkVal(e.target.value)}
                                 />
@@ -762,18 +865,17 @@ export const AdminMenu: React.FC = () => {
                                     onClick={() => void runBulk()}
                                     className="rounded-xl bg-blue-600 px-6 py-2.5 font-bold text-white shadow-lg hover:bg-blue-700 transition-all"
                                 >
-                                    Uygula
+                                    {t('admin.menu.bulk.apply')}
                                 </button>
                             </div>
 
                             {bulkMode === 'percent-of-base' && (
-                                <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100 animate-in fade-in slide-in-from-top-2">
-                                    <p className="mt-1 text-[11px] text-emerald-600 leading-relaxed font-bold">
+                                <div className="p-4 bg-emerald-500/10 rounded-xl border border-emerald-500/20 animate-in fade-in slide-in-from-top-2">
+                                    <p className="mt-1 text-[11px] text-emerald-400 leading-relaxed font-bold">
                                         💡 İpucu: Artış için normal rakam (Örn: 10), indirim yapmak için başına eksi koyun (Örn: -10).
                                     </p>
                                     <p className="mt-2 text-[10px] text-slate-500 leading-relaxed italic">
-                                        * "Masa fiyatına oranla" modunda Gel-Al/Paket fiyatları, Masa fiyatı üzerinden hesaplanır.
-                                        * Diğer modlarda mevcut fiyatlar üzerinden artış/indirim yapılır.
+                                        {t('admin.menu.bulk.hintPercentOfBase')}
                                     </p>
                                 </div>
                             )}
@@ -782,15 +884,15 @@ export const AdminMenu: React.FC = () => {
                 )}
 
                 {tab === 'products' && (
-                    <div className="space-y-6 shadow-sm p-2">
+                    <div className="space-y-6 p-2">
                         {/* Category Filter Pills */}
                         <div className="flex items-center gap-3 overflow-x-auto pb-4 custom-scrollbar">
                             <button
                                 onClick={() => setSelectedCategoryId('all')}
                                 className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition-all ${
                                     selectedCategoryId === 'all' 
-                                    ? 'bg-slate-800 text-white shadow-md scale-105' 
-                                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                                    ? 'bg-sky-500 text-white shadow-md scale-105' 
+                                    : 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
                                 }`}
                             >
                                 Tüm Menü
@@ -802,7 +904,7 @@ export const AdminMenu: React.FC = () => {
                                     className={`px-5 py-2.5 rounded-full font-bold text-sm whitespace-nowrap transition-all flex items-center gap-2 ${
                                         selectedCategoryId === c.id 
                                         ? 'bg-sky-500 text-white shadow-md scale-105' 
-                                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                                        : 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
                                     }`}
                                 >
                                     <CategoryIcon iconName={c.icon} className={selectedCategoryId === c.id ? 'text-white' : 'text-slate-400'} />
@@ -812,85 +914,139 @@ export const AdminMenu: React.FC = () => {
                         </div>
 
                         {/* Products Grid */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 lg:grid-cols-3 gap-6 pb-8">
+                        <div className="flex flex-col sm:grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 pb-8">
                             {isLoading ? (
                                 <div className="col-span-full py-16 flex flex-col items-center justify-center text-slate-400">
                                     <FiRefreshCcw className="animate-spin mb-4" size={32} />
-                                    <span className="font-bold">Yükleniyor...</span>
+                                    <span className="font-bold">{t('admin.menu.loading')}</span>
                                 </div>
                             ) : filteredProducts.length === 0 ? (
                                 <div className="col-span-full py-16 flex flex-col items-center justify-center text-slate-400">
                                     <FiShoppingBag className="mb-4 opacity-50" size={48} />
-                                    <span className="font-bold text-lg">Sonuç bulunamadı</span>
+                                    <span className="font-bold text-lg">{t('admin.menu.noResults')}</span>
                                 </div>
                             ) : (
                                 filteredProducts.map((prod) => (
-                                    <div key={prod.id} className="bg-white rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] hover:shadow-[0_8px_30px_-5px_rgba(6,81,237,0.15)] transition-all duration-300 border border-slate-200/60 overflow-hidden flex flex-col group relative">
-                                        <div className="relative h-44 bg-slate-50 overflow-hidden flex-shrink-0">
-                                            {prod.image_url ? (
-                                                <img src={prod.image_url} alt={prod.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
-                                            ) : (
-                                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-slate-300 group-hover:scale-105 transition-transform duration-700">
-                                                    <FiShoppingBag size={56} className="opacity-40" />
+                                    <React.Fragment key={prod.id}>
+                                        {/* 📱 Compact Mobile List Item */}
+                                        <div className="block sm:hidden bg-white/[0.02] border border-white/5 backdrop-blur-md rounded-2xl p-3.5 flex items-center justify-between gap-3 hover:bg-white/[0.04] transition-all relative">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <div 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        void toggleProductActive(prod);
+                                                    }}
+                                                    className="w-14 h-14 rounded-xl bg-white/5 overflow-hidden shrink-0 border border-white/10 flex items-center justify-center relative cursor-pointer active:scale-95 transition-all"
+                                                    title={prod.is_active ? t('admin.menu.sale.toggleActive') : t('admin.menu.sale.toggleInactive')}
+                                                >
+                                                    {prod.image_url ? (
+                                                        <img src={prod.image_url} alt={prod.name} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <FiShoppingBag size={20} className="text-slate-300" />
+                                                    )}
+                                                    <span className={`absolute -top-1 -left-1 w-3.5 h-3.5 border-2 border-[#0c1526] rounded-full ${prod.is_active ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
                                                 </div>
-                                            )}
-                                            {/* Top Overlay Gradients */}
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                                            
-                                            {/* Status Badge */}
-                                            <div className="absolute top-3 left-3 flex gap-2">
-                                                <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-lg shadow-sm backdrop-blur-md ${prod.is_active ? 'bg-emerald-500/90 text-white' : 'bg-red-500/90 text-white'}`}>
-                                                    {prod.is_active ? 'Satışta' : 'Pasif'}
-                                                </span>
+                                                <div className="min-w-0">
+                                                    <span className="text-[9px] font-black text-sky-500 uppercase tracking-widest block truncate max-w-[120px]">
+                                                        {categories.find(c => c.id === prod.category_id)?.name || 'Kategorisiz'}
+                                                    </span>
+                                                    <h3 className="font-black text-white text-sm leading-snug truncate mt-0.5">{prod.name}</h3>
+                                                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 mt-1 text-[10px] font-mono font-black">
+                                                        <span className="text-emerald-400 flex items-center gap-0.5">M:{currency}{prod.base_price}</span>
+                                                        <span className="text-blue-400 flex items-center gap-0.5">G:{currency}{prod.price_takeaway || prod.base_price}</span>
+                                                        <span className="text-purple-400 flex items-center gap-0.5">P:{currency}{prod.price_delivery || prod.base_price}</span>
+                                                    </div>
+                                                </div>
                                             </div>
-
-                                            {/* Action Badges */}
-                                            <div className="absolute top-3 right-3 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 translate-x-4 group-hover:translate-x-0">
-                                                <button onClick={() => openVariants(prod.id)} className="w-8 h-8 flex items-center justify-center bg-white/95 hover:bg-white text-violet-600 rounded-lg shadow-lg backdrop-blur-sm transition-transform hover:scale-110" title="Boyutlar / Varyantlar">
-                                                    <FiLayers size={14} />
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                <button onClick={() => openVariants(prod.id)} className="w-8 h-8 flex items-center justify-center bg-violet-500/10 text-violet-400 rounded-lg hover:bg-violet-500/20 transition-colors cursor-pointer" title={t('admin.menu.variants')}>
+                                                    <FiLayers size={13} />
                                                 </button>
-                                                <button onClick={() => void openMods(prod.id)} className="w-8 h-8 flex items-center justify-center bg-white/95 hover:bg-white text-amber-600 rounded-lg shadow-lg backdrop-blur-sm transition-transform hover:scale-110" title="Modifikatörler">
-                                                    <FiTag size={14} />
+                                                <button onClick={() => void openMods(prod.id)} className="w-8 h-8 flex items-center justify-center bg-amber-500/10 text-amber-400 rounded-lg hover:bg-amber-500/20 transition-colors cursor-pointer" title="Modlar">
+                                                    <FiTag size={13} />
+                                                </button>
+                                                <button onClick={() => handleEdit(prod)} className="w-8 h-8 flex items-center justify-center bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500/20 transition-colors cursor-pointer" title={t('admin.menu.edit')}>
+                                                    <FiEdit size={13} />
+                                                </button>
+                                                <button onClick={() => handleDelete(prod.id)} className="w-8 h-8 flex items-center justify-center bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 transition-colors cursor-pointer" title={t('admin.menu.delete')}>
+                                                    <FiTrash2 size={13} />
                                                 </button>
                                             </div>
                                         </div>
-                                        
-                                        <div className="p-5 flex-1 flex flex-col z-10 bg-white">
-                                            <div className="mb-1">
-                                                <p className="text-[10px] font-black text-sky-500 uppercase tracking-wider mb-1">
-                                                    {categories.find(c => c.id === prod.category_id)?.name || 'Kategorisiz'}
+
+                                        {/* 💻 Original Desktop/Tablet Card */}
+                                        <div className="hidden sm:flex bg-white/[0.02] rounded-2xl border border-white/5 backdrop-blur-md hover:bg-white/[0.04] transition-all duration-300 overflow-hidden flex-col group relative">
+                                            <div className="relative h-44 bg-white/[0.04] overflow-hidden flex-shrink-0">
+                                                {prod.image_url ? (
+                                                    <img src={prod.image_url} alt={prod.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/5 to-white/[0.02] text-slate-500 group-hover:scale-105 transition-transform duration-700">
+                                                        <FiShoppingBag size={56} className="opacity-40" />
+                                                    </div>
+                                                )}
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                                                <div className="absolute top-3 left-3 flex gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            void toggleProductActive(prod);
+                                                        }}
+                                                        className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-lg shadow-sm backdrop-blur-md transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5 ${
+                                                            prod.is_active 
+                                                                ? 'bg-emerald-500/90 hover:bg-emerald-600 text-white border border-emerald-400/20 shadow-emerald-500/25' 
+                                                                : 'bg-red-500/90 hover:bg-red-600 text-white border border-red-400/20 shadow-red-500/25'
+                                                        }`}
+                                                        title={prod.is_active ? t('admin.menu.sale.closeTitle') : t('admin.menu.sale.openTitle')}
+                                                    >
+                                                        <span className={`w-1.5 h-1.5 rounded-full ${prod.is_active ? 'bg-white animate-pulse' : 'bg-white/60'}`} />
+                                                        {prod.is_active ? t('admin.menu.sale.active') : t('admin.menu.sale.inactive')}
+                                                    </button>
+                                                </div>
+                                                <div className="absolute top-3 right-3 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 translate-x-4 group-hover:translate-x-0">
+                                                    <button onClick={() => openVariants(prod.id)} className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 text-violet-400 rounded-lg shadow-lg backdrop-blur-sm transition-transform hover:scale-110" title={t('admin.menu.variants')}>
+                                                        <FiLayers size={14} />
+                                                    </button>
+                                                    <button onClick={() => void openMods(prod.id)} className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 text-amber-400 rounded-lg shadow-lg backdrop-blur-sm transition-transform hover:scale-110" title={t('admin.menu.modifiers')}>
+                                                        <FiTag size={14} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="p-5 flex-1 flex flex-col z-10 bg-transparent">
+                                                <div className="mb-1">
+                                                    <p className="text-[10px] font-black text-sky-500 uppercase tracking-wider mb-1">
+                                                        {categories.find(c => c.id === prod.category_id)?.name || 'Kategorisiz'}
+                                                    </p>
+                                                    <h3 className="font-black text-white text-lg leading-tight line-clamp-1" title={prod.name}>{prod.name}</h3>
+                                                </div>
+                                                <p className="text-xs font-medium text-slate-400 line-clamp-2 my-2 flex-1 leading-relaxed">
+                                                    {prod.description || 'Açıklama belirtilmemiş.'}
                                                 </p>
-                                                <h3 className="font-black text-slate-800 text-lg leading-tight line-clamp-1" title={prod.name}>{prod.name}</h3>
-                                            </div>
-                                            <p className="text-xs font-medium text-slate-500 line-clamp-2 my-2 flex-1 leading-relaxed">
-                                                {prod.description || 'Açıklama belirtilmemiş.'}
-                                            </p>
-                                            
-                                            <div className="grid grid-cols-3 gap-1 mt-3 pt-3 border-t border-slate-100/80 bg-slate-50/50 rounded-xl p-2">
-                                                <div className="text-center">
-                                                    <p className="text-[9px] uppercase font-black text-slate-400 mb-0.5">Masa</p>
-                                                    <p className="font-mono text-emerald-600 font-bold text-sm tracking-tight">{currency}{prod.base_price}</p>
-                                                </div>
-                                                <div className="text-center border-l border-slate-200">
-                                                    <p className="text-[9px] uppercase font-black text-slate-400 mb-0.5">Gel-Al</p>
-                                                    <p className="font-mono text-blue-600 font-bold text-sm tracking-tight">{currency}{prod.price_takeaway}</p>
-                                                </div>
-                                                <div className="text-center border-l border-slate-200">
-                                                    <p className="text-[9px] uppercase font-black text-slate-400 mb-0.5">Paket</p>
-                                                    <p className="font-mono text-purple-600 font-bold text-sm tracking-tight">{currency}{prod.price_delivery}</p>
+                                                <div className="grid grid-cols-3 gap-1 mt-3 pt-3 border-t border-white/10 bg-white/5 rounded-xl p-2">
+                                                    <div className="text-center">
+                                                        <p className="text-[9px] uppercase font-black text-slate-400 mb-0.5">{t('admin.menu.price.dineIn')}</p>
+                                                        <p className="font-mono text-emerald-400 font-bold text-sm tracking-tight">{currency}{prod.base_price}</p>
+                                                    </div>
+                                                    <div className="text-center border-l border-white/10">
+                                                        <p className="text-[9px] uppercase font-black text-slate-400 mb-0.5">{t('admin.menu.price.takeaway')}</p>
+                                                        <p className="font-mono text-blue-400 font-bold text-sm tracking-tight">{currency}{prod.price_takeaway || prod.base_price}</p>
+                                                    </div>
+                                                    <div className="text-center border-l border-white/10">
+                                                        <p className="text-[9px] uppercase font-black text-slate-400 mb-0.5">{t('admin.menu.price.delivery')}</p>
+                                                        <p className="font-mono text-purple-400 font-bold text-sm tracking-tight">{currency}{prod.price_delivery || prod.base_price}</p>
+                                                    </div>
                                                 </div>
                                             </div>
+                                            <div className="grid grid-cols-2 border-t border-white/5 bg-white/[0.03]">
+                                                <button onClick={() => handleEdit(prod)} className="p-3 text-xs font-black text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 transition-colors flex items-center justify-center gap-2 uppercase tracking-wide">
+                                                    <FiEdit size={14} /> Düzenle
+                                                </button>
+                                                <button onClick={() => handleDelete(prod.id)} className="p-3 text-xs font-black text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors border-l border-white/5 flex items-center justify-center gap-2 uppercase tracking-wide">
+                                                    <FiTrash2 size={14} /> Sil
+                                                </button>
+                                            </div>
                                         </div>
-
-                                        <div className="grid grid-cols-2 border-t border-slate-100 bg-slate-50/30">
-                                            <button onClick={() => handleEdit(prod)} className="p-3 text-xs font-black text-slate-500 hover:text-blue-600 hover:bg-blue-50/50 transition-colors flex items-center justify-center gap-2 uppercase tracking-wide">
-                                                <FiEdit size={14} /> Düzenle
-                                            </button>
-                                            <button onClick={() => handleDelete(prod.id)} className="p-3 text-xs font-black text-slate-500 hover:text-red-600 hover:bg-red-50/50 transition-colors border-l border-slate-100 flex items-center justify-center gap-2 uppercase tracking-wide">
-                                                <FiTrash2 size={14} /> Sil
-                                            </button>
-                                        </div>
-                                    </div>
+                                    </React.Fragment>
                                 ))
                             )}
                         </div>
@@ -902,170 +1058,180 @@ export const AdminMenu: React.FC = () => {
                 <>
                     {/* Drawer Overlay */}
                     <div 
-                        className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] transition-opacity" 
+                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] transition-opacity" 
                         onClick={() => setIsModalOpen(false)}
                     />
                     
                     {/* Off-Canvas Drawer Panel */}
-                    <div className="fixed inset-y-0 right-0 z-[110] w-full max-w-md bg-white shadow-2xl flex flex-col transform transition-transform duration-300">
-                        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+                    <div className="fixed inset-y-0 right-0 z-[110] w-full max-w-md bg-[#0c1526] border-l border-white/10 flex flex-col transform transition-transform duration-300">
+                        <div className="px-6 py-5 border-b border-white/10 flex items-center justify-between bg-[#0f172a]/80">
                             <div>
-                                <h3 className="text-xl font-black text-slate-800 tracking-tight">
+                                <h3 className="text-xl font-black text-white tracking-tight">
                                     {editingProduct ? 'Ürünü Düzenle' : 'Yeni Ürün'}
                                 </h3>
-                                <p className="text-[11px] text-slate-500 font-bold uppercase tracking-widest mt-1">
+                                <p className="text-[11px] text-slate-400 font-bold uppercase tracking-widest mt-1">
                                     {editingProduct ? 'Mevcut ürünü güncelle' : 'Menüye farklı bir lezzet kat'}
                                 </p>
                             </div>
                             <button
                                 type="button"
                                 onClick={() => setIsModalOpen(false)}
-                                className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-100 hover:border-slate-300 shadow-sm transition-all"
+                                className="w-8 h-8 rounded-full bg-white/10 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/20 hover:border-white/30 transition-all"
                             >
                                 ✕
                             </button>
                         </div>
 
-                        <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
+                        <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#0c1526]">
                             <div className="space-y-5">
-                                <div>
-                                    <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Ürün adı</label>
-                                    <input
-                                        required
-                                        type="text"
-                                        value={formData.name}
-                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all font-bold text-slate-800"
-                                        placeholder="Örn: Karışık Pizza"
-                                    />
-                                </div>
+                                <Input
+                                    required
+                                    label="Ürün adı"
+                                    value={formData.name}
+                                    onChange={(v) => setFormData({ ...formData, name: v })}
+                                    placeholder="Örn: Karışık Pizza"
+                                    icon={<FiShoppingBag />}
+                                />
+                                
+                                <Select
+                                    required
+                                    label="Kategori"
+                                    value={formData.category_id}
+                                    onChange={(v) => setFormData({ ...formData, category_id: v })}
+                                    icon={<FiLayers />}
+                                    options={[
+                                        { v: '', l: 'Seçiniz' },
+                                        ...categories.map((c) => ({ v: c.id, l: c.name }))
+                                    ]}
+                                />
                                 
                                 <div>
-                                    <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Kategori</label>
-                                    <select
-                                        required
-                                        value={formData.category_id}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, category_id: e.target.value })
-                                        }
-                                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all font-bold text-slate-800"
-                                    >
-                                        <option value="" disabled>Seçiniz</option>
-                                        {categories.map((c) => (
-                                            <option key={c.id} value={c.id}>
-                                                {c.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                                
-                                <div>
-                                    <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Açıklama</label>
+                                    <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Açıklama</label>
                                     <textarea
                                         value={formData.description}
                                         onChange={(e) =>
                                             setFormData({ ...formData, description: e.target.value })
                                         }
                                         rows={3}
-                                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none focus:bg-white focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all font-medium text-sm text-slate-600 resize-none"
+                                        className="w-full bg-white/5 text-white border border-white/10 p-3 rounded-2xl outline-none focus:border-blue-500/50 focus:bg-white/[0.08] transition-all font-medium text-sm resize-none placeholder:text-slate-650"
                                         placeholder="İçindekiler vb."
                                     />
                                 </div>
 
-                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                                    <label className="block text-[11px] font-black uppercase tracking-wider text-slate-800 mb-3">Satış Fiyatları ({currency})</label>
+                                <div className="bg-white/5 p-4 rounded-3xl border border-white/15">
+                                    <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-3">Satış Fiyatları ({currency})</label>
                                     <div className="grid grid-cols-3 gap-3">
                                         <div>
-                                            <p className="text-[10px] font-bold text-emerald-600 mb-1 pl-1">Masa</p>
-                                            <input
+                                            <Input
                                                 required
-                                                type="number"
-                                                step="0.01"
+                                                label={t('admin.menu.price.dineIn')}
                                                 value={formData.base_price}
-                                                onChange={(e) =>
-                                                    setFormData({ ...formData, base_price: e.target.value })
-                                                }
-                                                className="w-full border-t border-x-0 border-b-2 border-slate-200 bg-white p-2.5 rounded-lg font-mono font-bold text-emerald-700 outline-none focus:border-emerald-500 transition-colors shadow-sm"
+                                                onChange={(v) => setFormData({ ...formData, base_price: v })}
+                                                mask="price"
+                                                icon={<FiDollarSign className="w-3.5 h-3.5" />}
+                                                className="font-mono text-emerald-400 focus:border-emerald-500/50 !py-3"
                                             />
                                         </div>
                                         <div>
-                                            <p className="text-[10px] font-bold text-blue-600 mb-1 pl-1">Gel-al</p>
-                                            <input
+                                            <Input
                                                 required
-                                                type="number"
-                                                step="0.01"
+                                                label={t('admin.menu.price.takeaway')}
                                                 value={formData.price_takeaway}
-                                                onChange={(e) =>
-                                                    setFormData({ ...formData, price_takeaway: e.target.value })
-                                                }
-                                                className="w-full border-t border-x-0 border-b-2 border-slate-200 bg-white p-2.5 rounded-lg font-mono font-bold text-blue-700 outline-none focus:border-blue-500 transition-colors shadow-sm"
+                                                onChange={(v) => setFormData({ ...formData, price_takeaway: v })}
+                                                mask="price"
+                                                icon={<FiDollarSign className="w-3.5 h-3.5" />}
+                                                className="font-mono text-blue-400 focus:border-blue-500/50 !py-3"
                                             />
                                         </div>
                                         <div>
-                                            <p className="text-[10px] font-bold text-purple-600 mb-1 pl-1">Paket</p>
-                                            <input
+                                            <Input
                                                 required
-                                                type="number"
-                                                step="0.01"
+                                                label={t('admin.menu.price.delivery')}
                                                 value={formData.price_delivery}
-                                                onChange={(e) =>
-                                                    setFormData({ ...formData, price_delivery: e.target.value })
-                                                }
-                                                className="w-full border-t border-x-0 border-b-2 border-slate-200 bg-white p-2.5 rounded-lg font-mono font-bold text-purple-700 outline-none focus:border-purple-500 transition-colors shadow-sm"
+                                                onChange={(v) => setFormData({ ...formData, price_delivery: v })}
+                                                mask="price"
+                                                icon={<FiDollarSign className="w-3.5 h-3.5" />}
+                                                className="font-mono text-purple-400 focus:border-purple-500/50 !py-3"
                                             />
                                         </div>
                                     </div>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Hazırlık Süresi (DK)</label>
-                                        <input
-                                            type="number"
-                                            className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none font-bold text-slate-700 text-center"
-                                            value={formData.prep_time_min}
-                                            onChange={(e) =>
-                                                setFormData({ ...formData, prep_time_min: e.target.value })
-                                            }
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">Alerjenler</label>
-                                        <input
-                                            className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none font-medium text-sm text-slate-700"
-                                            value={formData.allergens}
-                                            onChange={(e) =>
-                                                setFormData({ ...formData, allergens: e.target.value })
-                                            }
-                                            placeholder="Gluten, Süt vb."
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-2">
-                                        Görsel URL
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={formData.image_url}
-                                        onChange={(e) =>
-                                            setFormData({ ...formData, image_url: e.target.value })
-                                        }
-                                        className="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none focus:border-sky-500 font-mono text-xs text-slate-600"
-                                        placeholder="https://.../pizza.jpg"
+                                    <Input
+                                        label="Hazırlık Süresi (DK)"
+                                        value={formData.prep_time_min}
+                                        onChange={(v) => setFormData({ ...formData, prep_time_min: v })}
+                                        mask="number"
+                                        placeholder="15"
+                                        icon={<FaIcons.FaClock className="w-4 h-4" />}
+                                    />
+                                    <Input
+                                        label="Alerjenler"
+                                        value={formData.allergens}
+                                        onChange={(v) => setFormData({ ...formData, allergens: v })}
+                                        placeholder="Örn: Gluten, Laktoz"
+                                        icon={<FiTag className="w-4 h-4" />}
                                     />
                                 </div>
+                                
+                                <div>
+                                    <label className="block text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">
+                                        Ürün Görseli
+                                    </label>
+                                    <div className="space-y-3">
+                                        {/* Image URL Input & Preview */}
+                                        <div className="flex gap-3 items-center">
+                                            <div className="flex-1">
+                                                <Input
+                                                    value={formData.image_url}
+                                                    onChange={(v) => setFormData({ ...formData, image_url: v })}
+                                                    placeholder="Resim linki (https://...) girin veya alttan dosya yükleyin"
+                                                    icon={<FiShoppingBag className="w-4 h-4" />}
+                                                />
+                                            </div>
+                                            {formData.image_url.trim() && (
+                                                <div className="w-12 h-12 rounded-xl border border-white/10 overflow-hidden bg-white/5 shrink-0 flex items-center justify-center">
+                                                    <img 
+                                                        src={formData.image_url.startsWith('/') ? `${window.location.origin}${formData.image_url}` : formData.image_url} 
+                                                        alt="Önizleme" 
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e) => {
+                                                            (e.target as HTMLElement).style.display = 'none';
+                                                        }}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
 
-                                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                                    <div className="bg-slate-50 px-4 py-2 border-b border-slate-200">
-                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Çeviri İsimleri (Opsiyonel)</p>
+                                        {/* File Uploader Container */}
+                                        <div className="relative">
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={handleImageUpload}
+                                                className="hidden"
+                                                id="product-image-upload"
+                                            />
+                                            <label
+                                                htmlFor="product-image-upload"
+                                                className="w-full flex items-center justify-center gap-2 p-3 rounded-xl border border-dashed border-white/20 bg-white/5 text-xs font-bold text-slate-400 hover:bg-white/10 hover:border-white/35 transition-all cursor-pointer text-center active:scale-98"
+                                            >
+                                                📁 <span>Dosya Seç ve Sunucuya Yükle</span>
+                                            </label>
+                                        </div>
                                     </div>
-                                    <div className="grid grid-cols-3 divide-x divide-slate-100">
+                                </div>
+
+                                <div className="border border-white/10 rounded-xl overflow-hidden">
+                                    <div className="bg-white/5 px-4 py-2 border-b border-white/10">
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Çeviri İsimleri (Opsiyonel)</p>
+                                    </div>
+                                    <div className="grid grid-cols-3 divide-x divide-white/10 bg-white/[0.02]">
                                         <div className="p-2">
                                             <p className="text-[10px] font-bold text-slate-400 mb-1 text-center">DE</p>
                                             <input
-                                                className="w-full text-center outline-none bg-transparent text-sm font-bold text-slate-700"
+                                                className="w-full text-center outline-none bg-transparent text-sm font-bold text-slate-200"
                                                 value={formData.name_de}
                                                 onChange={(e) => setFormData({ ...formData, name_de: e.target.value })}
                                             />
@@ -1073,7 +1239,7 @@ export const AdminMenu: React.FC = () => {
                                         <div className="p-2">
                                             <p className="text-[10px] font-bold text-slate-400 mb-1 text-center">TR</p>
                                             <input
-                                                className="w-full text-center outline-none bg-transparent text-sm font-bold text-slate-700"
+                                                className="w-full text-center outline-none bg-transparent text-sm font-bold text-slate-200"
                                                 value={formData.name_tr}
                                                 onChange={(e) => setFormData({ ...formData, name_tr: e.target.value })}
                                             />
@@ -1081,7 +1247,7 @@ export const AdminMenu: React.FC = () => {
                                         <div className="p-2">
                                             <p className="text-[10px] font-bold text-slate-400 mb-1 text-center">EN</p>
                                             <input
-                                                className="w-full text-center outline-none bg-transparent text-sm font-bold text-slate-700"
+                                                className="w-full text-center outline-none bg-transparent text-sm font-bold text-slate-200"
                                                 value={formData.name_en}
                                                 onChange={(e) => setFormData({ ...formData, name_en: e.target.value })}
                                             />
@@ -1090,7 +1256,7 @@ export const AdminMenu: React.FC = () => {
                                 </div>
 
                                 <div className="pt-2">
-                                    <label className="flex items-center gap-3 cursor-pointer select-none bg-slate-50 p-4 rounded-xl border border-slate-100 hover:border-slate-200 transition-colors">
+                                    <label className="flex items-center gap-3 cursor-pointer select-none bg-white/5 p-4 rounded-xl border border-white/10 hover:border-white/20 transition-colors">
                                         <div className="relative">
                                             <input
                                                 type="checkbox"
@@ -1098,22 +1264,22 @@ export const AdminMenu: React.FC = () => {
                                                 onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
                                                 className="sr-only"
                                             />
-                                            <div className={`block w-12 h-7 rounded-full transition-colors ${formData.is_active ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
+                                            <div className={`block w-12 h-7 rounded-full transition-colors ${formData.is_active ? 'bg-emerald-500' : 'bg-white/10'}`}></div>
                                             <div className={`dot absolute left-1 top-1 bg-white w-5 h-5 rounded-full transition-transform ${formData.is_active ? 'transform translate-x-5' : ''}`}></div>
                                         </div>
                                         <div className="flex flex-col">
-                                            <span className={`font-black uppercase tracking-wider text-sm ${formData.is_active ? 'text-emerald-600' : 'text-slate-500'}`}>Satışta</span>
+                                            <span className={`font-black uppercase tracking-wider text-sm ${formData.is_active ? 'text-emerald-400' : 'text-slate-500'}`}>{formData.is_active ? t('admin.menu.sale.active') : t('admin.menu.sale.inactive')}</span>
                                             <span className="text-[10px] text-slate-400">Menüde aktif olarak gösterilir</span>
                                         </div>
                                     </label>
                                 </div>
                             </div>
 
-                            <div className="pt-6 pb-2 border-t border-slate-100 flex gap-3 sticky bottom-0 bg-white">
+                            <div className="pt-6 pb-2 border-t border-white/10 flex gap-3 sticky bottom-0 bg-[#0c1526]">
                                 <button
                                     type="button"
                                     onClick={() => setIsModalOpen(false)}
-                                    className="px-6 py-3.5 flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold uppercase tracking-wider text-sm transition-colors"
+                                    className="px-6 py-3.5 flex-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl font-bold uppercase tracking-wider text-sm transition-colors border border-white/10"
                                 >
                                     İptal
                                 </button>
@@ -1133,20 +1299,22 @@ export const AdminMenu: React.FC = () => {
                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4">
                     <form
                         onSubmit={saveCategory}
-                        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+                        className="w-full max-w-md rounded-2xl bg-[#0c1526] border border-white/10 p-6 text-white"
                     >
-                        <h3 className="mb-4 font-bold">{editingCat ? 'Kategori düzenle' : 'Yeni kategori'}</h3>
-                        <input
+                        <h3 className="mb-4 font-bold">{editingCat ? t('admin.menu.cat.editTitle') : t('admin.menu.cat.newTitle')}</h3>
+                        <Input
                             required
-                            className="mb-3 w-full rounded border p-2"
-                            placeholder="Ad"
+                            label="Kategori Adı"
                             value={catForm.name}
-                            onChange={(e) => setCatForm({ ...catForm, name: e.target.value })}
+                            onChange={(v) => setCatForm({ ...catForm, name: v })}
+                            placeholder="Ad"
+                            icon={<FiTag className="w-4 h-4" />}
+                            className="mb-3"
                         />
-                        <label className="mb-2 block text-xs font-bold uppercase text-slate-500">
+                        <label className="mb-2 block text-xs font-bold uppercase text-slate-400">
                             Kategori İkonu
                         </label>
-                        <div className="grid grid-cols-5 gap-2 mb-4 p-3 border border-slate-200 rounded-xl max-h-48 overflow-y-auto bg-slate-50">
+                        <div className="grid grid-cols-5 gap-2 mb-4 p-3 border border-white/10 rounded-xl max-h-48 overflow-y-auto bg-white/5">
                             {ICON_OPTIONS.map(iconName => (
                                 <button
                                     key={iconName}
@@ -1154,8 +1322,8 @@ export const AdminMenu: React.FC = () => {
                                     onClick={() => setCatForm({ ...catForm, icon: iconName })}
                                     className={`p-3 rounded-xl border flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${
                                         catForm.icon === iconName 
-                                        ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-200 z-10' 
-                                        : 'bg-white border-slate-100 text-slate-400 hover:text-slate-600 hover:border-slate-300'
+                                        ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20 z-10' 
+                                        : 'bg-white/5 border-white/10 text-slate-400 hover:text-slate-200 hover:border-white/20'
                                     }`}
                                     title={iconName}
                                 >
@@ -1164,32 +1332,29 @@ export const AdminMenu: React.FC = () => {
                             ))}
                         </div>
 
-                        <input
-                            type="number"
-                            className="mb-3 w-full rounded border p-2"
-                            placeholder="Sıra"
+                        <Input
+                            label="Sıra"
                             value={catForm.sort_order}
-                            onChange={(e) => setCatForm({ ...catForm, sort_order: e.target.value })}
+                            onChange={(v) => setCatForm({ ...catForm, sort_order: v })}
+                            mask="number"
+                            placeholder="Sıra"
+                            icon={<FiLayers className="w-4 h-4" />}
+                            className="mb-3"
                         />
-                        <label className="mb-2 block text-xs font-bold uppercase text-slate-500">
-                            Mutfak istasyonu
-                        </label>
-                        <select
-                            className="mb-4 w-full rounded border p-2"
+                        <Select
+                            label="Mutfak İstasyonu"
                             value={catForm.kitchen_station}
-                            onChange={(e) =>
-                                setCatForm({
-                                    ...catForm,
-                                    kitchen_station: e.target.value as 'hot' | 'bar' | 'cold',
-                                })
-                            }
-                        >
-                            <option value="hot">Ana mutfak (sıcak)</option>
-                            <option value="bar">Bar</option>
-                            <option value="cold">Soğuk</option>
-                        </select>
+                            onChange={(v) => setCatForm({ ...catForm, kitchen_station: v as any })}
+                            icon={<FaIcons.FaUtensils className="w-4 h-4" />}
+                            options={[
+                                { v: 'hot', l: 'Ana mutfak (sıcak)' },
+                                { v: 'bar', l: 'Bar' },
+                                { v: 'cold', l: 'Soğuk' }
+                            ]}
+                            className="mb-4"
+                        />
                         <div className="flex justify-end gap-2">
-                            <button type="button" onClick={() => setCatModal(false)} className="px-4 py-2">
+                            <button type="button" onClick={() => setCatModal(false)} className="px-4 py-2 text-slate-300 hover:bg-white/5 rounded-lg">
                                 İptal
                             </button>
                             <button type="submit" className="rounded-lg bg-blue-600 px-4 py-2 text-white">
@@ -1202,11 +1367,11 @@ export const AdminMenu: React.FC = () => {
 
             {variantModal && variantPid && (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4">
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+                    <div className="w-full max-w-md rounded-2xl bg-[#0c1526] border border-white/10 p-6 text-white">
                         <h3 className="mb-4 font-bold">Boyutlar (varyant)</h3>
                         <ul className="mb-4 max-h-40 space-y-1 overflow-auto text-sm">
                             {variants.map((v) => (
-                                <li key={v.id} className="flex justify-between border-b py-1">
+                                <li key={v.id} className="flex justify-between border-b border-white/10 py-1">
                                     <span>{v.name}</span>
                                     <span className="font-mono">{currency}{v.price}</span>
                                 </li>
@@ -1215,14 +1380,14 @@ export const AdminMenu: React.FC = () => {
                         <div className="flex gap-2">
                             <input
                                 placeholder="Ad"
-                                className="flex-1 rounded border p-2"
+                                className="flex-1 rounded-lg border border-white/10 bg-white/5 text-white p-2"
                                 value={newVar.name}
                                 onChange={(e) => setNewVar({ ...newVar, name: e.target.value })}
                             />
                             <input
                                 placeholder={currency}
                                 type="number"
-                                className="w-24 rounded border p-2"
+                                className="w-24 rounded border border-white/10 bg-white/5 text-white p-2"
                                 value={newVar.price}
                                 onChange={(e) => setNewVar({ ...newVar, price: e.target.value })}
                             />
@@ -1234,18 +1399,18 @@ export const AdminMenu: React.FC = () => {
                                 Ekle
                             </button>
                         </div>
-                        <div className="mt-4 pt-4 border-t border-slate-100">
+                        <div className="mt-4 pt-4 border-t border-white/10">
                             <button
                                 type="button"
                                 onClick={() => setCopyVarModal(true)}
-                                className="w-full flex items-center justify-center gap-2 text-sm font-bold text-blue-600 hover:text-blue-700 py-2 border border-blue-200 rounded-lg bg-blue-50/50 transition-colors"
+                                className="w-full flex items-center justify-center gap-2 text-sm font-bold text-blue-500 hover:text-blue-400 py-2 border border-blue-500/30 rounded-lg bg-blue-500/10 transition-colors"
                             >
                                 <FiCopy size={16} /> Diğer ürünlere kopyala
                             </button>
                         </div>
                         <button
                             type="button"
-                            className="mt-4 w-full py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-bold text-slate-600 transition-colors"
+                            className="mt-4 w-full py-2 bg-white/10 hover:bg-white/15 rounded-lg text-sm font-bold text-slate-300 transition-colors"
                             onClick={() => setVariantModal(false)}
                         >
                             Kapat
@@ -1256,12 +1421,12 @@ export const AdminMenu: React.FC = () => {
 
             {copyVarModal && variantPid && (
                 <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-                        <h3 className="text-xl font-black text-slate-800 mb-2">Varyantları Kopyala</h3>
-                        <p className="text-sm text-slate-500 mb-6 font-medium">Bu ürünün boyut ve varyantlarını diğer ürünlere aktarın.</p>
+                    <div className="w-full max-w-md rounded-2xl bg-[#0c1526] border border-white/10 p-6 text-white">
+                        <h3 className="text-xl font-black text-white mb-2">Varyantları Kopyala</h3>
+                        <p className="text-sm text-slate-400 mb-6 font-medium">Bu ürünün boyut ve varyantlarını diğer ürünlere aktarın.</p>
                         
                         <div className="space-y-4 mb-6">
-                            <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:border-blue-300 transition-colors">
+                            <label className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10 cursor-pointer hover:border-blue-500/40 transition-colors">
                                 <input 
                                     type="radio" 
                                     name="copyMode" 
@@ -1269,12 +1434,12 @@ export const AdminMenu: React.FC = () => {
                                     onChange={() => setCopyVarTarget('category')}
                                 />
                                 <div>
-                                    <span className="block font-bold text-sm text-slate-800">Aynı Kategoridekiler</span>
-                                    <span className="text-[11px] text-slate-500">Bu ürünle aynı kategorideki tüm ürünlere kopyalar.</span>
+                                    <span className="block font-bold text-sm text-white">Aynı Kategoridekiler</span>
+                                    <span className="text-[11px] text-slate-400">Bu ürünle aynı kategorideki tüm ürünlere kopyalar.</span>
                                 </div>
                             </label>
                             
-                            <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:border-blue-300 transition-colors">
+                            <label className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10 cursor-pointer hover:border-blue-500/40 transition-colors">
                                 <input 
                                     type="radio" 
                                     name="copyMode" 
@@ -1285,16 +1450,16 @@ export const AdminMenu: React.FC = () => {
                                     }}
                                 />
                                 <div>
-                                    <span className="block font-bold text-sm text-slate-800">Belirli Ürünler</span>
-                                    <span className="text-[11px] text-slate-500">Listeden seçeceğiniz belirli ürünlere kopyalar.</span>
+                                    <span className="block font-bold text-sm text-white">Belirli Ürünler</span>
+                                    <span className="text-[11px] text-slate-400">Listeden seçeceğiniz belirli ürünlere kopyalar.</span>
                                 </div>
                             </label>
                         </div>
 
                         {copyVarTarget === 'specific' && (
-                            <div className="mb-6 max-h-48 overflow-y-auto border border-slate-100 rounded-xl p-2 space-y-1">
+                            <div className="mb-6 max-h-48 overflow-y-auto border border-white/10 rounded-xl p-2 space-y-1 bg-white/[0.03]">
                                 {products.filter(p => p.id !== variantPid).map(p => (
-                                    <label key={p.id} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
+                                    <label key={p.id} className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors">
                                         <input 
                                             type="checkbox"
                                             checked={copyVarSel.includes(p.id)}
@@ -1302,9 +1467,9 @@ export const AdminMenu: React.FC = () => {
                                                 if (e.target.checked) setCopyVarSel([...copyVarSel, p.id]);
                                                 else setCopyVarSel(copyVarSel.filter(id => id !== p.id));
                                             }}
-                                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                            className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
                                         />
-                                        <span className="text-sm font-bold text-slate-600">{p.name}</span>
+                                        <span className="text-sm font-bold text-slate-300">{p.name}</span>
                                     </label>
                                 ))}
                             </div>
@@ -1314,7 +1479,7 @@ export const AdminMenu: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setCopyVarModal(false)}
-                                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-colors"
+                                className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl font-bold text-sm transition-colors border border-white/10"
                             >
                                 İptal
                             </button>
@@ -1332,19 +1497,19 @@ export const AdminMenu: React.FC = () => {
 
             {modModal && modPid && (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4">
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+                    <div className="w-full max-w-md rounded-2xl bg-[#0c1526] border border-white/10 p-6 text-white">
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="font-bold text-lg">Modifikatör seçimi</h3>
                             <button onClick={() => setModModal(false)} className="text-slate-400">✕</button>
                         </div>
                         
                         {/* New Modifier Input */}
-                        <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                            <p className="text-[10px] font-black uppercase text-slate-500 mb-2 tracking-wider">Hızlı Yeni Ekle</p>
+                        <div className="mb-6 p-4 bg-white/5 rounded-xl border border-white/10">
+                            <p className="text-[10px] font-black uppercase text-slate-400 mb-2 tracking-wider">Hızlı Yeni Ekle</p>
                             <div className="flex gap-2">
                                 <input
                                     placeholder="Ekstra Malzeme..."
-                                    className="flex-1 rounded-lg border border-slate-200 p-2 text-sm font-bold"
+                                    className="flex-1 rounded-lg border border-white/10 bg-white/5 text-white p-2 text-sm font-bold outline-none focus:border-indigo-500"
                                     value={newMod.name}
                                     onChange={(e) => setNewMod({ ...newMod, name: e.target.value })}
                                 />
@@ -1352,7 +1517,7 @@ export const AdminMenu: React.FC = () => {
                                     placeholder={currency}
                                     type="number"
                                     step="0.1"
-                                    className="w-20 rounded-lg border border-slate-200 p-2 text-sm font-mono font-bold"
+                                    className="w-20 rounded-lg border border-white/10 bg-white/5 text-white p-2 text-sm font-mono font-bold outline-none focus:border-indigo-500"
                                     value={newMod.price}
                                     onChange={(e) => setNewMod({ ...newMod, price: e.target.value })}
                                 />
@@ -1368,7 +1533,7 @@ export const AdminMenu: React.FC = () => {
 
                         <div className="mb-4 max-h-48 space-y-2 overflow-auto custom-scrollbar">
                             {modifiers.map((m) => (
-                                <label key={m.id} className="flex cursor-pointer items-center gap-3 p-2 hover:bg-slate-50 rounded-lg transition-colors border border-transparent hover:border-slate-100">
+                                <label key={m.id} className="flex cursor-pointer items-center gap-3 p-2 hover:bg-white/5 rounded-lg transition-colors border border-transparent hover:border-white/10">
                                     <input
                                         type="checkbox"
                                         checked={modSel.includes(m.id)}
@@ -1376,16 +1541,16 @@ export const AdminMenu: React.FC = () => {
                                             if (e.target.checked) setModSel([...modSel, m.id]);
                                             else setModSel(modSel.filter((x) => x !== m.id));
                                         }}
-                                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                        className="h-4 w-4 rounded border-white/20 text-blue-600 focus:ring-blue-500"
                                     />
-                                    <span className="text-sm font-bold text-slate-700">{m.name}</span>
+                                    <span className="text-sm font-bold text-slate-300">{m.name}</span>
                                     {/* Backend'den gelirse fiyatı gösterelim */}
                                     {/* <span className="text-[10px] font-mono text-slate-400 ml-auto font-bold">€0.00</span> */}
                                 </label>
                             ))}
                         </div>
 
-                        <div className="space-y-3 pt-4 border-t border-slate-100">
+                        <div className="space-y-3 pt-4 border-t border-white/10">
                             <button
                                 type="button"
                                 onClick={() => void saveMods()}
@@ -1396,7 +1561,7 @@ export const AdminMenu: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setCopyModModal(true)}
-                                className="w-full flex items-center justify-center gap-2 text-xs font-black text-blue-600 hover:text-blue-700 py-2.5 border border-blue-200 rounded-xl bg-blue-50/50 transition-colors uppercase tracking-widest"
+                                className="w-full flex items-center justify-center gap-2 text-xs font-black text-blue-400 hover:text-blue-300 py-2.5 border border-blue-500/30 rounded-xl bg-blue-500/10 transition-colors uppercase tracking-widest"
                             >
                                 <FiCopy size={14} /> Diğer ürünlere kopyala
                             </button>
@@ -1407,12 +1572,12 @@ export const AdminMenu: React.FC = () => {
 
             {copyModModal && modPid && (
                 <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-                        <h3 className="text-xl font-black text-slate-800 mb-2">Modifikatörleri Kopyala</h3>
-                        <p className="text-sm text-slate-500 mb-6 font-medium">Bu ürünün seçili ek malzemelerini diğer ürünlere aktarın.</p>
+                    <div className="w-full max-w-md rounded-2xl bg-[#0c1526] border border-white/10 p-6 text-white">
+                        <h3 className="text-xl font-black text-white mb-2">Modifikatörleri Kopyala</h3>
+                        <p className="text-sm text-slate-400 mb-6 font-medium">Bu ürünün seçili ek malzemelerini diğer ürünlere aktarın.</p>
                         
                         <div className="space-y-4 mb-6">
-                            <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:border-blue-300 transition-colors">
+                            <label className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10 cursor-pointer hover:border-blue-500/40 transition-colors">
                                 <input 
                                     type="radio" 
                                     name="copyModMode" 
@@ -1420,12 +1585,12 @@ export const AdminMenu: React.FC = () => {
                                     onChange={() => setCopyModTarget('category')}
                                 />
                                 <div>
-                                    <span className="block font-bold text-sm text-slate-800">Aynı Kategoridekiler</span>
-                                    <span className="text-[11px] text-slate-500">Bu ürünle aynı kategorideki tüm ürünlere kopyalar.</span>
+                                    <span className="block font-bold text-sm text-white">Aynı Kategoridekiler</span>
+                                    <span className="text-[11px] text-slate-400">Bu ürünle aynı kategorideki tüm ürünlere kopyalar.</span>
                                 </div>
                             </label>
                             
-                            <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:border-blue-300 transition-colors">
+                            <label className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/10 cursor-pointer hover:border-blue-500/40 transition-colors">
                                 <input 
                                     type="radio" 
                                     name="copyModMode" 
@@ -1436,16 +1601,16 @@ export const AdminMenu: React.FC = () => {
                                     }}
                                 />
                                 <div>
-                                    <span className="block font-bold text-sm text-slate-800">Belirli Ürünler</span>
-                                    <span className="text-[11px] text-slate-500">Listeden seçeceğiniz belirli ürünlere kopyalar.</span>
+                                    <span className="block font-bold text-sm text-white">Belirli Ürünler</span>
+                                    <span className="text-[11px] text-slate-400">Listeden seçeceğiniz belirli ürünlere kopyalar.</span>
                                 </div>
                             </label>
                         </div>
 
                         {copyModTarget === 'specific' && (
-                            <div className="mb-6 max-h-48 overflow-y-auto border border-slate-100 rounded-xl p-2 space-y-1">
+                            <div className="mb-6 max-h-48 overflow-y-auto border border-white/10 rounded-xl p-2 space-y-1 bg-white/[0.03]">
                                 {products.filter(p => p.id !== modPid).map(p => (
-                                    <label key={p.id} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
+                                    <label key={p.id} className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors">
                                         <input 
                                             type="checkbox"
                                             checked={copyModSel.includes(p.id)}
@@ -1453,9 +1618,9 @@ export const AdminMenu: React.FC = () => {
                                                 if (e.target.checked) setCopyModSel([...copyModSel, p.id]);
                                                 else setCopyModSel(copyModSel.filter(id => id !== p.id));
                                             }}
-                                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                            className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
                                         />
-                                        <span className="text-sm font-bold text-slate-600">{p.name}</span>
+                                        <span className="text-sm font-bold text-slate-300">{p.name}</span>
                                     </label>
                                 ))}
                             </div>
@@ -1465,7 +1630,7 @@ export const AdminMenu: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setCopyModModal(false)}
-                                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-colors"
+                                className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl font-bold text-sm transition-colors border border-white/10"
                             >
                                 İptal
                             </button>
@@ -1493,3 +1658,9 @@ export const AdminMenu: React.FC = () => {
         </main>
     );
 };
+
+
+
+
+
+

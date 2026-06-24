@@ -7,10 +7,11 @@ import { useAuthStore } from '../../../store/useAuthStore';
 interface PinCodeModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSuccess: (notes?: string) => void;
+    onSuccess: (pinCode: string, notes?: string) => void;
     title?: string;
     description?: string;
     showNotes?: boolean;
+    skipServerVerify?: boolean;
 }
 
 const NUMPAD_KEYS = [
@@ -21,7 +22,13 @@ const NUMPAD_KEYS = [
 ];
 
 export const PinCodeModal: React.FC<PinCodeModalProps> = ({
-    isOpen, onClose, onSuccess, title = 'GÜVENLİK ONAYI', description = 'Bu işlem için yönetici şifresi gereklidir.', showNotes = false
+    isOpen,
+    onClose,
+    onSuccess,
+    title = 'GÜVENLİK ONAYI',
+    description = 'Bu işlem için yönetici şifresi gereklidir.',
+    showNotes = false,
+    skipServerVerify = false,
 }) => {
     const [pin, setPin] = useState('');
     const [notes, setNotes] = useState('');
@@ -40,6 +47,12 @@ export const PinCodeModal: React.FC<PinCodeModalProps> = ({
 
     const verify = useCallback(async () => {
         if (pin.length !== 6) return;
+        if (skipServerVerify) {
+            onSuccess(pin, notes);
+            setPin('');
+            setNotes('');
+            return;
+        }
         setLoading(true);
         try {
             const res = await fetch('/api/v1/auth/verify-admin', {
@@ -53,7 +66,7 @@ export const PinCodeModal: React.FC<PinCodeModalProps> = ({
             });
 
             if (res.ok) {
-                onSuccess(notes);
+                onSuccess(pin, notes);
                 setPin('');
                 setNotes('');
             } else {
@@ -65,7 +78,7 @@ export const PinCodeModal: React.FC<PinCodeModalProps> = ({
         } finally {
             setLoading(false);
         }
-    }, [pin, token, tenantId, onSuccess, notes]);
+    }, [pin, token, tenantId, onSuccess, notes, skipServerVerify]);
 
     useEffect(() => {
         if (pin.length === 6) {
@@ -78,7 +91,7 @@ export const PinCodeModal: React.FC<PinCodeModalProps> = ({
             {isOpen && (
                 <motion.div
                     initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md"
+                    className="fixed inset-0 z-[320] flex items-center justify-center bg-black/80 backdrop-blur-md"
                     onClick={onClose}
                 >
                     <motion.div
